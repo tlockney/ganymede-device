@@ -1,0 +1,33 @@
+{
+  "name": "@tlockney/ganymede-device",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The `device` API: native features for TypeScript notebooks in the Ganymede Mac and iPad apps",
+  "license": "MIT",
+  "author": "Thomas Lockney <thomas@lockney.net>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tlockney/ganymede-device.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./src/mod.ts",
+    "./preload": "./src/preload.ts",
+    "./preload.js": "./dist/preload.js",
+    "./webkit": "./src/webkit.ts",
+    "./globals": "./src/globals.ts"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.0"
+  }
+}

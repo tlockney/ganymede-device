@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  # The preload in a real Worker, under cdp-kernel's browser target, in
+  # headless Chromium. Skips itself while cdp-kernel's main lacks the
+  # preload option (tlockney/cdp-kernel#384).
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tlockney/cdp-kernel
+          path: cdp-kernel
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm ci
+        working-directory: cdp-kernel
+      - run: npm install --no-save --no-audit --no-fund playwright@1.64.1
+      - run: npx playwright install --with-deps chromium
+      - run: node --test test/browser.test.ts
+        env:
+          CDPK_DIR: ${{ github.workspace }}/cdp-kernel
