@@ -19,10 +19,12 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let appVersion: String
 
     public init(
-        clipboard: Clipboard = SystemClipboard(),
+        clipboard: Clipboard? = nil,
         appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     ) {
-        self.clipboard = clipboard
+        // Made here, not as the default argument: defaults are evaluated
+        // outside the main actor.
+        self.clipboard = clipboard ?? SystemClipboard()
         self.appVersion = appVersion
     }
 
