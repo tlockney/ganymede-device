@@ -40,3 +40,13 @@ jobs:
       - run: node --test test/browser.test.ts
         env:
           CDPK_DIR: ${{ github.workspace }}/cdp-kernel
+
+  # The Swift DeviceBridge: unit tests on macOS, and a build for iOS.
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      # SwiftPM names the scheme after the package.
+      - run: xcodebuild -list
+      - run: xcodebuild build -scheme GanymedeDevice -destination 'generic/platform=iOS' -quiet

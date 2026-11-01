@@ -23,8 +23,9 @@ Phase 0: proving the path. Done here: the TypeScript side for `hello`,
 browser Worker through its `preload` and `host` options
 ([tlockney/cdp-kernel#384](https://github.com/tlockney/cdp-kernel/issues/384)),
 and tested end to end in headless Chromium against a fake Swift bridge.
-Not done: the Swift `DeviceBridge` and a minimal Mac app that loads it,
-which need Xcode.
+The Swift `DeviceBridge` answers the same three methods; the Mac and iPad
+apps in [tlockney/ganymede-ui](https://github.com/tlockney/ganymede-ui)
+register it on their hidden kernel web view.
 
 ## Layout
 
@@ -36,6 +37,8 @@ which need Xcode.
 - `src/support.ts`: which methods work on-device, remotely and in a
   browser; the source for docs and tests.
 - `src/globals.ts`: ambient types for cells.
+- `Package.swift`, `swift/Sources/DeviceBridge/`: the Swift side, a
+  `WKScriptMessageHandlerWithReply` named `device`.
 
 ## Using it in a page
 
@@ -65,6 +68,17 @@ Every export resolves to built JavaScript in `dist/` with a `.d.ts`
 beside it, so consumers need no TypeScript loader. `npm run build`
 builds the same files locally.
 
+## Using it in an app
+
+Add this repository as a Swift package and register the bridge on the
+web view that runs kernels, never on one that renders notebook outputs:
+
+```swift
+import DeviceBridge
+
+DeviceBridge().register(in: kernelWebView.configuration.userContentController)
+```
+
 ## Development
 
 ```sh
@@ -72,12 +86,11 @@ npm ci
 npm run check   # type check
 npm test        # unit tests; the browser test skips without the setup below
 CDPK_DIR=../cdp-kernel npm i --no-save playwright && node --test test/browser.test.ts
+swift test      # the Swift bridge; macOS only
 ```
 
 ## Next
 
-1. A Swift package with `DeviceBridge` answering `hello` and the two
-   clipboard methods, and a minimal SwiftUI Mac app that loads
-   ganymede-ui with the kernel in a hidden WebView (docs/plan.md,
-   Phase 0).
+1. Try a cell's `device.clipboard` calls in the Mac and iPad apps
+   (docs/plan.md, Phase 0's exit).
 2. Phase 1's no-permission methods.
