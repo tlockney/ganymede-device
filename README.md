@@ -52,7 +52,18 @@ startBrowserKernel({
 });
 ```
 
-`npm run build` writes `dist/preload.js` and `dist/webkit.js`.
+## Installing
+
+The package isn't published yet. Install it from git; npm runs its
+`prepare` script, which builds `dist/`:
+
+```sh
+npm install github:tlockney/ganymede-device
+```
+
+Every export resolves to built JavaScript in `dist/` with a `.d.ts`
+beside it, so consumers need no TypeScript loader. `npm run build`
+builds the same files locally.
 
 ## Development
 
