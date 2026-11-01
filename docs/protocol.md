@@ -1,7 +1,8 @@
 # The device protocol
 
 What the native host answers, and how a request reaches it. The TypeScript
-side is in `src/`; the Swift side (`DeviceBridge`) implements this page.
+side is in `src/`; the Swift side (`DeviceBridge`, in
+`swift/Sources/DeviceBridge/`) implements this page.
 
 ## The path today (Worker kernel in a WKWebView)
 
