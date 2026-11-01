@@ -47,4 +47,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift test
-      - run: xcodebuild build -scheme DeviceBridge -destination 'generic/platform=iOS' -quiet
+      # SwiftPM names the scheme after the package.
+      - run: xcodebuild -list
+      - run: xcodebuild build -scheme GanymedeDevice -destination 'generic/platform=iOS' -quiet
