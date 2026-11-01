@@ -138,7 +138,7 @@ format as the on-device transports, carried in comm data and buffers.
   any picker it showed.
 - **Getting the module.** A remote kernel is a plain Node or Deno
   cdp-kernel. The package is published to npm/jsr and imported
-  (`import { device } from "npm:@ganymede/device"`), or Ganymede passes a
+  (`import { device } from "npm:@tlockney/ganymede-device"`), or Ganymede passes a
   preload when it launches kernels for the app.
 
 ### The remote subset
@@ -264,7 +264,7 @@ A `device` global, installed like `jupyter` by the on-device host, plus an
 importable module for types. Everything is async; errors are typed.
 
 ```ts
-/// <reference types="@ganymede/device" />
+/// <reference types="@tlockney/ganymede-device/globals" />
 
 const info = await device.info();
 // { platform: "ipados"|"macos", model, osVersion, isPad, screen: { width, height, scale },
@@ -351,13 +351,13 @@ Same JSON on every transport, so the Swift side has one dispatcher:
 
 | Piece | Repo | Contents |
 | --- | --- | --- |
-| `@ganymede/device` (name TBD) | new package, or inside the app repo | The `device` object over a `DeviceTransport`, types, `DeviceError`, the Worker (and, if needed, socket) transports. Pure TS, no Node imports. |
+| `@tlockney/ganymede-device` | new package, or inside the app repo | The `device` object over a `DeviceTransport`, types, `DeviceError`, the Worker (and, if needed, socket) transports. Pure TS, no Node imports. |
 | cdp-kernel | tlockney/cdp-kernel | Generic only: a **preload** hook (code a host installs in the cell realm before the first cell; none exists today), `capabilities` in `kernel_info_reply` (review.md item 4), and a way for the Worker driver (`runtime/browser-worker.mjs`) to pass non-kernel messages to its owner page. |
 | Kernel host page | the app repo | The hidden kernel WebView's page: starts the Worker kernel, relays Jupyter messages to Swift, forwards `device` messages to the handler. |
 | Swift `DeviceBridge` | the app repo (new; Thomas creates it) | The dispatcher, one handler type per capability, the permission ledger, macOS/iPadOS conditionals. Shared Swift package used by both apps. |
 | `device-bridge` plugin (remote only) | tlockney/ganymede-ui | Registers the `ganymede.device.v1` comm target, matches the session, enforces the remote subset. Forwards to Swift inside the app; uses the web implementation in a browser. |
-| Web implementation | `@ganymede/device` (shared with the plugin) | The browser-fallback handlers and the inline click-through prompts. Reused by a later JupyterLab labextension. |
-| Support matrix | `@ganymede/device` | One table of every method × (on-device, remote in app, browser), the source for both `has()` defaults and the docs. |
+| Web implementation | `@tlockney/ganymede-device` (shared with the plugin) | The browser-fallback handlers and the inline click-through prompts. Reused by a later JupyterLab labextension. |
+| Support matrix | `@tlockney/ganymede-device` | One table of every method × (on-device, remote in app, browser), the source for both `has()` defaults and the docs. |
 
 For on-device kernels ganymede-ui needs nothing; it can show a badge from
 `capabilities.device`. Ganymede's only part in the remote case is passing
@@ -488,8 +488,8 @@ Where it lives: not Ganymede (the Rust core never sees a device call) and
 not cdp-kernel (a general kernel; it only gets generic hooks). The device
 API's two ends, the TS package and the Swift package, share the message
 format, the support matrix and the conformance tests, so they belong in
-one repo of their own, `tlockney/ganymede-device` (name TBD; Thomas
-creates it). Until Phase 0 proves the path, it starts as
+one repo of their own, `tlockney/ganymede-device` (Thomas
+created it). Until Phase 0 proves the path, it starts as
 `research/ts-device-api/`, the same way ganymede and ganymede-ui started.
 The app repo comes later and depends on it.
 

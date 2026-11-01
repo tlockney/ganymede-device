@@ -14,14 +14,26 @@
     "node": ">=22.18"
   },
   "exports": {
-    ".": "./src/mod.ts",
-    "./preload": "./src/preload.ts",
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "default": "./dist/mod.js"
+    },
+    "./preload": {
+      "types": "./dist/preload.d.ts",
+      "default": "./dist/preload.js"
+    },
     "./preload.js": "./dist/preload.js",
-    "./webkit": "./src/webkit.ts",
-    "./globals": "./src/globals.ts"
+    "./webkit": {
+      "types": "./dist/webkit.d.ts",
+      "default": "./dist/webkit.js"
+    },
+    "./globals": {
+      "types": "./dist/globals.d.ts"
+    }
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "prepare": "npm run build",
     "check": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.ts"
   },
@@ -29,5 +41,9 @@
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.12",
     "typescript": "^5.9.0"
-  }
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }
