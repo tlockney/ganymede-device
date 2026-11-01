@@ -12,6 +12,6 @@ apply and say why. -->
 
 - [ ] Tests: new behaviour and fixes have a test that fails without the change (name them)
 - [ ] By hand: anything CI doesn't run (e2e or validation scripts, an app on a device), with the result
-- [ ] Docs updated; unreleased features carry the **Unreleased.** note
+- [ ] Docs updated
 - [ ] New dependencies, advisory ignores, or license exceptions: none, or listed here with the reason
 - [ ] Kind: production, or `spike` (labelled; new code is off by default or in its own module, follow-ups filed)
