@@ -52,8 +52,17 @@ startBrowserKernel({
   createWorker: () => new Worker(workerUrl, { type: "module" }),
   preload: [preloadUrl],
   host: webkitHost(),
+  // kernel_info_reply's `capabilities`, so a UI knows this kernel can
+  // reach the app. Which methods it has comes from `device.has()`.
+  capabilities: { device: true },
 });
 ```
+
+Set these options only when `findMessageHandler()` (from
+`@tlockney/ganymede-device/webkit`) finds the app's handler, as
+ganymede-ui's kernel page does. If the handler is there but `hello`
+fails, the kernel starts without `device` and prints one line on stderr
+saying why.
 
 ## Installing
 

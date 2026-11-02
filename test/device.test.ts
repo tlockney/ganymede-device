@@ -145,3 +145,36 @@ test("a call aborted before it starts never reaches Swift", async () => {
   );
   assert.deepEqual(received, []);
 });
+
+/** Runs `fn` with console.error captured. */
+async function stderrOf(fn: () => Promise<unknown>): Promise<string[]> {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void lines.push(args.join(" "));
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return lines;
+}
+
+test("a malformed hello installs no device and says why on stderr", async () => {
+  fakeBridge({ hello: () => ({ result: { platform: 42 } }) });
+  const lines = await stderrOf(installed);
+  assert.equal(globalThis.device, undefined);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /hello failed \(failed\): .*malformed/);
+});
+
+test("a bridge error on hello is reported on stderr", async () => {
+  fakeBridge({ hello: () => ({ error: { code: "denied", message: "nope" } }) });
+  const lines = await stderrOf(installed);
+  assert.equal(globalThis.device, undefined);
+  assert.deepEqual(lines, ["device: no device API, hello failed (denied): nope"]);
+});
+
+test("outside the app, the preload is quiet", async () => {
+  globalThis.webkit = undefined;
+  assert.deepEqual(await stderrOf(installed), []);
+});
