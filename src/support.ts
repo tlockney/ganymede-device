@@ -1,5 +1,5 @@
 // Which methods work where: the one table the docs, `has()` tests and the
-// conformance suite read, so they can't drift (PLAN.md, "Documentation").
+// conformance suite read, so they can't drift (docs/plan.md, "Documentation").
 
 /** Where a method works. "click" means only after a click on a prompt the page shows. */
 export type Support = boolean | "click";

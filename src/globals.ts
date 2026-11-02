@@ -13,6 +13,6 @@ import type { Device } from "./device.ts";
 export type { Device };
 
 declare global {
-  /** Native features of the Mac or iPad app. Undefined on kernels the app does not host. */
-  var device: Device;
+  /** Native features of the Mac or iPad app. Undefined on kernels the app does not host, so check first. */
+  var device: Device | undefined;
 }

@@ -42,6 +42,7 @@ export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
   return async ({ method, params }, signal) => {
     const handler = findMessageHandler(name);
     if (!handler) throw deviceError("unavailable", "this page isn't in the app (no WebKit device handler)");
+    if (signal.aborted) throw deviceError("cancelled", `${method} was cancelled before it was sent`);
     const id = ++nextId;
     const onAbort = () => void handler.postMessage({ id, cancel: true }).catch(() => {});
     signal.addEventListener("abort", onAbort, { once: true });

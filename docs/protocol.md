@@ -30,6 +30,12 @@ shutdown stops the kernel's Worker, and cdp-kernel aborts each call that
 Worker had in flight, so Swift gets `{ id, cancel: true }` for each one;
 the restarted kernel's calls take new ids.
 
+A page reload or a restarted web content process sends no cancels, and
+the new page's ids start over. So when the kernel web view navigates or
+its content process terminates, Swift drops every call it still has
+open (dismissing what it showed) before taking calls from the new page.
+Today's bridge answers each call synchronously, so it holds none.
+
 ## Messages Swift receives
 
 | Message | Meaning | Reply |
@@ -51,7 +57,7 @@ Rules for the Swift handler:
   across this hop, so binary methods (Phase 1) carry base64 in
   `{ base64 }` fields and the TypeScript side converts.
 - Register the handler only in the WebView that runs the kernel, never in
-  one that renders notebook outputs (PLAN.md, "Design rule").
+  one that renders notebook outputs (docs/plan.md, "Design rule").
 
 ## Methods
 
