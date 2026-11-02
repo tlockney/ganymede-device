@@ -25,15 +25,17 @@ from the kernel's runtime to the native host. No Jupyter comms, no
 frontend plugin, and Ganymede is not involved.
 
 The kernel-side `device` object talks to one small interface, and each
-on-device placement supplies it:
+on-device placement supplies it. Today (`src/device.ts`) it has one method:
 
 ```ts
 interface DeviceTransport {
-  call(method: string, params: JsonObject, buffers?: Uint8Array[], signal?: AbortSignal): Promise<Reply>;
-  stream(method: string, params: JsonObject, signal?: AbortSignal): AsyncIterable<Reply>;
-  on(event: string, handler: (value: unknown) => void): () => void;
+  call(method: string, params: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 ```
+
+Planned, added when a method needs them: `stream(method, params, signal)`
+for bounded streams (Phase 2), `on(event, handler)` for host events
+(Phase 3), and binary arguments (see "Message format").
 
 | Kernel placement | Where it applies | Transport |
 | --- | --- | --- |
@@ -269,7 +271,7 @@ importable module for types. Everything is async; errors are typed.
 const info = await device.info();
 // { platform: "ipados"|"macos", model, osVersion, isPad, screen: { width, height, scale },
 //   battery, darkMode, locale, appVersion, capabilities: [...] }
-if (!device.has("location")) { … }
+if (!device.has("location.current")) { … }
 
 // Phase 1: no system permission needed
 await device.clipboard.writeText("hi");
@@ -320,13 +322,18 @@ Conventions:
   `timeout`, `failed`, `disconnected` (BLE peer dropped mid-stream). A
   person dismissing a picker or dialog returns `null`/`false`, as in Juno,
   not an error.
-- Binary data travels as transferable `ArrayBuffer`s (Worker), raw bytes
-  (host function) or framed binary (socket), never base64 in JSON.
-- Long-lived calls take an `AbortSignal`. Interrupt in the Worker
-  placement terminates the Worker; the host tags every call with the
-  kernel's generation id and cancels that generation's calls in Swift.
-- `device.has(cap)` and `device.info().capabilities` come from a
-  handshake at install time, so code can branch instead of catching.
+- Binary data travels as transferable `ArrayBuffer`s inside the kernel
+  (Worker postMessage), raw bytes (host function) or framed binary
+  (socket). The WebKit hop to Swift carries only JSON values, so there it
+  is base64 in a `{ base64 }` field (docs/protocol.md); see "Message
+  format".
+- Long-lived calls take an `AbortSignal`. When a call is aborted, or the
+  kernel is interrupted, restarted or shut down, cdp-kernel aborts it and
+  the page sends Swift `{ id, cancel: true }`. Ids are unique per page, so
+  no kernel generation id is needed.
+- `device.has(method)` and `device.info().capabilities` come from a
+  handshake at install time, so code can branch instead of catching. They
+  take method names (`location.current`), not namespaces.
 - Display helpers can reuse `jupyter.display`: e.g. a picked photo is a
   `Blob` the cell can display directly.
 
@@ -336,9 +343,17 @@ menu bar items; all report it through `has()`.
 
 ## Message format
 
-Same JSON on every transport, so the Swift side has one dispatcher:
+docs/protocol.md is the wire contract and wins where this section
+differs; this is the shape it follows on every transport, so the Swift
+side has one dispatcher:
 
-- Request: `{ id, gen, method, params }` plus buffers.
+- Request: `{ id, method, params }`. No `gen`: see the `AbortSignal`
+  convention above.
+- Binary: over the WebKit hop, base64 in `{ base64 }` fields.
+  `WKScriptMessage.body` carries only property-list values (strings,
+  numbers, booleans, null, arrays, dictionaries), so an `ArrayBuffer`
+  doesn't cross it. Re-check when a Phase 1 binary method lands; other
+  transports may carry raw bytes.
 - Reply: `{ id, result }` or `{ id, error: { code, message } }`.
 - Stream: `{ id, event, value }` until `{ id, end: true }`; cancel with
   `{ id, cancel: true }`.
@@ -351,10 +366,10 @@ Same JSON on every transport, so the Swift side has one dispatcher:
 
 | Piece | Repo | Contents |
 | --- | --- | --- |
-| `@tlockney/ganymede-device` | new package, or inside the app repo | The `device` object over a `DeviceTransport`, types, `DeviceError`, the Worker (and, if needed, socket) transports. Pure TS, no Node imports. |
+| `@tlockney/ganymede-device` | tlockney/ganymede-device (`src/`) | The `device` object over a `DeviceTransport`, types, `DeviceError`, the Worker preload and the page's `webkitHost()`. Pure TS, no Node imports. |
 | cdp-kernel | tlockney/cdp-kernel | Generic only: a **preload** hook (code a host installs in the cell realm before the first cell; none exists today), `capabilities` in `kernel_info_reply` (review.md item 4), and a way for the Worker driver (`runtime/browser-worker.mjs`) to pass non-kernel messages to its owner page. |
-| Kernel host page | the app repo | The hidden kernel WebView's page: starts the Worker kernel, relays Jupyter messages to Swift, forwards `device` messages to the handler. |
-| Swift `DeviceBridge` | the app repo (new; Thomas creates it) | The dispatcher, one handler type per capability, the permission ledger, macOS/iPadOS conditionals. Shared Swift package used by both apps. |
+| Kernel host page | tlockney/ganymede-ui (`src/kernel-host.ts`, `kernel.html`) | The hidden kernel WebView's page: starts the Worker kernels, relays Jupyter messages to Swift, passes the preload and `webkitHost()`. |
+| Swift `DeviceBridge` | tlockney/ganymede-device (`Package.swift`, `swift/`) | The dispatcher, one handler type per capability, the permission ledger, macOS/iPadOS conditionals. A Swift package the apps in ganymede-ui `apple/` depend on. |
 | `device-bridge` plugin (remote only) | tlockney/ganymede-ui | Registers the `ganymede.device.v1` comm target, matches the session, enforces the remote subset. Forwards to Swift inside the app; uses the web implementation in a browser. |
 | Web implementation | `@tlockney/ganymede-device` (shared with the plugin) | The browser-fallback handlers and the inline click-through prompts. Reused by a later JupyterLab labextension. |
 | Support matrix | `@tlockney/ganymede-device` | One table of every method × (on-device, remote in app, browser), the source for both `has()` defaults and the docs. |
