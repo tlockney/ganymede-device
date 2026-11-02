@@ -5,8 +5,9 @@
 // bridge and comes back.
 //
 // Needs the playwright package and a cdp-kernel checkout with its `preload`
-// and `host` options (tlockney/cdp-kernel#384), named by CDPK_DIR; skipped
-// otherwise.
+// and `host` options (v0.7.1 or later), named by CDPK_DIR. Skipped when
+// CDPK_DIR is unset; fails when it is set but the setup isn't usable, so CI
+// can't pass with the test skipped.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -31,13 +32,14 @@ try {
   // Not installed: skip.
 }
 const CDPK_DIR = process.env.CDPK_DIR;
-const skip = chromium === null
-  ? "needs the playwright package"
-  : !CDPK_DIR || !existsSync(join(CDPK_DIR, "scripts/build-browser.mjs"))
-  ? "needs CDPK_DIR, a cdp-kernel checkout"
-  : !readFileSync(join(CDPK_DIR, "src/browser/target.ts"), "utf8").includes("preload?:")
-  ? "needs a cdp-kernel with the preload option (tlockney/cdp-kernel#384)"
-  : false;
+const skip = CDPK_DIR ? false : "needs CDPK_DIR, a cdp-kernel checkout";
+
+/** Why the setup CDPK_DIR names can't run the test, or null when it can. */
+function setupProblem(): string | null {
+  if (chromium === null) return "the playwright package isn't installed";
+  if (!existsSync(join(CDPK_DIR!, "scripts/build-browser.mjs"))) return `CDPK_DIR=${CDPK_DIR} isn't a cdp-kernel checkout`;
+  return null;
+}
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -87,6 +89,7 @@ globalThis.ready = true;
 </script>`;
 
 test("a cell reads and writes the clipboard through the fake Swift bridge", { skip }, async (t) => {
+  assert.equal(setupProblem(), null);
   const dir = mkdtempSync(join(tmpdir(), "ganymede-device-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   execFileSync(process.execPath, [join(CDPK_DIR!, "scripts/build-browser.mjs"), dir], { cwd: CDPK_DIR, stdio: "pipe" });
