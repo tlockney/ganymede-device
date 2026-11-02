@@ -52,7 +52,7 @@ const HELLO = { result: { platform: "macos", appVersion: "0.1", capabilities: ["
 async function installed(): Promise<Device> {
   delete (globalThis as { device?: unknown }).device;
   await install({ host: workerHost() });
-  return globalThis.device;
+  return globalThis.device as Device;
 }
 
 test("the preload installs device from the host's hello, and calls reach Swift", async () => {
@@ -127,10 +127,21 @@ test("two kernels' handlers never send Swift the same id, so a cancel names one 
   const b = new AbortController();
   void first({ method: "clipboard.readText", params: {} }, a.signal).catch(() => {});
   void second({ method: "clipboard.readText", params: {} }, b.signal).catch(() => {});
-  await new Promise((resolve) => setTimeout(resolve, 0));
   const [one, two] = received;
   assert.notEqual(one.id, two.id);
   a.abort();
   assert.deepEqual(received.at(-1), { id: one.id, cancel: true });
   b.abort();
+  assert.deepEqual(received.at(-1), { id: two.id, cancel: true });
+});
+
+test("a call aborted before it starts never reaches Swift", async () => {
+  const received = fakeBridge({ "clipboard.readText": () => ({ result: "x" }) });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    webkitHost()({ method: "clipboard.readText", params: {} }, controller.signal),
+    (err: { name?: string; code?: string }) => err.name === "DeviceError" && err.code === "cancelled",
+  );
+  assert.deepEqual(received, []);
 });

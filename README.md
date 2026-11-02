@@ -7,7 +7,7 @@ module](https://juno.sh/docs/python/juno/). A cell calls
 
 ```ts
 /// <reference types="@tlockney/ganymede-device/globals" />
-if (device.has("clipboard.readText")) {
+if (device?.has("clipboard.readText")) {
   const text = await device.clipboard.readText();
 }
 ```

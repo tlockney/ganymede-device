@@ -14,8 +14,9 @@ fallback". Every feature's support in each case is documented in one
 matrix; see "Documentation".
 
 Sources: Juno's module docs (juno.sh/docs/python/juno/ and its 17
-module pages, read 2026-10-18) and the existing design in
-`research/ts-on-ipados/source/design-note.md` §08. The table under
+module pages, read 2026-10-18) and the existing design in the
+[ts-on-ipados](https://github.com/tlockney/research/tree/main/ts-on-ipados)
+design note, §08 (a separate repo). The table under
 "What Juno has" maps each Juno module to ours.
 
 ## The bridge: kernel straight to Swift
@@ -61,8 +62,9 @@ Why this route:
 - Ganymede and the Jupyter protocol stay untouched.
 
 Availability: the host installs `device` only when it has a transport. On
-any other kernel `globalThis.device` is undefined, and importing the
-module gives an object whose calls reject with `unavailable`. A
+any other kernel `globalThis.device` is undefined. The module exports
+`unavailableDevice()`, which makes a `Device` whose calls reject with
+`unavailable`, for code that wants one either way. A
 `capabilities.device` entry in `kernel_info_reply` lets the UI show it.
 
 ### Design rule: notebook outputs must not reach the bridge
@@ -453,6 +455,12 @@ cdp-kernel on Node behind Ganymede with a fake app frontend; a second,
 non-app client on the same kernel must not answer; Playwright for the web
 implementation in Chromium and WebKit.
 
+**Phase 4: embedded engine and headless runs (with ts-on-ipados tiers
+2-3).**
+Host-function transport for the JSC/V8 kernel. Share-sheet extension,
+App Intents and widgets run scripts through the same transport, using
+grants from the ledger.
+
 ## Documentation
 
 Three readers, three places; all generated from or checked against the
@@ -472,54 +480,49 @@ support matrix so docs and behaviour can't drift.
   transport and checks the result matches the matrix (`unavailable` where
   the matrix says no).
 
-**Phase 4: embedded engine and headless runs (with ts-on-ipados tiers
-2-3).**
-Host-function transport for the JSC/V8 kernel. Share-sheet extension,
-App Intents and widgets run scripts through the same transport, using
-grants from the ledger.
-
 ## Open questions
 
-1. Package name and home: its own repo, or inside the app repo?
-2. Global `device` vs import-only. Global needs the cdp-kernel preload
-   hook; import-only needs only a way for the module to find the
-   transport.
-3. On the Mac, does the local kernel run as a Worker in a WebView (same
+1. On the Mac, does the local kernel run as a Worker in a WebView (same
    as iPad) or as a Node/Deno child of the bundled Ganymede? Worker keeps
    one code path; a child process gives full npm and the debugger. The
    socket transport exists only if the answer includes the second.
-4. Motion: stream at a fixed rate (as above) or Juno's snapshot getters
+2. Motion: stream at a fixed rate (as above) or Juno's snapshot getters
    (`motion.latest()`) backed by a cache on the native side? Snapshot is
    simpler for polling loops.
-5. Where the docs live: in the package's repo, or on Ganymede's docs
+3. Where the docs live: in the package's repo, or on Ganymede's docs
    site next to the client docs?
 
 Settled 2026-10-18: remote kernels stop at features that need no
 permission; browsers get a web-API subset where it fits.
 
-## Next steps (2026-10-19)
+Settled by 2026-11-01: the package lives in its own repo,
+`tlockney/ganymede-device`, as `@tlockney/ganymede-device`, with the
+Swift `DeviceBridge` beside it; and `device` is a global, installed by
+cdp-kernel's `preload` hook (cdp-kernel#384).
 
-Where it lives: not Ganymede (the Rust core never sees a device call) and
-not cdp-kernel (a general kernel; it only gets generic hooks). The device
-API's two ends, the TS package and the Swift package, share the message
-format, the support matrix and the conformance tests, so they belong in
-one repo of their own, `tlockney/ganymede-device` (Thomas
-created it). Until Phase 0 proves the path, it starts as
-`research/ts-device-api/`, the same way ganymede and ganymede-ui started.
-The app repo comes later and depends on it.
+## Where things stand (2026-11-02)
 
-1. **cdp-kernel, generic PRs (useful without this project):**
-   a preload hook for code installed in the cell realm before the first
-   cell; a `host` message kind in `runtime/browser-worker.mjs` so the
-   Worker can send non-kernel messages to its owner page and get replies;
-   `capabilities` in `kernel_info_reply`.
-2. **Phase 0 in `research/ts-device-api/`:** the TS `device` object with
-   `info` and `clipboard.readText`, a `WorkerTransport`, and a Playwright
-   test with a stubbed `webkit.messageHandlers.device`, driven through
-   ganymede-ui's in-page cdp-kernel (`src/lib/cdp-kernel.ts`, already on
-   `@tlockney/cdp-kernel` 0.7.0).
-3. **Phase 0 on the Mac:** a minimal SwiftUI app loading the ganymede-ui
-   build in a WKWebView, with the Swift handler for those two methods.
-   Needs Xcode, so it runs on Thomas's Mac (a Remote Control session), not
-   in a cloud container. Check the hidden-kernel-WebView rule here.
-4. **Then** create the repo, move the code over, and start Phase 1.
+The device API lives in its own repo, `tlockney/ganymede-device`: not
+Ganymede (the Rust core never sees a device call) and not cdp-kernel (a
+general kernel; it only gets generic hooks). Its two ends, the TS package
+and the Swift package, share the message format, the support matrix and
+the tests.
+
+Done:
+
+1. **cdp-kernel's generic hooks** (cdp-kernel#384, in 0.7.1): `preload`
+   modules in the Worker, a `host` channel from the Worker to its page,
+   and `capabilities` in `kernel_info_reply`.
+2. **Phase 0's TypeScript side**: `device` with `info`, `has` and the
+   text clipboard, the preload, `webkitHost()`, and a Playwright test
+   against a stubbed `webkit.messageHandlers.device`.
+3. **Phase 0's Swift side**: the `DeviceBridge` package here, registered
+   by ganymede-ui's Mac and iPad apps on their hidden kernel web view
+   (ganymede-ui `apple/`), which installs this package from git.
+
+Next:
+
+1. Try a cell's `device.clipboard` calls in the Mac and iPad apps,
+   including that an interrupt cancels a pending call and that an HTML
+   output can't reach the handler (Phase 0's exit).
+2. Phase 1.
