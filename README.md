@@ -84,8 +84,12 @@ DeviceBridge().register(in: kernelWebView.configuration.userContentController)
 ```sh
 npm ci
 npm run check   # type check
-npm test        # unit tests; the browser test skips without the setup below
-CDPK_DIR=../cdp-kernel npm i --no-save playwright && node --test test/browser.test.ts
+npm test        # unit tests; the browser test skips without CDPK_DIR
+# The browser test, as CI runs it, against cdp-kernel v0.7.1:
+git clone --branch v0.7.1 https://github.com/tlockney/cdp-kernel ../cdp-kernel
+(cd ../cdp-kernel && npm ci)
+npm i --no-save playwright@1.64.1 && npx playwright install --with-deps chromium
+CDPK_DIR=../cdp-kernel node --test test/browser.test.ts
 swift test      # the Swift bridge; macOS only
 ```
 
