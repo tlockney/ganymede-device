@@ -15,7 +15,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 type Page = {
@@ -26,18 +26,27 @@ type Page = {
 type Browser = { newPage(): Promise<Page>; close(): Promise<void> };
 
 let chromium: { launch(): Promise<Browser> } | null = null;
+let playwrightError = "";
 try {
   chromium = (await import("playwright" as string)).chromium;
-} catch {
-  // Not installed: skip.
+} catch (err) {
+  playwrightError = err instanceof Error ? err.message : String(err);
 }
-const CDPK_DIR = process.env.CDPK_DIR;
+// Resolved once, so a relative path means the same thing to every use below.
+const CDPK_DIR = process.env.CDPK_DIR ? resolve(process.env.CDPK_DIR) : undefined;
+/** The oldest cdp-kernel with the `preload` and `host` options (#384). */
+const CDPK_MIN = [0, 7, 1];
 const skip = CDPK_DIR ? false : "needs CDPK_DIR, a cdp-kernel checkout";
 
 /** Why the setup CDPK_DIR names can't run the test, or null when it can. */
 function setupProblem(): string | null {
-  if (chromium === null) return "the playwright package isn't installed";
+  if (chromium === null) return `can't import playwright: ${playwrightError}`;
   if (!existsSync(join(CDPK_DIR!, "scripts/build-browser.mjs"))) return `CDPK_DIR=${CDPK_DIR} isn't a cdp-kernel checkout`;
+  if (!existsSync(join(CDPK_DIR!, "node_modules"))) return `run npm ci in ${CDPK_DIR} first`;
+  const version = String(JSON.parse(readFileSync(join(CDPK_DIR!, "package.json"), "utf8")).version ?? "");
+  const parts = version.split(/[.-]/).slice(0, 3).map(Number);
+  const older = CDPK_MIN.findIndex((min, i) => (parts[i] ?? 0) !== min);
+  if (older !== -1 && (parts[older] ?? 0) < CDPK_MIN[older]) return `CDPK_DIR has cdp-kernel ${version}; this test needs ${CDPK_MIN.join(".")} or later`;
   return null;
 }
 
@@ -89,7 +98,8 @@ globalThis.ready = true;
 </script>`;
 
 test("a cell reads and writes the clipboard through the fake Swift bridge", { skip }, async (t) => {
-  assert.equal(setupProblem(), null);
+  const problem = setupProblem();
+  if (problem) assert.fail(problem);
   const dir = mkdtempSync(join(tmpdir(), "ganymede-device-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   execFileSync(process.execPath, [join(CDPK_DIR!, "scripts/build-browser.mjs"), dir], { cwd: CDPK_DIR, stdio: "pipe" });
