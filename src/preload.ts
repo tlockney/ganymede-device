@@ -2,10 +2,12 @@
 // tlockney/cdp-kernel#384). The Worker imports it before the first cell and
 // after each restart; it asks the page's host who it is and installs
 // `globalThis.device`. With no host, or one that doesn't answer `hello`,
-// nothing is installed and cells see no `device`. Only a page outside the
-// app (no WebKit handler: `unavailable`) stays quiet; any other failure,
-// such as a malformed reply or a bridge error, is one line on stderr, so a
-// Swift bug doesn't look like "not in the app".
+// nothing is installed and cells see no `device`. An `unavailable` failure
+// stays quiet: that is what a page outside the app gives (no WebKit
+// handler), though a bridge that doesn't answer `hello` gives it too, and
+// the Worker can't tell the two apart. Any other failure, such as a
+// malformed reply or a bridge error, is one line on stderr, so a Swift bug
+// doesn't look like "not in the app".
 //
 //   startBrowserKernel({ createWorker, preload: [preloadUrl], host: webkitHost() });
 
