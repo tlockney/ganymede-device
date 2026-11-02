@@ -21,8 +21,14 @@ Swift: WKScriptMessageHandlerWithReply named "device"
   ▲  (back the same way)
 ```
 
-The `id` in the WebKit message is the page's, unique per page load. It is
-what a cancel refers to.
+The `id` in the WebKit message is the page's, unique per page load across
+every kernel the page runs (one counter for all `webkitHost()` handlers).
+It is what a cancel refers to.
+
+There is no kernel generation (`gen`) in the message. A restart or
+shutdown stops the kernel's Worker, and cdp-kernel aborts each call that
+Worker had in flight, so Swift gets `{ id, cancel: true }` for each one;
+the restarted kernel's calls take new ids.
 
 ## Messages Swift receives
 

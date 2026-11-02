@@ -118,3 +118,19 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.clipboard.writeText("");
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
+
+test("two kernels' handlers never send Swift the same id, so a cancel names one call", async () => {
+  const received = fakeBridge({ "clipboard.readText": () => new Promise(() => {}) });
+  const first = webkitHost();
+  const second = webkitHost();
+  const a = new AbortController();
+  const b = new AbortController();
+  void first({ method: "clipboard.readText", params: {} }, a.signal).catch(() => {});
+  void second({ method: "clipboard.readText", params: {} }, b.signal).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const [one, two] = received;
+  assert.notEqual(one.id, two.id);
+  a.abort();
+  assert.deepEqual(received.at(-1), { id: one.id, cancel: true });
+  b.abort();
+});

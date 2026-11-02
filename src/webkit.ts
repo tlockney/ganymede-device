@@ -26,6 +26,11 @@ export function findMessageHandler(name = "device"): MessageHandler | null {
   return globalThis.webkit?.messageHandlers?.[name] ?? null;
 }
 
+// One counter for the page, not one per webkitHost(): the app makes a
+// handler per kernel, and every one posts to the same Swift handler, so a
+// cancel's id must name one call across all of them.
+let nextId = 0;
+
 /**
  * A host handler backed by the Swift bridge. Swift replies `{ result }` or
  * `{ error: { code, message } }`; an error becomes a thrown DeviceError
@@ -34,7 +39,6 @@ export function findMessageHandler(name = "device"): MessageHandler | null {
  */
 export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
   const name = options.name ?? "device";
-  let nextId = 0;
   return async ({ method, params }, signal) => {
     const handler = findMessageHandler(name);
     if (!handler) throw deviceError("unavailable", "this page isn't in the app (no WebKit device handler)");
