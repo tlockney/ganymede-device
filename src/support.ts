@@ -23,6 +23,13 @@ export const SUPPORT = {
     note: "iPadOS shows its paste prompt; a browser needs a click for the Clipboard API.",
   },
   "clipboard.writeText": { onDevice: true, remote: true, browser: "click", note: "A browser needs a click for the Clipboard API." },
+  "clipboard.readImage": {
+    onDevice: true,
+    remote: true,
+    browser: "click",
+    note: "PNG. iPadOS shows its paste prompt; a browser needs a click for the Clipboard API.",
+  },
+  "clipboard.writeImage": { onDevice: true, remote: true, browser: "click", note: "A browser needs a click for the Clipboard API, and takes PNG only." },
   info: {
     onDevice: true,
     remote: true,

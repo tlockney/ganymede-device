@@ -54,10 +54,27 @@ Rules for the Swift handler:
   Swift needn't track whether it already answered.
 - Values are what `WKScriptMessage.body` carries: strings, numbers,
   booleans, null, arrays and dictionaries. There is no `ArrayBuffer`
-  across this hop, so binary methods (Phase 1) carry base64 in
-  `{ base64 }` fields and the TypeScript side converts.
+  across this hop, so bytes travel as `{ base64 }` objects (below).
 - Register the handler only in the WebView that runs the kernel, never in
   one that renders notebook outputs (docs/plan.md, "Design rule").
+
+## Binary values
+
+Bytes cross the WebKit hop as an object whose only key is `base64`, a
+standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
+
+- `webkitHost()` (src/binary.ts) turns every `Uint8Array`, `ArrayBuffer`,
+  other typed array and `Blob` in `params` into one before posting, and
+  every `{ base64 }` object in `result` into a `Uint8Array`. An object
+  with `base64` and any other key is left alone.
+- Swift reads one with `DeviceBridge.bytes(_:)` and writes one with
+  `DeviceBridge.binary(_:)`.
+- One value is at most 16 MiB (`MAX_BINARY_BYTES`,
+  `DeviceBridge.maxBinaryBytes`), either way. Above it the side that
+  holds the bytes fails the call `failed`, before sending them.
+- Inside the kernel, bytes are `Uint8Array`s; the Worker's postMessage
+  copies them. Cells' own buffers are not transferred, so a cell can keep
+  using what it passed.
 
 ## Methods
 
@@ -66,6 +83,8 @@ Rules for the Swift handler:
 | `hello` | `{}` | `{ platform, appVersion, model?, osVersion?, capabilities: string[] }`, where `capabilities` lists the methods below this host answers. Haptics are listed only on an iPhone: iPads and Macs have no Taptic Engine |
 | `clipboard.readText` | `{}` | the text, or `null` when the clipboard holds none |
 | `clipboard.writeText` | `{ text }` | `null` |
+| `clipboard.readImage` | `{}` | the clipboard's image as PNG bytes, or `null` when it holds none |
+| `clipboard.writeImage` | `{ image }`: PNG, JPEG, GIF, HEIC or TIFF bytes | `null`; bytes that aren't an image fail `failed` |
 | `info` | `{}` | `{ isPad, screen?: { width, height, scale }, battery?: { level, charging }, darkMode, locale }`, read when called; `battery` is left out without one, and `level` (0 to 1) is `null` when unknown |
 | `haptics.impact` | `{ style }`: `light`, `medium`, `heavy`, `soft` or `rigid` | `null` |
 | `haptics.notification` | `{ type }`: `success`, `warning` or `error` | `null` |

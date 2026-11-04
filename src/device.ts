@@ -3,6 +3,7 @@
 // (a Worker's host channel today; a host function in an embedded engine, or
 // a Jupyter comm for remote kernels, later). See docs/protocol.md.
 
+import { type Bytes, toBytes } from "./binary.ts";
 import { DeviceError } from "./errors.ts";
 
 export interface CallOptions {
@@ -54,6 +55,10 @@ export interface Clipboard {
   /** The clipboard's text, or null when it holds none. */
   readText(options?: CallOptions): Promise<string | null>;
   writeText(text: string, options?: CallOptions): Promise<void>;
+  /** The clipboard's image as PNG bytes, or null when it holds none. */
+  readImage(options?: CallOptions): Promise<Uint8Array | null>;
+  /** Puts an image on the clipboard. PNG, JPEG, GIF, HEIC or TIFF bytes; anything else fails `failed`. */
+  writeImage(image: Bytes, options?: CallOptions): Promise<void>;
 }
 
 export interface Device {
@@ -87,8 +92,11 @@ export async function hello(transport: DeviceTransport): Promise<DeviceInfo> {
 
 export function createDevice(transport: DeviceTransport, info: DeviceInfo): Device {
   const capabilities = new Set(info.capabilities);
-  async function call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
+  function requireMethod(method: string): void {
     if (!capabilities.has(method)) throw new DeviceError("unavailable", `${method} isn't available on ${info.platform}`);
+  }
+  async function call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
+    requireMethod(method);
     try {
       return await transport.call(method, params, options);
     } catch (err) {
@@ -118,6 +126,17 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       },
       async writeText(text, options) {
         await call("clipboard.writeText", { text: String(text) }, options);
+      },
+      async readImage(options) {
+        const image = await call("clipboard.readImage", {}, options);
+        if (image instanceof Uint8Array) return image;
+        if (image instanceof ArrayBuffer) return new Uint8Array(image);
+        return null;
+      },
+      async writeImage(image, options) {
+        // Checked first, so a host without it fails `unavailable` before a Blob is read.
+        requireMethod("clipboard.writeImage");
+        await call("clipboard.writeImage", { image: await toBytes(image) }, options);
       },
     },
     haptics: {

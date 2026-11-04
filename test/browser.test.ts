@@ -58,12 +58,15 @@ import { webkitHost } from "./webkit.js";
 
 // The Swift DeviceBridge, as WKScriptMessageHandlerWithReply answers.
 let clipboard = "from the fake bridge";
+let image = null;
 globalThis.bridgeLog = [];
 globalThis.webkit = { messageHandlers: { device: { async postMessage(msg) {
   bridgeLog.push(msg);
-  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText"] } };
+  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage"] } };
   if (msg.method === "clipboard.readText") return { result: clipboard };
   if (msg.method === "clipboard.writeText") { clipboard = msg.params.text; return { result: null }; }
+  if (msg.method === "clipboard.readImage") return { result: image && { base64: image } };
+  if (msg.method === "clipboard.writeImage") { image = msg.params.image.base64; return { result: null }; }
   return { error: { code: "unavailable", message: "no " + msg.method } };
 } } } };
 
@@ -130,6 +133,12 @@ test("a cell reads and writes the clipboard through the fake Swift bridge", { sk
   assert.equal((await execute("await device.clipboard.readText()")).text, "'from a cell'");
   assert.equal((await execute("(await device.info()).platform")).text, "'macos'");
 
+  // Bytes from the Worker reach Swift as base64 and come back as a Uint8Array.
+  await execute("await device.clipboard.writeImage(new Blob([new Uint8Array([137, 80, 78, 71, 0, 255])]))");
+  assert.equal(await page.evaluate(() => (globalThis as unknown as { bridgeLog: { params?: { image?: unknown } }[] }).bridgeLog.at(-1)!.params!.image, null).then(JSON.stringify), JSON.stringify({ base64: "iVBORwD/" }));
+  const read = await execute("const png = await device.clipboard.readImage(); [png instanceof Uint8Array, [...png].join(',')]");
+  assert.equal(read.text, "[ true, '137,80,78,71,0,255' ]");
+
   const log = await page.evaluate(() => (globalThis as unknown as { bridgeLog: { method?: string }[] }).bridgeLog.map((m) => m.method), null);
-  assert.deepEqual(log, ["hello", "clipboard.readText", "clipboard.writeText", "clipboard.readText"]);
+  assert.deepEqual(log, ["hello", "clipboard.readText", "clipboard.writeText", "clipboard.readText", "clipboard.writeImage", "clipboard.readImage"]);
 });

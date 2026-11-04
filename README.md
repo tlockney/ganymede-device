@@ -18,13 +18,14 @@ wire format and the Swift side's contract in
 
 ## Status
 
-Phase 0: proving the path. Done here: the TypeScript side for `hello`,
-`clipboard.readText` and `clipboard.writeText`, running in cdp-kernel's
-browser Worker through its `preload` and `host` options
+Phase 0 is done and Phase 1 is under way. The TypeScript side answers
+`hello`, the text and image clipboard, `info`, haptics and `openURL`,
+with bytes crossing the bridge as base64 (docs/protocol.md). It runs in
+cdp-kernel's browser Worker through its `preload` and `host` options
 ([tlockney/cdp-kernel#384](https://github.com/tlockney/cdp-kernel/issues/384)),
-and tested end to end in headless Chromium against a fake Swift bridge.
-The Swift `DeviceBridge` answers the same three methods; the Mac and iPad
-apps in [tlockney/ganymede-ui](https://github.com/tlockney/ganymede-ui)
+and is tested end to end in headless Chromium against a fake Swift
+bridge. The Swift `DeviceBridge` answers the same methods; the Mac and
+iPad apps in [tlockney/ganymede-ui](https://github.com/tlockney/ganymede-ui)
 register it on their hidden kernel web view.
 
 ## Layout
