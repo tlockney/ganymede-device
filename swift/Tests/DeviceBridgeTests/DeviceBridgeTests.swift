@@ -51,12 +51,24 @@ private final class FakePresenter: DialogPresenter {
     var shown: [Dialog] = []
     var closed = 0
     var refuse = false
+    /// Holds each close's `gone` until `finishClosing()`, as an animation would.
+    var slowClose = false
+    private var closing: [() -> Void] = []
     private var answers: [(DialogResult) -> Void] = []
-    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> () -> Void {
+    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
         if refuse { throw DialogUnavailable(description: "no window") }
         shown.append(dialog)
         answers.append(done)
-        return { [weak self] in self?.closed += 1 }
+        return { [weak self] gone in
+            guard let self else { return }
+            self.closed += 1
+            if self.slowClose { self.closing.append(gone) } else { gone() }
+        }
+    }
+    func finishClosing() {
+        let pending = closing
+        closing = []
+        pending.forEach { $0() }
     }
     /// Answers the newest dialog shown.
     func answer(_ result: DialogResult) {
@@ -294,6 +306,27 @@ final class DeviceBridgeTests: XCTestCase {
         ], "the next waiting dialog shows")
         _ = bridge.handle(["id": 99, "cancel": true])
         XCTAssertTrue(next.all.isEmpty, "a cancel for another id leaves it alone")
+    }
+
+    func testTheNextDialogWaitsForTheCancelledOneToGo() {
+        let presenter = FakePresenter()
+        presenter.slowClose = true
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let first = Replies()
+        let second = Replies()
+        bridge.respond(to: ["id": 1, "method": "ui.alert", "params": ["message": "one"]], reply: first.reply)
+        bridge.respond(to: ["id": 2, "method": "ui.alert", "params": ["message": "two"]], reply: second.reply)
+        _ = bridge.handle(["id": 1, "cancel": true])
+        XCTAssertEqual(errorCode(first.last ?? [:]), "cancelled", "the cancel answers at once")
+        XCTAssertEqual(presenter.shown.count, 1, "the second waits while the first goes away")
+        _ = bridge.handle(["id": 1, "cancel": true])
+        XCTAssertEqual(presenter.closed, 1, "a second cancel doesn't close it again")
+        presenter.answer(.ok)
+        XCTAssertEqual(first.all.count, 1, "a late answer is dropped")
+        presenter.finishClosing()
+        XCTAssertEqual(presenter.shown.last, .alert(title: nil, message: "two"))
+        presenter.answer(.ok)
+        XCTAssertEqual(second.all.count, 1)
     }
 
     func testDropAllClosesEverything() {

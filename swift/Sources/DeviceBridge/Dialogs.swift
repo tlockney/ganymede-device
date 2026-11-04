@@ -125,12 +125,18 @@ public enum DialogResult: Equatable, Sendable {
 /// Shows dialogs, behind a protocol so tests needn't show any.
 @MainActor
 public protocol DialogPresenter {
-    /// Shows `dialog` and calls `done` once with the person's answer. The
-    /// closure it returns closes the dialog without an answer; `done` may
-    /// still be called then, and is ignored. Throws when there is nowhere
-    /// to show it, such as no window.
-    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> () -> Void
+    /// Shows `dialog` and calls `done` once with the person's answer, after
+    /// the dialog has gone from the screen. The closure it returns closes
+    /// the dialog without an answer and calls its argument once the dialog
+    /// has gone; `done` may still be called then, and is ignored. The next
+    /// dialog shows only after one of the two, so it never lands on a
+    /// dialog still animating out. Throws when there is nowhere to show
+    /// it, such as no window.
+    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close
 }
+
+/// Closes a dialog, then calls its argument once the dialog has gone.
+public typealias Close = (_ gone: @escaping () -> Void) -> Void
 
 /// One dialog at a time: a second call waits for the first to close, in
 /// the order the calls came. A cancel closes the one it names, or takes
@@ -149,12 +155,14 @@ final class DialogQueue {
         let reply: (Outcome) -> Void
     }
 
-    /// The dialog showing; compared by identity, so a late answer for one
-    /// already closed is dropped.
+    /// The dialog on screen or still going away; compared by identity, so
+    /// a late answer for one already closed is dropped.
     private final class Showing {
         let id: Int
         let reply: (Outcome) -> Void
-        var close: (() -> Void)?
+        var close: Close?
+        /// Answered or cancelled; it may still be on screen.
+        var ended = false
         init(id: Int, reply: @escaping (Outcome) -> Void) {
             self.id = id
             self.reply = reply
@@ -175,11 +183,8 @@ final class DialogQueue {
     }
 
     func cancel(_ id: Int) {
-        if let current = showing, current.id == id {
-            showing = nil
-            current.close?()
-            current.reply(.cancelled)
-            next()
+        if let current = showing, current.id == id, !current.ended {
+            end(current)
         } else if let index = waiting.firstIndex(where: { $0.id == id }) {
             waiting.remove(at: index).reply(.cancelled)
         }
@@ -188,10 +193,8 @@ final class DialogQueue {
     func dropAll() {
         let dropped = waiting
         waiting = []
-        if let current = showing {
-            showing = nil
-            current.close?()
-            current.reply(.cancelled)
+        if let current = showing, !current.ended {
+            end(current)
         }
         for call in dropped {
             call.reply(.cancelled)
@@ -213,10 +216,29 @@ final class DialogQueue {
         }
     }
 
+    /// Cancels the dialog showing: the call answers now, and the next
+    /// dialog waits until this one has gone.
+    private func end(_ current: Showing) {
+        current.ended = true
+        current.reply(.cancelled)
+        if let close = current.close {
+            close { [weak self] in self?.gone(current) }
+        } else {
+            gone(current)
+        }
+    }
+
+    /// An answer: the presenter calls `done` once the dialog has gone.
     private func finish(_ current: Showing, _ outcome: Outcome) {
+        guard showing === current, !current.ended else { return }
+        current.ended = true
+        current.reply(outcome)
+        gone(current)
+    }
+
+    private func gone(_ current: Showing) {
         guard showing === current else { return }
         showing = nil
-        current.reply(outcome)
         next()
     }
 }
@@ -234,7 +256,7 @@ public struct DialogUnavailable: Error, CustomStringConvertible {
 public struct SystemDialogPresenter: DialogPresenter {
     public init() {}
 
-    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> () -> Void {
+    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
         guard let window = NSApp?.keyWindow ?? NSApp?.mainWindow ?? NSApp?.windows.first(where: { $0.isVisible }) else {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
@@ -294,8 +316,11 @@ public struct SystemDialogPresenter: DialogPresenter {
         alert.beginSheetModal(for: window) { response in
             done(answer(response))
         }
-        return { [weak window] in
+        return { [weak window] gone in
+            // AppKit queues a sheet begun while another ends, so the next
+            // one may begin now.
             window?.endSheet(alert.window, returnCode: .cancel)
+            gone()
         }
     }
 
@@ -318,7 +343,7 @@ public struct SystemDialogPresenter: DialogPresenter {
 public struct SystemDialogPresenter: DialogPresenter {
     public init() {}
 
-    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> () -> Void {
+    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
         guard let top = Self.topViewController() else {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
@@ -370,10 +395,34 @@ public struct SystemDialogPresenter: DialogPresenter {
             navigation.presentationController?.delegate = picker
             controller = navigation
         }
-        top.present(controller, animated: true)
-        return { [weak controller] in
-            controller?.dismiss(animated: true)
+        let state = Presentation()
+        let show = {
+            guard !state.closed else { return }
+            // Whatever is on top once the transition has ended.
+            (Self.topViewController() ?? top).present(controller, animated: true)
+            state.presented = true
         }
+        // UIKit drops a presentation on a controller still going away, such
+        // as a sheet the person just closed.
+        if top.isBeingDismissed || top.isBeingPresented, let coordinator = top.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { _ in show() }
+        } else {
+            show()
+        }
+        return { [weak controller] gone in
+            state.closed = true
+            if state.presented, let controller, controller.presentingViewController != nil {
+                controller.dismiss(animated: true, completion: gone)
+            } else {
+                gone()
+            }
+        }
+    }
+
+    /// Whether a dialog was shown yet, or closed before it could be.
+    private final class Presentation {
+        var presented = false
+        var closed = false
     }
 
     private static func topViewController() -> UIViewController? {
@@ -435,8 +484,8 @@ final class DatePickerController: UIViewController, UIAdaptivePresentationContro
     private func finish(_ answer: DialogResult) {
         guard !answered else { return }
         answered = true
-        dismiss(animated: true)
-        done(answer)
+        // Answers once the sheet has gone, so the next dialog can show.
+        dismiss(animated: true) { [done] in done(answer) }
     }
 
     /// A swipe down is a dismissal.

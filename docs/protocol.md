@@ -118,7 +118,7 @@ picker sheet over the key window's top view controller.
   asks twice in a row gets both.
 - A cancel for the dialog showing closes it and answers `cancelled`; a
   cancel for one still waiting takes it off the queue. Either way the
-  next waiting dialog shows.
+  next waiting dialog shows, once the closed one has left the screen.
 - An aborted `signal` sends the cancel. A `signal` from
   `AbortSignal.timeout()` rejects `timeout` instead of `cancelled`.
 - With no window to show it on, the call fails `unavailable`.
