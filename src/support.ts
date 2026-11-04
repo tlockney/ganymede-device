@@ -36,7 +36,7 @@ export const SUPPORT = {
     onDevice: true,
     remote: true,
     browser: "click",
-    note: "http, https and mailto only. `inApp` is iPadOS only; a browser opens a tab after a click.",
+    note: "http, https and mailto only. `inApp` works on iPhone and iPad, not the Mac; a browser opens a tab after a click.",
   },
 } as const satisfies Record<string, SupportRow>;
 

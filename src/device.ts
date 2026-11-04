@@ -46,7 +46,7 @@ export interface Haptics {
 }
 
 export interface OpenURLOptions extends CallOptions {
-  /** On iPadOS, show the page in the app (Safari view) instead of switching to Safari. Ignored on the Mac. */
+  /** On iPhone and iPad, show a web page in the app (Safari view) instead of switching to Safari. Ignored on the Mac. */
   inApp?: boolean;
 }
 
