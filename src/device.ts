@@ -61,6 +61,68 @@ export interface Clipboard {
   writeImage(image: Bytes, options?: CallOptions): Promise<void>;
 }
 
+export interface AlertOptions extends CallOptions {
+  /** A heading above the message. */
+  title?: string;
+}
+
+export interface ConfirmOptions extends AlertOptions {
+  /** Shows the confirming button as destructive (red). */
+  destructive?: boolean;
+  /** The confirming button's label; "OK" by default. */
+  okLabel?: string;
+}
+
+export interface PromptOptions extends AlertOptions {
+  /** Grey text shown while the field is empty. */
+  placeholder?: string;
+  /** Text the field starts with. */
+  defaultValue?: string;
+  /** Hides what is typed, as for a password. */
+  secure?: boolean;
+}
+
+export interface ActionSheetOptions extends CallOptions {
+  /** A line under the title. */
+  message?: string;
+  /** The cancel button's label; "Cancel" by default. */
+  cancel?: string;
+  /** The index of an option to show as destructive (red). */
+  destructive?: number;
+}
+
+export type DateMode = "date" | "time" | "datetime";
+
+export interface PickDateOptions extends CallOptions {
+  /** What to pick; "datetime" by default. */
+  mode?: DateMode;
+  /** A heading above the picker. */
+  title?: string;
+  /** The date the picker starts at; now by default. */
+  value?: Date;
+  min?: Date;
+  max?: Date;
+}
+
+/**
+ * Dialogs the app shows over the notebook: sheets on the Mac, alerts on
+ * iPhone and iPad. One shows at a time; a second call waits for the first
+ * to close. Dismissing one is not an error: it returns `null` or `false`.
+ * An interrupt or an aborted `signal` closes it and rejects `cancelled`.
+ */
+export interface UI {
+  /** Shows `message` with an OK button, and resolves when it is closed. */
+  alert(message: string, options?: AlertOptions): Promise<void>;
+  /** True when the person confirms, false when they cancel or dismiss it. */
+  confirm(message: string, options?: ConfirmOptions): Promise<boolean>;
+  /** The text entered, or null when the person cancels. */
+  prompt(message: string, options?: PromptOptions): Promise<string | null>;
+  /** The index of the option chosen, or null when the person cancels. */
+  actionSheet(title: string, options: string[], sheetOptions?: ActionSheetOptions): Promise<number | null>;
+  /** The date chosen, or null when the person cancels. */
+  pickDate(options?: PickDateOptions): Promise<Date | null>;
+}
+
 export interface Device {
   /**
    * The host's answer to `hello`, as it was when the kernel started, with
@@ -74,6 +136,7 @@ export interface Device {
   readonly haptics: Haptics;
   /** Opens an `http`, `https` or `mailto` URL; other schemes fail `failed`. */
   openURL(url: string | URL, options?: OpenURLOptions): Promise<void>;
+  readonly ui: UI;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -154,7 +217,51 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       const { inApp = false, ...callOptions } = options;
       await call("openURL", { url: String(url), inApp }, callOptions);
     },
+    ui: {
+      async alert(message, options = {}) {
+        const { signal, title } = options;
+        await call("ui.alert", { message: String(message), ...defined({ title }) }, { signal });
+      },
+      async confirm(message, options = {}) {
+        const { signal, title, destructive = false, okLabel } = options;
+        const result = await call("ui.confirm", { message: String(message), destructive, ...defined({ title, okLabel }) }, { signal });
+        return result === true;
+      },
+      async prompt(message, options = {}) {
+        const { signal, title, placeholder, defaultValue, secure = false } = options;
+        const result = await call("ui.prompt", { message: String(message), secure, ...defined({ title, placeholder, defaultValue }) }, { signal });
+        return typeof result === "string" ? result : null;
+      },
+      async actionSheet(title, choices, options = {}) {
+        const { signal, message, cancel, destructive } = options;
+        if (!Array.isArray(choices) || choices.length === 0) throw new DeviceError("failed", "actionSheet needs at least one option");
+        const params = { title: String(title), options: choices.map(String), ...defined({ message, cancel, destructive }) };
+        const result = await call("ui.actionSheet", params, { signal });
+        return typeof result === "number" && Number.isInteger(result) && result >= 0 && result < choices.length ? result : null;
+      },
+      async pickDate(options = {}) {
+        const { signal, mode = "datetime", title, value, min, max } = options;
+        const params = { mode, ...defined({ title, value: iso(value), min: iso(min), max: iso(max) }) };
+        const result = await call("ui.pickDate", params, { signal });
+        if (typeof result !== "string") return null;
+        const date = new Date(result);
+        if (Number.isNaN(date.getTime())) throw new DeviceError("failed", `ui.pickDate answered a date it can't read: ${result}`);
+        return date;
+      },
+    },
   };
+}
+
+/** `fields` without its undefined values, so they aren't sent. */
+function defined(fields: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+}
+
+/** A date as the ISO 8601 string the host reads, or undefined. */
+function iso(date: Date | undefined): string | undefined {
+  if (date === undefined) return undefined;
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) throw new DeviceError("failed", "pickDate takes Date values");
+  return date.toISOString();
 }
 
 /** A Device whose every call rejects `unavailable`: what `import` gives on a kernel with no host. */

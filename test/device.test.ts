@@ -124,6 +124,11 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.haptics.notification("success");
   await device.haptics.selection();
   await device.openURL("https://example.com");
+  await device.ui.alert("");
+  await device.ui.confirm("");
+  await device.ui.prompt("");
+  await device.ui.actionSheet("", ["a"]);
+  await device.ui.pickDate();
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
@@ -318,4 +323,84 @@ test("encodeBinary and decodeBinary reach nested values and leave the rest alone
   // Larger than one String.fromCharCode chunk, through the fallback too.
   const bytes = new Uint8Array(100_000).map((_, i) => i % 251);
   assert.deepEqual([...decodeBase64(encodeBase64(bytes))], [...bytes]);
+});
+
+test("dialogs send what the cell asked and return what the person chose", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  const answers: Record<string, unknown> = {
+    "ui.alert": null,
+    "ui.confirm": true,
+    "ui.prompt": "Io",
+    "ui.actionSheet": 1,
+    "ui.pickDate": "2026-11-04T20:30:00.250Z",
+  };
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(answers[method])) };
+  const device = createDevice(transport, { platform: "macos", appVersion: "", capabilities: Object.keys(SUPPORT) });
+  const min = new Date("2026-01-01T00:00:00Z");
+
+  assert.equal(await device.ui.alert("Done", { title: "Export" }), undefined);
+  assert.equal(await device.ui.confirm("Delete?", { destructive: true }), true);
+  assert.equal(await device.ui.prompt("Name?", { placeholder: "Alex", secure: true }), "Io");
+  assert.equal(await device.ui.actionSheet("Quality", ["Low", "High"], { cancel: "Never mind", destructive: 1 }), 1);
+  const picked = await device.ui.pickDate({ mode: "date", min });
+  assert.ok(picked instanceof Date);
+  assert.equal(picked.toISOString(), "2026-11-04T20:30:00.250Z");
+  assert.deepEqual(sent, [
+    ["ui.alert", { message: "Done", title: "Export" }],
+    ["ui.confirm", { message: "Delete?", destructive: true }],
+    ["ui.prompt", { message: "Name?", secure: true, placeholder: "Alex" }],
+    ["ui.actionSheet", { title: "Quality", options: ["Low", "High"], cancel: "Never mind", destructive: 1 }],
+    ["ui.pickDate", { mode: "date", min: "2026-01-01T00:00:00.000Z" }],
+  ]);
+});
+
+test("dismissing a dialog is null or false, not an error", async () => {
+  const transport: DeviceTransport = { call: () => Promise.resolve(null) };
+  const device = createDevice(transport, { platform: "ipados", appVersion: "", capabilities: Object.keys(SUPPORT) });
+  assert.equal(await device.ui.confirm("Sure?"), false);
+  assert.equal(await device.ui.prompt("Name?"), null);
+  assert.equal(await device.ui.actionSheet("Pick", ["a"]), null);
+  assert.equal(await device.ui.pickDate(), null);
+});
+
+test("dialogs refuse bad input before asking, and odd answers", async () => {
+  let asked = 0;
+  const transport: DeviceTransport = { call: (method) => (asked++, Promise.resolve(method === "ui.actionSheet" ? 7 : "not a date")) };
+  const device = createDevice(transport, { platform: "macos", appVersion: "", capabilities: Object.keys(SUPPORT) });
+  await assert.rejects(device.ui.actionSheet("Pick", []), (err) => err instanceof DeviceError && err.code === "failed");
+  await assert.rejects(device.ui.pickDate({ min: new Date("nope") }), (err) => err instanceof DeviceError && err.code === "failed");
+  assert.equal(asked, 0);
+  assert.equal(await device.ui.actionSheet("Pick", ["a", "b"]), null, "an index out of range is no choice");
+  await assert.rejects(device.ui.pickDate(), (err) => err instanceof DeviceError && err.code === "failed" && /can't read/.test(err.message));
+});
+
+test("an open dialog that is aborted is cancelled in Swift, and the call rejects cancelled", async () => {
+  const received = fakeBridge({
+    hello: () => ({ result: { platform: "macos", appVersion: "0.1", capabilities: ["ui.prompt"] } }),
+    // The person never answers.
+    "ui.prompt": () => new Promise(() => {}),
+  });
+  const device = await installed();
+  const controller = new AbortController();
+  const pending = device.ui.prompt("Name?", { signal: controller.signal });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+  await assert.rejects(pending, (err) => err instanceof DeviceError && err.code === "cancelled");
+  const prompt = received.find((m) => m.method === "ui.prompt")!;
+  assert.deepEqual(prompt.params, { message: "Name?", secure: false });
+  assert.deepEqual(received.at(-1), { id: prompt.id, cancel: true });
+});
+
+test("a timeout signal's abort is a timeout, and also closes the dialog", async () => {
+  const received = fakeBridge({
+    hello: () => ({ result: { platform: "macos", appVersion: "0.1", capabilities: ["ui.confirm"] } }),
+    "ui.confirm": () => new Promise(() => {}),
+  });
+  const device = await installed();
+  // Node doesn't keep the process alive for AbortSignal.timeout's timer.
+  const alive = setTimeout(() => {}, 1000);
+  await assert.rejects(device.ui.confirm("Sure?", { signal: AbortSignal.timeout(10) }), (err) => err instanceof DeviceError && err.code === "timeout");
+  clearTimeout(alive);
+  const confirm = received.find((m) => m.method === "ui.confirm")!;
+  assert.deepEqual(received.at(-1), { id: confirm.id, cancel: true });
 });

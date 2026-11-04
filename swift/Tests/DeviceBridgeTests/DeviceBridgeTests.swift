@@ -38,6 +38,33 @@ private struct FakeState: DeviceState {
     }
 }
 
+/// Shows nothing: records each dialog, and the test answers it.
+@MainActor
+private final class FakePresenter: DialogPresenter {
+    var shown: [Dialog] = []
+    var closed = 0
+    var refuse = false
+    private var answers: [(DialogResult) -> Void] = []
+    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> () -> Void {
+        if refuse { throw DialogUnavailable(description: "no window") }
+        shown.append(dialog)
+        answers.append(done)
+        return { [weak self] in self?.closed += 1 }
+    }
+    /// Answers the newest dialog shown.
+    func answer(_ result: DialogResult) {
+        answers.last?(result)
+    }
+}
+
+/// A dialog call's replies, as WebKit would deliver them.
+@MainActor
+private final class Replies {
+    var all: [[String: Any]] = []
+    var last: [String: Any]? { all.last }
+    lazy var reply: ([String: Any]) -> Void = { [unowned self] in self.all.append($0) }
+}
+
 @MainActor
 final class DeviceBridgeTests: XCTestCase {
     private func errorCode(_ reply: [String: Any]) -> String? {
@@ -50,7 +77,8 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(result?["appVersion"] as? String, "1.2.3")
         XCTAssertEqual(
             result?["capabilities"] as? [String],
-            ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL"]
+            ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
+             "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate"]
                 + (SystemHaptics().isAvailable
                 ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
         )
@@ -173,5 +201,140 @@ final class DeviceBridgeTests: XCTestCase {
         let bridge = DeviceBridge(clipboard: FakeClipboard(), appVersion: "")
         let result = bridge.handle(["id": 1, "method": "hello"])["result"] as? [String: Any]
         XCTAssertFalse((result?["model"] as? String ?? "").isEmpty)
+    }
+
+    func testDialogsAnswerWithWhatThePersonChose() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        func ask(_ id: Int, _ method: String, _ params: [String: Any]) {
+            bridge.respond(to: ["id": id, "method": method, "params": params], reply: replies.reply)
+        }
+
+        ask(1, "ui.alert", ["message": "Done"])
+        XCTAssertEqual(presenter.shown.last, .alert(title: nil, message: "Done"))
+        XCTAssertTrue(replies.all.isEmpty, "a dialog answers only once it closes")
+        presenter.answer(.ok)
+        XCTAssertTrue(replies.last?["result"] is NSNull)
+
+        ask(2, "ui.confirm", ["message": "Delete?", "destructive": true])
+        XCTAssertEqual(presenter.shown.last, .confirm(title: nil, message: "Delete?", destructive: true, okLabel: nil))
+        presenter.answer(.confirmed)
+        XCTAssertEqual(replies.last?["result"] as? Bool, true)
+        ask(3, "ui.confirm", ["message": "Delete?"])
+        presenter.answer(.dismissed)
+        XCTAssertEqual(replies.last?["result"] as? Bool, false)
+
+        ask(4, "ui.prompt", ["message": "Name?", "placeholder": "Alex", "secure": true])
+        XCTAssertEqual(presenter.shown.last, .prompt(title: nil, message: "Name?", placeholder: "Alex", defaultValue: nil, secure: true))
+        presenter.answer(.text("Io"))
+        XCTAssertEqual(replies.last?["result"] as? String, "Io")
+        ask(5, "ui.prompt", ["message": "Name?"])
+        presenter.answer(.dismissed)
+        XCTAssertTrue(replies.last?["result"] is NSNull)
+
+        ask(6, "ui.actionSheet", ["title": "Quality", "options": ["Low", "High"], "destructive": 1])
+        XCTAssertEqual(presenter.shown.last, .actionSheet(title: "Quality", message: nil, options: ["Low", "High"], cancel: nil, destructive: 1))
+        presenter.answer(.option(1))
+        XCTAssertEqual(replies.last?["result"] as? Int, 1)
+
+        let min = Dialog.parseDate("2026-01-01T00:00:00.000Z")!
+        ask(7, "ui.pickDate", ["mode": "date", "min": "2026-01-01T00:00:00.000Z"])
+        XCTAssertEqual(presenter.shown.last, .pickDate(title: nil, mode: .date, value: nil, min: min, max: nil))
+        presenter.answer(.date(Dialog.parseDate("2026-11-04T20:30:00.250Z")!))
+        XCTAssertEqual(replies.last?["result"] as? String, "2026-11-04T20:30:00.250Z")
+        XCTAssertEqual(replies.all.count, 7)
+        XCTAssertTrue(replies.all.allSatisfy { JSONSerialization.isValidJSONObject($0) })
+    }
+
+    func testOneDialogAtATime() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let first = Replies()
+        let second = Replies()
+        bridge.respond(to: ["id": 1, "method": "ui.alert", "params": ["message": "one"]], reply: first.reply)
+        bridge.respond(to: ["id": 2, "method": "ui.alert", "params": ["message": "two"]], reply: second.reply)
+        XCTAssertEqual(presenter.shown.count, 1, "the second waits for the first")
+        presenter.answer(.ok)
+        XCTAssertEqual(first.all.count, 1)
+        XCTAssertEqual(presenter.shown.last, .alert(title: nil, message: "two"))
+        presenter.answer(.ok)
+        XCTAssertEqual(second.all.count, 1)
+        presenter.answer(.ok)
+        XCTAssertEqual(first.all.count + second.all.count, 2, "a second answer to a closed dialog is dropped")
+    }
+
+    func testCancelClosesTheDialogOrTakesItOffTheQueue() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let shown = Replies()
+        let queued = Replies()
+        let next = Replies()
+        bridge.respond(to: ["id": 1, "method": "ui.prompt", "params": ["message": "a"]], reply: shown.reply)
+        bridge.respond(to: ["id": 2, "method": "ui.prompt", "params": ["message": "b"]], reply: queued.reply)
+        bridge.respond(to: ["id": 3, "method": "ui.prompt", "params": ["message": "c"]], reply: next.reply)
+
+        XCTAssertNil(bridge.handle(["id": 2, "cancel": true])["error"])
+        XCTAssertEqual(errorCode(queued.last ?? [:]), "cancelled")
+        XCTAssertEqual(presenter.closed, 0, "a queued dialog was never shown")
+
+        _ = bridge.handle(["id": 1, "cancel": true])
+        XCTAssertEqual(presenter.closed, 1)
+        XCTAssertEqual(errorCode(shown.last ?? [:]), "cancelled")
+        XCTAssertEqual(presenter.shown.map { $0 }, [
+            .prompt(title: nil, message: "a", placeholder: nil, defaultValue: nil, secure: false),
+            .prompt(title: nil, message: "c", placeholder: nil, defaultValue: nil, secure: false),
+        ], "the next waiting dialog shows")
+        _ = bridge.handle(["id": 99, "cancel": true])
+        XCTAssertTrue(next.all.isEmpty, "a cancel for another id leaves it alone")
+    }
+
+    func testDropAllClosesEverything() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        bridge.respond(to: ["id": 1, "method": "ui.alert", "params": ["message": "a"]], reply: replies.reply)
+        bridge.respond(to: ["id": 2, "method": "ui.alert", "params": ["message": "b"]], reply: replies.reply)
+        bridge.dropAll()
+        XCTAssertEqual(presenter.closed, 1)
+        XCTAssertEqual(replies.all.compactMap { errorCode($0) }, ["cancelled", "cancelled"])
+        XCTAssertEqual(presenter.shown.count, 1)
+        presenter.answer(.ok)
+        XCTAssertEqual(replies.all.count, 2)
+    }
+
+    func testBadDialogsFail() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        let bad: [[String: Any]] = [
+            ["id": 1, "method": "ui.alert", "params": [:]],
+            ["id": 2, "method": "ui.actionSheet", "params": ["title": "t", "options": []]],
+            ["id": 3, "method": "ui.pickDate", "params": ["mode": "week"]],
+            ["id": 4, "method": "ui.pickDate", "params": ["min": "yesterday"]],
+            ["method": "ui.alert", "params": ["message": "no id"]],
+        ]
+        for call in bad {
+            bridge.respond(to: call, reply: replies.reply)
+            XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "\(call)")
+        }
+        XCTAssertTrue(presenter.shown.isEmpty)
+        XCTAssertEqual(errorCode(bridge.handle(["id": 5, "method": "ui.alert", "params": ["message": "m"]])), "failed")
+
+        presenter.refuse = true
+        bridge.respond(to: ["id": 6, "method": "ui.alert", "params": ["message": "m"]], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
+        presenter.refuse = false
+        bridge.respond(to: ["id": 7, "method": "ui.alert", "params": ["message": "m"]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.count, 1, "a refused dialog doesn't block the next")
+    }
+
+    func testOtherMethodsStillAnswerThroughRespond() {
+        let replies = Replies()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), appVersion: "")
+        bridge.respond(to: ["id": 1, "method": "clipboard.writeText", "params": ["text": "x"]], reply: replies.reply)
+        XCTAssertTrue(replies.last?["result"] is NSNull)
+        bridge.respond(to: ["id": 2, "method": "ui.unknown"], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
     }
 }

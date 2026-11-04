@@ -22,6 +22,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let haptics: Haptics
     private let urlOpener: URLOpener
     private let state: DeviceState
+    private let dialogs: DialogQueue
     private let appVersion: String
 
     public init(
@@ -29,6 +30,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         haptics: Haptics? = nil,
         urlOpener: URLOpener? = nil,
         state: DeviceState? = nil,
+        presenter: DialogPresenter? = nil,
         appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     ) {
         // Made here, not as the default arguments: defaults are evaluated
@@ -37,6 +39,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.haptics = haptics ?? SystemHaptics()
         self.urlOpener = urlOpener ?? SystemURLOpener()
         self.state = state ?? SystemDeviceState()
+        self.dialogs = DialogQueue(presenter: presenter ?? SystemDialogPresenter())
         self.appVersion = appVersion
     }
 
@@ -56,16 +59,61 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             replyHandler(Self.error("unavailable", "device calls are taken from the kernel page only"), nil)
             return
         }
-        replyHandler(handle(message.body), nil)
+        respond(to: message.body) { replyHandler($0, nil) }
+    }
+
+    /// Answers one message, now or, for a dialog, once the person closes
+    /// it. `reply` is called once.
+    public func respond(to body: Any, reply: @escaping ([String: Any]) -> Void) {
+        guard let call = body as? [String: Any], let method = call["method"] as? String,
+              Self.dialogMethods.contains(method)
+        else {
+            reply(handle(body))
+            return
+        }
+        guard let id = Self.callID(call["id"]) else {
+            reply(Self.error("failed", "a dialog call needs a numeric id, so it can be cancelled"))
+            return
+        }
+        let dialog: Dialog
+        do {
+            dialog = try Dialog(method: method, params: call["params"] as? [String: Any] ?? [:])
+        } catch {
+            reply(Self.error("failed", "\(error)"))
+            return
+        }
+        dialogs.show(dialog, id: id) { outcome in
+            switch outcome {
+            case let .answered(result):
+                reply(["result": result])
+            case .cancelled:
+                reply(Self.error("cancelled", "\(method) was cancelled"))
+            case let .failed(code, message):
+                reply(Self.error(code, message))
+            }
+        }
+    }
+
+    /// Closes every dialog shown or waiting, as when the kernel page
+    /// navigates or its web content process ends (docs/protocol.md): the
+    /// new page's ids start over, so none of them may be answered. Call it
+    /// from the web view's navigation delegate.
+    public func dropAll() {
+        dialogs.dropAll()
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
+    /// Dialogs (`ui.*`) answer later, so they go through
+    /// `respond(to:reply:)`; here they fail `failed`.
     public func handle(_ body: Any) -> [String: Any] {
         guard let call = body as? [String: Any] else {
             return Self.error("failed", "a device message must be an object")
         }
         if call["cancel"] as? Bool == true {
-            // Nothing this bridge shows can be dismissed yet.
+            // Closes the dialog the call showed, or takes it off the queue.
+            if let id = Self.callID(call["id"]) {
+                dialogs.cancel(id)
+            }
             return ["result": NSNull()]
         }
         guard let method = call["method"] as? String else {
@@ -106,16 +154,30 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
                 return Self.error("unavailable", "this device has no haptics")
             }
             return haptic(method, params)
+        case _ where Self.dialogMethods.contains(method):
+            return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         default:
             return Self.error("unavailable", "\(method) isn't available in this app")
         }
+    }
+
+    /// A call's `id`: the page sends a number, which WebKit hands over as
+    /// an NSNumber.
+    private static func callID(_ value: Any?) -> Int? {
+        if let n = value as? Int { return n }
+        if let n = value as? Double, n == n.rounded() { return Int(n) }
+        return nil
     }
 
     /// The methods every bridge answers. `capabilities` adds what this
     /// device has.
     public static let capabilities = [
         "clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
+        "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate",
     ]
+
+    /// The methods that show a dialog and answer once it closes.
+    public static let dialogMethods: Set<String> = ["ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate"]
 
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
@@ -192,7 +254,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         #endif
     }
 
-    private static func error(_ code: String, _ message: String) -> [String: Any] {
+    static func error(_ code: String, _ message: String) -> [String: Any] {
         ["error": ["code": code, "message": message]]
     }
 

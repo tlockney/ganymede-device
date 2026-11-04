@@ -45,6 +45,11 @@ export const SUPPORT = {
     browser: "click",
     note: "http, https and mailto only. `inApp` works on iPhone and iPad, not the Mac; a browser opens a tab after a click.",
   },
+  "ui.alert": { onDevice: true, remote: true, browser: true, note: "A sheet on the Mac, an alert on iPhone and iPad; a browser shows it in the cell's output." },
+  "ui.confirm": { onDevice: true, remote: true, browser: true },
+  "ui.prompt": { onDevice: true, remote: true, browser: true },
+  "ui.actionSheet": { onDevice: true, remote: true, browser: true },
+  "ui.pickDate": { onDevice: true, remote: true, browser: true },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;
