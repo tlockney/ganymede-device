@@ -5,7 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import install, { type WorkerHost } from "../src/preload.ts";
 import { webkitHost } from "../src/webkit.ts";
-import { createDevice, type Device, DeviceError, type DeviceTransport, SUPPORT, unavailableDevice } from "../src/mod.ts";
+import { createDevice, type Device, DeviceError, type DeviceTransport, MAX_BINARY_BYTES, SUPPORT, unavailableDevice } from "../src/mod.ts";
+import { decodeBase64, decodeBinary, encodeBase64, encodeBinary } from "../src/binary.ts";
 
 type Message = { id: number; method?: string; params?: Record<string, unknown>; cancel?: true };
 
@@ -116,6 +117,8 @@ test("the support matrix has a row for every method the device calls, and no oth
   const device = createDevice(transport, { platform: "test", appVersion: "", capabilities: Object.keys(SUPPORT) });
   await device.clipboard.readText();
   await device.clipboard.writeText("");
+  await device.clipboard.readImage();
+  await device.clipboard.writeImage(new Uint8Array());
   await device.info();
   await device.haptics.impact();
   await device.haptics.notification("success");
@@ -176,6 +179,8 @@ test("two kernels' handlers never send Swift the same id, so a cancel names one 
   const b = new AbortController();
   void first({ method: "clipboard.readText", params: {} }, a.signal).catch(() => {});
   void second({ method: "clipboard.readText", params: {} }, b.signal).catch(() => {});
+  // Each call encodes its params before posting.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const [one, two] = received;
   assert.notEqual(one.id, two.id);
   a.abort();
@@ -226,4 +231,75 @@ test("a bridge error on hello is reported on stderr", async () => {
 test("outside the app, the preload is quiet", async () => {
   globalThis.webkit = undefined;
   assert.deepEqual(await stderrOf(installed), []);
+});
+
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 255]);
+const IMAGE_HELLO = { result: { platform: "macos", appVersion: "0.1", capabilities: ["clipboard.readImage", "clipboard.writeImage"] } };
+
+test("clipboard images cross the WebKit hop as base64 and arrive as bytes", async () => {
+  let clipboard: string | null = null;
+  const received = fakeBridge({
+    hello: () => IMAGE_HELLO,
+    "clipboard.readImage": () => ({ result: clipboard === null ? null : { base64: clipboard } }),
+    "clipboard.writeImage": (p) => ((clipboard = (p.image as { base64: string }).base64), { result: null }),
+  });
+  const device = await installed();
+  assert.equal(await device.clipboard.readImage(), null);
+
+  await device.clipboard.writeImage(PNG);
+  assert.deepEqual(received.at(-1)!.params, { image: { base64: Buffer.from(PNG).toString("base64") } });
+  const read = await device.clipboard.readImage();
+  assert.ok(read instanceof Uint8Array);
+  assert.deepEqual([...read], [...PNG]);
+
+  // An ArrayBuffer and a Blob go the same way.
+  await device.clipboard.writeImage(PNG.slice().buffer);
+  assert.deepEqual([...(await device.clipboard.readImage())!], [...PNG]);
+  await device.clipboard.writeImage(new Blob([PNG]));
+  assert.deepEqual([...(await device.clipboard.readImage())!], [...PNG]);
+});
+
+test("a call aborted while its bytes are encoded never reaches Swift", async () => {
+  const received = fakeBridge({ "clipboard.writeImage": () => ({ result: null }) });
+  const controller = new AbortController();
+  const pending = webkitHost()({ method: "clipboard.writeImage", params: { image: new Blob([PNG]) } }, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, (err: Error & { code?: string }) => err.code === "cancelled");
+  assert.deepEqual(received, []);
+});
+
+test("a binary value over the limit fails before it reaches Swift", async () => {
+  const received = fakeBridge({ hello: () => IMAGE_HELLO, "clipboard.writeImage": () => ({ result: null }) });
+  const device = await installed();
+  const big = new Uint8Array(MAX_BINARY_BYTES + 1);
+  await assert.rejects(device.clipboard.writeImage(big), (err) => err instanceof DeviceError && err.code === "failed" && /limited/.test(err.message));
+  await assert.rejects(device.clipboard.writeImage(new Blob([big])), (err) => err instanceof DeviceError && err.code === "failed");
+  // And at the WebKit hop, for a caller that skipped device.ts.
+  await assert.rejects(webkitHost()({ method: "clipboard.writeImage", params: { image: big } }, new AbortController().signal), (err: Error & { code?: string }) => err.code === "failed");
+  assert.deepEqual(received.map((m) => m.method), ["hello"]);
+});
+
+test("a result over the limit, or malformed base64, fails", async () => {
+  const tooLong = "A".repeat(Math.ceil((MAX_BINARY_BYTES + 3) / 3) * 4);
+  fakeBridge({
+    hello: () => IMAGE_HELLO,
+    "clipboard.readImage": () => ({ result: { base64: tooLong } }),
+  });
+  const device = await installed();
+  await assert.rejects(device.clipboard.readImage(), (err) => err instanceof DeviceError && err.code === "failed");
+  assert.throws(() => decodeBase64("not base64!"), (err) => err instanceof DeviceError && err.code === "failed");
+});
+
+test("encodeBinary and decodeBinary reach nested values and leave the rest alone", async () => {
+  const encoded = await encodeBinary({ a: [PNG], b: { c: new Uint16Array([1]) }, d: "x", e: null, f: 2 });
+  assert.deepEqual(encoded, { a: [{ base64: encodeBase64(PNG) }], b: { c: { base64: "AQA=" } }, d: "x", e: null, f: 2 });
+  const decoded = decodeBinary({ a: [{ base64: encodeBase64(PNG) }], keep: { base64: "AQA=", name: "two keys" } }) as {
+    a: Uint8Array[];
+    keep: unknown;
+  };
+  assert.deepEqual([...decoded.a[0]], [...PNG]);
+  assert.deepEqual(decoded.keep, { base64: "AQA=", name: "two keys" });
+  // Larger than one String.fromCharCode chunk, through the fallback too.
+  const bytes = new Uint8Array(100_000).map((_, i) => i % 251);
+  assert.deepEqual([...decodeBase64(encodeBase64(bytes))], [...bytes]);
 });

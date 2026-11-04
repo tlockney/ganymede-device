@@ -354,8 +354,15 @@ side has one dispatcher:
 - Binary: over the WebKit hop, base64 in `{ base64 }` fields.
   `WKScriptMessage.body` carries only property-list values (strings,
   numbers, booleans, null, arrays, dictionaries), so an `ArrayBuffer`
-  doesn't cross it. Re-check when a Phase 1 binary method lands; other
-  transports may carry raw bytes.
+  doesn't cross it. Other transports may carry raw bytes. Checked when
+  the clipboard images landed (#22): the TypeScript encoder takes about
+  13 ms per MiB and the decoder about 6 to 10 ms per MiB in Node 22
+  (Safari 18.2 and later use the native `toBase64`/`fromBase64`), and
+  the text is a third larger, against about 1 ms per MiB for the
+  Worker's structured clone. With one value capped at 16 MiB that is a
+  few hundred milliseconds at worst, fine for clipboard images, picked
+  files and photos; a streaming method (camera frames, audio) should
+  get its own transport rather than base64 per message.
 - Reply: `{ id, result }` or `{ id, error: { code, message } }`.
 - Stream: `{ id, event, value }` until `{ id, end: true }`; cancel with
   `{ id, cancel: true }`.

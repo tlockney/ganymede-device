@@ -6,6 +6,14 @@ private final class FakeClipboard: Clipboard {
     var text: String?
     func readText() -> String? { text }
     func writeText(_ text: String) { self.text = text }
+    var image: Data?
+    func readImage() -> Data? { image }
+    func writeImage(_ data: Data) -> Bool {
+        // Stands in for the image decoder: PNG's signature, or not an image.
+        guard data.starts(with: [0x89, 0x50, 0x4E, 0x47]) else { return false }
+        image = data
+        return true
+    }
 }
 
 @MainActor
@@ -42,7 +50,8 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(result?["appVersion"] as? String, "1.2.3")
         XCTAssertEqual(
             result?["capabilities"] as? [String],
-            ["clipboard.readText", "clipboard.writeText", "info", "openURL"] + (SystemHaptics().isAvailable
+            ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL"]
+                + (SystemHaptics().isAvailable
                 ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
         )
         #if os(macOS)
@@ -58,6 +67,35 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(bridge.handle(["id": 2, "method": "clipboard.writeText", "params": ["text": "Io"]])["result"] is NSNull)
         XCTAssertEqual(clipboard.text, "Io")
         XCTAssertEqual(bridge.handle(["id": 3, "method": "clipboard.readText", "params": [:]])["result"] as? String, "Io")
+    }
+
+    func testClipboardImagesCrossAsBase64() {
+        let clipboard = FakeClipboard()
+        let bridge = DeviceBridge(clipboard: clipboard, appVersion: "")
+        XCTAssertTrue(bridge.handle(["id": 1, "method": "clipboard.readImage"])["result"] is NSNull)
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 255])
+        let write = bridge.handle(["id": 2, "method": "clipboard.writeImage", "params": ["image": ["base64": png.base64EncodedString()]]])
+        XCTAssertTrue(write["result"] is NSNull, "\(write)")
+        XCTAssertEqual(clipboard.image, png)
+        let read = bridge.handle(["id": 3, "method": "clipboard.readImage"])["result"] as? [String: Any]
+        XCTAssertEqual(read?["base64"] as? String, png.base64EncodedString())
+    }
+
+    func testBadImagesFail() {
+        let clipboard = FakeClipboard()
+        let bridge = DeviceBridge(clipboard: clipboard, appVersion: "")
+        func write(_ image: Any) -> String? {
+            errorCode(bridge.handle(["id": 1, "method": "clipboard.writeImage", "params": ["image": image]]))
+        }
+        XCTAssertEqual(write("iVBORw=="), "failed", "a bare string isn't bytes")
+        XCTAssertEqual(write(["base64": "not base64!"]), "failed")
+        XCTAssertEqual(write(["base64": Data("text".utf8).base64EncodedString()]), "failed", "not an image")
+        let tooBig = String(repeating: "A", count: (DeviceBridge.maxBinaryBytes / 3 + 1) * 4)
+        XCTAssertEqual(write(["base64": tooBig]), "failed")
+        XCTAssertNil(clipboard.image)
+
+        clipboard.image = Data(count: DeviceBridge.maxBinaryBytes + 1)
+        XCTAssertEqual(errorCode(bridge.handle(["id": 2, "method": "clipboard.readImage"])), "failed")
     }
 
     func testErrorsCarryProtocolCodes() {

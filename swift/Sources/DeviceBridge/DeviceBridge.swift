@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import WebKit
 #if os(macOS)
 import AppKit
@@ -82,6 +83,20 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             clipboard.writeText(text)
             return ["result": NSNull()]
+        case "clipboard.readImage":
+            guard let png = clipboard.readImage() else { return ["result": NSNull()] }
+            return Self.binaryResult(png)
+        case "clipboard.writeImage":
+            let image: Data
+            do {
+                image = try Self.bytes(params["image"])
+            } catch {
+                return Self.error("failed", "clipboard.writeImage: \(error)")
+            }
+            guard clipboard.writeImage(image) else {
+                return Self.error("failed", "clipboard.writeImage takes PNG, JPEG, GIF, HEIC or TIFF bytes")
+            }
+            return ["result": NSNull()]
         case "info":
             return ["result": state.current()]
         case "openURL":
@@ -98,7 +113,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// The methods every bridge answers. `capabilities` adds what this
     /// device has.
-    public static let capabilities = ["clipboard.readText", "clipboard.writeText", "info", "openURL"]
+    public static let capabilities = [
+        "clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
+    ]
 
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
@@ -178,13 +195,62 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static func error(_ code: String, _ message: String) -> [String: Any] {
         ["error": ["code": code, "message": message]]
     }
+
+    // MARK: Binary values
+
+    /// The largest binary value one call carries, either way: 16 MiB, as
+    /// `MAX_BINARY_BYTES` in src/binary.ts.
+    public static let maxBinaryBytes = 16 * 1024 * 1024
+
+    /// Why a binary value was refused. Its description is the reply's message.
+    public struct BinaryError: Error, CustomStringConvertible {
+        public let description: String
+    }
+
+    /// The bytes in a `{ base64 }` value (docs/protocol.md, "Binary values").
+    public static func bytes(_ value: Any?) throws -> Data {
+        guard let object = value as? [String: Any], let text = object["base64"] as? String else {
+            throw BinaryError(description: "expected bytes ({ base64 })")
+        }
+        // Every 4 characters are 3 bytes, less the padding; check before
+        // decoding.
+        let padding = text.hasSuffix("==") ? 2 : text.hasSuffix("=") ? 1 : 0
+        guard text.utf8.count * 3 / 4 - padding <= maxBinaryBytes else {
+            throw BinaryError(description: "binary values are limited to \(maxBinaryBytes) bytes")
+        }
+        guard let data = Data(base64Encoded: text) else {
+            throw BinaryError(description: "malformed base64")
+        }
+        return data
+    }
+
+    /// `data` as a `{ base64 }` value.
+    public static func binary(_ data: Data) throws -> [String: Any] {
+        guard data.count <= maxBinaryBytes else {
+            throw BinaryError(description: "binary values are limited to \(maxBinaryBytes) bytes; this one is \(data.count)")
+        }
+        return ["base64": data.base64EncodedString()]
+    }
+
+    private static func binaryResult(_ data: Data) -> [String: Any] {
+        do {
+            return ["result": try binary(data)]
+        } catch {
+            return Self.error("failed", "\(error)")
+        }
+    }
 }
 
-/// The text clipboard, behind a protocol so tests needn't touch the real one.
+/// The clipboard, behind a protocol so tests needn't touch the real one.
 @MainActor
 public protocol Clipboard {
     func readText() -> String?
     func writeText(_ text: String)
+    /// The clipboard's image as PNG, or nil when it holds none.
+    func readImage() -> Data?
+    /// Puts an image on the clipboard. False when `data` isn't an image
+    /// the platform reads (PNG, JPEG, GIF, HEIC, TIFF).
+    func writeImage(_ data: Data) -> Bool
 }
 
 /// The system pasteboard.
@@ -208,6 +274,44 @@ public struct SystemClipboard: Clipboard {
         UIPasteboard.general.string = text
         #endif
     }
+
+    public func readImage() -> Data? {
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        if let png = pasteboard.data(forType: .png) { return png }
+        guard NSImage.canInit(with: pasteboard), let image = NSImage(pasteboard: pasteboard) else { return nil }
+        return Self.png(image)
+        #else
+        let pasteboard = UIPasteboard.general
+        // `hasImages` doesn't show the paste prompt; reading does.
+        guard pasteboard.hasImages else { return nil }
+        return pasteboard.data(forPasteboardType: UTType.png.identifier) ?? pasteboard.image?.pngData()
+        #endif
+    }
+
+    public func writeImage(_ data: Data) -> Bool {
+        #if os(macOS)
+        guard let image = NSImage(data: data), let png = Self.png(image), let tiff = image.tiffRepresentation else {
+            return false
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.declareTypes([.png, .tiff], owner: nil)
+        pasteboard.setData(png, forType: .png)
+        pasteboard.setData(tiff, forType: .tiff)
+        return true
+        #else
+        guard let image = UIImage(data: data), let png = image.pngData() else { return false }
+        UIPasteboard.general.setData(png, forPasteboardType: UTType.png.identifier)
+        return true
+        #endif
+    }
+
+    #if os(macOS)
+    private static func png(_ image: NSImage) -> Data? {
+        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+    #endif
 }
 
 public enum ImpactStyle: String, Sendable {

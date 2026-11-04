@@ -3,6 +3,8 @@
 // DeviceBridge through `window.webkit.messageHandlers.device`, a
 // WKScriptMessageHandlerWithReply. The wire format is in docs/protocol.md.
 
+import { decodeBinary, encodeBinary } from "./binary.ts";
+
 /** What startBrowserKernel's `host` option takes (cdp-kernel's HostHandler). */
 export type HostHandler = (request: { method: string; params: unknown }, signal: AbortSignal) => Promise<unknown>;
 
@@ -36,6 +38,7 @@ let nextId = 0;
  * `{ error: { code, message } }`; an error becomes a thrown DeviceError
  * shape, which cdp-kernel carries to the Worker by name, message and code.
  * Aborting sends `{ id, cancel: true }` so Swift can dismiss what it showed.
+ * Bytes cross as `{ base64 }` both ways (docs/protocol.md, "Binary values").
  */
 export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
   const name = options.name ?? "device";
@@ -43,15 +46,19 @@ export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
     const handler = findMessageHandler(name);
     if (!handler) throw deviceError("unavailable", "this page isn't in the app (no WebKit device handler)");
     if (signal.aborted) throw deviceError("cancelled", `${method} was cancelled before it was sent`);
+    // Encoded before the call has an id, so a value over the limit never
+    // reaches Swift.
+    const encoded = await encodeBinary(params ?? {});
+    if (signal.aborted) throw deviceError("cancelled", `${method} was cancelled before it was sent`);
     const id = ++nextId;
     const onAbort = () => void handler.postMessage({ id, cancel: true }).catch(() => {});
     signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const reply = await handler.postMessage({ id, method, params: params ?? {} });
+      const reply = await handler.postMessage({ id, method, params: encoded });
       if (isRecord(reply) && isRecord(reply.error)) {
         throw deviceError(String(reply.error.code ?? "failed"), String(reply.error.message ?? `${method} failed`));
       }
-      return isRecord(reply) ? reply.result : undefined;
+      return isRecord(reply) ? decodeBinary(reply.result) : undefined;
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
