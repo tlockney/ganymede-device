@@ -22,6 +22,7 @@ export async function toBytes(value: Bytes): Promise<Uint8Array> {
   if (value instanceof Uint8Array) {
     // A view of part of a buffer is copied, so the Worker's postMessage,
     // which clones the whole buffer behind a view, carries only its bytes.
+    checkSize(value.byteLength);
     bytes = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength ? value : value.slice();
   }
   else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
