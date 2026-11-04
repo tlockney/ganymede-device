@@ -109,9 +109,11 @@ in `src/support.ts`.
 
 `ui.*` calls wait on a person, so Swift answers them when the dialog
 closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
-The Mac shows each as a sheet on the key window; iPhone and iPad show an
-alert, an action sheet (a popover with no arrow on an iPad) or a date
-picker sheet over the key window's top view controller.
+Each shows on the window of the web view that sent the call, the notebook
+whose cell asked, or on the key window when that isn't known. The Mac
+shows a sheet; iPhone and iPad show an alert, an action sheet (a popover
+with no arrow on an iPad) or a date picker sheet over that window's top
+view controller.
 
 - One dialog at a time per bridge. A second call waits for the first to
   close, in the order the calls came, rather than failing: a cell that

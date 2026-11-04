@@ -49,15 +49,17 @@ private struct FakeState: DeviceState {
 @MainActor
 private final class FakePresenter: DialogPresenter {
     var shown: [Dialog] = []
+    var hosts: [DialogHost?] = []
     var closed = 0
     var refuse = false
     /// Holds each close's `gone` until `finishClosing()`, as an animation would.
     var slowClose = false
     private var closing: [() -> Void] = []
     private var answers: [(DialogResult) -> Void] = []
-    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
+    func present(_ dialog: Dialog, on host: DialogHost?, done: @escaping (DialogResult) -> Void) throws -> Close {
         if refuse { throw DialogUnavailable(description: "no window") }
         shown.append(dialog)
+        hosts.append(host)
         answers.append(done)
         return { [weak self] gone in
             guard let self else { return }
@@ -343,6 +345,22 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(replies.all.count, 2)
     }
 
+    func testADialogShowsOnThePageThatAsked() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let page = DialogHost()
+        bridge.respond(to: ["id": 1, "method": "ui.alert", "params": ["message": "m"]], from: page) { _ in }
+        XCTAssertTrue(presenter.hosts.last! === page)
+    }
+
+    func testAnActionSheetsDestructiveIsAnIndex() throws {
+        let sheet = { (destructive: Any) in
+            try Dialog(method: "ui.actionSheet", params: ["title": "t", "options": ["a", "b"], "destructive": destructive])
+        }
+        XCTAssertEqual(try sheet(NSNumber(value: 1)), .actionSheet(title: "t", message: nil, options: ["a", "b"], cancel: nil, destructive: 1))
+        XCTAssertEqual(try sheet(NSNumber(value: true)), .actionSheet(title: "t", message: nil, options: ["a", "b"], cancel: nil, destructive: nil))
+    }
+
     func testBadDialogsFail() {
         let presenter = FakePresenter()
         let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
@@ -353,6 +371,8 @@ final class DeviceBridgeTests: XCTestCase {
             ["id": 3, "method": "ui.pickDate", "params": ["mode": "week"]],
             ["id": 4, "method": "ui.pickDate", "params": ["min": "yesterday"]],
             ["method": "ui.alert", "params": ["message": "no id"]],
+            ["id": 1e300, "method": "ui.alert", "params": ["message": "id too big"]],
+            ["id": Double.infinity, "method": "ui.alert", "params": ["message": "id not finite"]],
         ]
         for call in bad {
             bridge.respond(to: call, reply: replies.reply)

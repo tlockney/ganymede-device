@@ -59,12 +59,13 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             replyHandler(Self.error("unavailable", "device calls are taken from the kernel page only"), nil)
             return
         }
-        respond(to: message.body) { replyHandler($0, nil) }
+        respond(to: message.body, from: message.webView) { replyHandler($0, nil) }
     }
 
     /// Answers one message, now or, for a dialog, once the person closes
-    /// it. `reply` is called once.
-    public func respond(to body: Any, reply: @escaping ([String: Any]) -> Void) {
+    /// it. `reply` is called once. A dialog shows on `host`'s window, the
+    /// notebook whose page asked, or on the key window without one.
+    public func respond(to body: Any, from host: DialogHost? = nil, reply: @escaping ([String: Any]) -> Void) {
         guard let call = body as? [String: Any], let method = call["method"] as? String,
               Self.dialogMethods.contains(method)
         else {
@@ -82,7 +83,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             reply(Self.error("failed", "\(error)"))
             return
         }
-        dialogs.show(dialog, id: id) { outcome in
+        dialogs.show(dialog, id: id, on: host) { outcome in
             switch outcome {
             case let .answered(result):
                 reply(["result": result])
@@ -165,7 +166,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// an NSNumber.
     private static func callID(_ value: Any?) -> Int? {
         if let n = value as? Int { return n }
-        if let n = value as? Double, n == n.rounded() { return Int(n) }
+        if let n = value as? Double { return Int(exactly: n) }
         return nil
     }
 

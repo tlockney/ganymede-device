@@ -10,6 +10,14 @@ import UIKit
 // `Dialog`, a `DialogQueue` shows one at a time through a
 // `DialogPresenter`, and the person's answer becomes the reply.
 
+/// The view whose window a dialog belongs on: the kernel web view of the
+/// notebook whose cell asked.
+#if os(macOS)
+public typealias DialogHost = NSView
+#else
+public typealias DialogHost = UIView
+#endif
+
 public enum DateMode: String, Sendable {
     case date, time, datetime
 }
@@ -61,7 +69,7 @@ public enum Dialog: Equatable, Sendable {
             }
             self = .actionSheet(
                 title: try need("title"), message: text("message"), options: options,
-                cancel: text("cancel"), destructive: (params["destructive"] as? NSNumber)?.intValue
+                cancel: text("cancel"), destructive: Self.index(params["destructive"])
             )
         case "ui.pickDate":
             guard let mode = DateMode(rawValue: text("mode") ?? "datetime") else {
@@ -90,6 +98,13 @@ public enum Dialog: Equatable, Sendable {
         default:
             return NSNull()
         }
+    }
+
+    /// A whole number, not a boolean, which WebKit also hands over as an
+    /// NSNumber.
+    private static func index(_ value: Any?) -> Int? {
+        guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        return Int(exactly: n.doubleValue)
     }
 
     /// Reads what `Date.prototype.toISOString` writes, with or without
@@ -131,8 +146,9 @@ public protocol DialogPresenter {
     /// has gone; `done` may still be called then, and is ignored. The next
     /// dialog shows only after one of the two, so it never lands on a
     /// dialog still animating out. Throws when there is nowhere to show
-    /// it, such as no window.
-    func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close
+    /// it, such as no window. `host` is the view of the page that asked,
+    /// when known; the dialog shows on its window.
+    func present(_ dialog: Dialog, on host: DialogHost?, done: @escaping (DialogResult) -> Void) throws -> Close
 }
 
 /// Closes a dialog, then calls its argument once the dialog has gone.
@@ -152,6 +168,7 @@ final class DialogQueue {
     private struct Waiting {
         let id: Int
         let dialog: Dialog
+        weak var host: DialogHost?
         let reply: (Outcome) -> Void
     }
 
@@ -177,8 +194,8 @@ final class DialogQueue {
         self.presenter = presenter
     }
 
-    func show(_ dialog: Dialog, id: Int, reply: @escaping (Outcome) -> Void) {
-        waiting.append(Waiting(id: id, dialog: dialog, reply: reply))
+    func show(_ dialog: Dialog, id: Int, on host: DialogHost?, reply: @escaping (Outcome) -> Void) {
+        waiting.append(Waiting(id: id, dialog: dialog, host: host, reply: reply))
         next()
     }
 
@@ -207,7 +224,7 @@ final class DialogQueue {
         let current = Showing(id: call.id, reply: call.reply)
         showing = current
         do {
-            let close = try presenter.present(call.dialog) { [weak self] answer in
+            let close = try presenter.present(call.dialog, on: call.host) { [weak self] answer in
                 self?.finish(current, .answered(call.dialog.result(answer)))
             }
             current.close = close
@@ -256,8 +273,8 @@ public struct DialogUnavailable: Error, CustomStringConvertible {
 public struct SystemDialogPresenter: DialogPresenter {
     public init() {}
 
-    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
-        guard let window = NSApp?.keyWindow ?? NSApp?.mainWindow ?? NSApp?.windows.first(where: { $0.isVisible }) else {
+    public func present(_ dialog: Dialog, on host: DialogHost?, done: @escaping (DialogResult) -> Void) throws -> Close {
+        guard let window = host?.window ?? NSApp?.keyWindow ?? NSApp?.mainWindow ?? NSApp?.windows.first(where: { $0.isVisible }) else {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
         let alert = NSAlert()
@@ -343,8 +360,9 @@ public struct SystemDialogPresenter: DialogPresenter {
 public struct SystemDialogPresenter: DialogPresenter {
     public init() {}
 
-    public func present(_ dialog: Dialog, done: @escaping (DialogResult) -> Void) throws -> Close {
-        guard let top = Self.topViewController() else {
+    public func present(_ dialog: Dialog, on host: DialogHost?, done: @escaping (DialogResult) -> Void) throws -> Close {
+        let window = host?.window
+        guard let top = Self.topViewController(in: window) else {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
         let controller: UIViewController
@@ -399,7 +417,7 @@ public struct SystemDialogPresenter: DialogPresenter {
         let show = {
             guard !state.closed else { return }
             // Whatever is on top once the transition has ended.
-            (Self.topViewController() ?? top).present(controller, animated: true)
+            (Self.topViewController(in: window) ?? top).present(controller, animated: true)
             state.presented = true
         }
         // UIKit drops a presentation on a controller still going away, such
@@ -425,10 +443,12 @@ public struct SystemDialogPresenter: DialogPresenter {
         var closed = false
     }
 
-    private static func topViewController() -> UIViewController? {
+    /// The top view controller of `window` (the asking page's), or else of
+    /// the foreground scene's key window.
+    private static func topViewController(in window: UIWindow?) -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        var top = (scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first)?.rootViewController
+        var top = (window ?? scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first)?.rootViewController
         while let presented = top?.presentedViewController {
             top = presented
         }
