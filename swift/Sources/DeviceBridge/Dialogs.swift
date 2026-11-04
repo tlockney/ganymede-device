@@ -221,9 +221,10 @@ final class DialogQueue {
     }
 }
 
-/// Why the system presenter couldn't show a dialog.
+/// Why a presenter couldn't show a dialog; the call fails `unavailable`.
 public struct DialogUnavailable: Error, CustomStringConvertible {
     public let description: String
+    public init(description: String) { self.description = description }
 }
 
 #if os(macOS)

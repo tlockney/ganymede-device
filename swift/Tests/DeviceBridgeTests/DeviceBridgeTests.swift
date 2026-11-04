@@ -1,6 +1,13 @@
 import DeviceBridge
 import XCTest
 
+/// A date from what `Date.prototype.toISOString` writes.
+private func isoDate(_ text: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: text)
+}
+
 @MainActor
 private final class FakeClipboard: Clipboard {
     var text: String?
@@ -238,10 +245,10 @@ final class DeviceBridgeTests: XCTestCase {
         presenter.answer(.option(1))
         XCTAssertEqual(replies.last?["result"] as? Int, 1)
 
-        let min = Dialog.parseDate("2026-01-01T00:00:00.000Z")!
+        let min = isoDate("2026-01-01T00:00:00.000Z")!
         ask(7, "ui.pickDate", ["mode": "date", "min": "2026-01-01T00:00:00.000Z"])
         XCTAssertEqual(presenter.shown.last, .pickDate(title: nil, mode: .date, value: nil, min: min, max: nil))
-        presenter.answer(.date(Dialog.parseDate("2026-11-04T20:30:00.250Z")!))
+        presenter.answer(.date(isoDate("2026-11-04T20:30:00.250Z")!))
         XCTAssertEqual(replies.last?["result"] as? String, "2026-11-04T20:30:00.250Z")
         XCTAssertEqual(replies.all.count, 7)
         XCTAssertTrue(replies.all.allSatisfy { JSONSerialization.isValidJSONObject($0) })
