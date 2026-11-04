@@ -63,9 +63,14 @@ Rules for the Swift handler:
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `hello` | `{}` | `{ platform, appVersion, model?, osVersion?, capabilities: string[] }`, where `capabilities` lists the methods below this host answers |
+| `hello` | `{}` | `{ platform, appVersion, model?, osVersion?, capabilities: string[] }`, where `capabilities` lists the methods below this host answers. Haptics are listed only on an iPhone: iPads and Macs have no Taptic Engine |
 | `clipboard.readText` | `{}` | the text, or `null` when the clipboard holds none |
 | `clipboard.writeText` | `{ text }` | `null` |
+| `info` | `{}` | `{ isPad, screen?: { width, height, scale }, battery?: { level, charging }, darkMode, locale }`, read when called; `battery` is left out without one, and `level` (0 to 1) is `null` when unknown |
+| `haptics.impact` | `{ style }`: `light`, `medium`, `heavy`, `soft` or `rigid` | `null` |
+| `haptics.notification` | `{ type }`: `success`, `warning` or `error` | `null` |
+| `haptics.selection` | `{}` | `null` |
+| `openURL` | `{ url, inApp }` | `null`; only `http`, `https` and `mailto` URLs, anything else fails `failed`. `inApp` shows a web page in a Safari view on iOS and iPadOS |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it

@@ -23,6 +23,21 @@ export const SUPPORT = {
     note: "iPadOS shows its paste prompt; a browser needs a click for the Clipboard API.",
   },
   "clipboard.writeText": { onDevice: true, remote: true, browser: "click", note: "A browser needs a click for the Clipboard API." },
+  info: {
+    onDevice: true,
+    remote: true,
+    browser: true,
+    note: "A browser has no model or battery.",
+  },
+  "haptics.impact": { onDevice: true, remote: true, browser: false, note: "iPhone only: iPads and Macs have no Taptic Engine. A browser has no haptics API Safari supports." },
+  "haptics.notification": { onDevice: true, remote: true, browser: false, note: "iPhone only: iPads and Macs have no Taptic Engine." },
+  "haptics.selection": { onDevice: true, remote: true, browser: false, note: "iPhone only: iPads and Macs have no Taptic Engine." },
+  openURL: {
+    onDevice: true,
+    remote: true,
+    browser: "click",
+    note: "http, https and mailto only. `inApp` works on iPhone and iPad, not the Mac; a browser opens a tab after a click.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;
