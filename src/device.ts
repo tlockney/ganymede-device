@@ -14,15 +14,40 @@ export interface DeviceTransport {
   call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown>;
 }
 
-/** What the host answers to `hello`, once, before the first cell. */
+/** What the host answers to `hello`, once, before the first cell, and the current state when it answers `info`. */
 export interface DeviceInfo {
   /** "macos", "ipados", or "browser". */
   platform: string;
   appVersion: string;
+  /** The hardware model identifier, such as "Mac14,2" or "iPad13,4". */
   model?: string;
   osVersion?: string;
   /** The methods this host answers, such as "clipboard.readText". */
   capabilities: string[];
+  /** The rest is from `info`, read when `info()` is called, on hosts that answer it. */
+  isPad?: boolean;
+  /** The main screen in points, and its points-to-pixels scale. */
+  screen?: { width: number; height: number; scale: number };
+  /** Absent on a device without a battery. `level` is 0 to 1, or null when unknown. */
+  battery?: { level: number | null; charging: boolean };
+  darkMode?: boolean;
+  /** The person's locale as a BCP 47 tag, such as "en-US". */
+  locale?: string;
+}
+
+export type ImpactStyle = "light" | "medium" | "heavy" | "soft" | "rigid";
+export type NotificationFeedback = "success" | "warning" | "error";
+
+/** Taptic feedback. iPhone only: iPads and Macs have no Taptic Engine, so there `has()` is false and calls fail `unavailable`. */
+export interface Haptics {
+  impact(style?: ImpactStyle, options?: CallOptions): Promise<void>;
+  notification(type: NotificationFeedback, options?: CallOptions): Promise<void>;
+  selection(options?: CallOptions): Promise<void>;
+}
+
+export interface OpenURLOptions extends CallOptions {
+  /** On iPadOS, show the page in the app (Safari view) instead of switching to Safari. Ignored on the Mac. */
+  inApp?: boolean;
 }
 
 export interface Clipboard {
@@ -32,11 +57,18 @@ export interface Clipboard {
 }
 
 export interface Device {
-  /** The host's answer to `hello`, as it was when the kernel started. */
-  info(): Promise<DeviceInfo>;
+  /**
+   * The host's answer to `hello`, as it was when the kernel started, with
+   * the current screen, battery, appearance and locale when the host
+   * answers `info`.
+   */
+  info(options?: CallOptions): Promise<DeviceInfo>;
   /** Whether the host answers `method`. Synchronous: it reads the cached `hello`. */
   has(method: string): boolean;
   readonly clipboard: Clipboard;
+  readonly haptics: Haptics;
+  /** Opens an `http`, `https` or `mailto` URL; other schemes fail `failed`. */
+  openURL(url: string | URL, options?: OpenURLOptions): Promise<void>;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -64,7 +96,20 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
     }
   }
   return {
-    info: () => Promise.resolve(structuredClone(info)),
+    async info(options) {
+      const snapshot = structuredClone(info);
+      if (!capabilities.has("info")) return snapshot;
+      const current = await call("info", {}, options);
+      // What `hello` said stays as it said it: the capabilities are what
+      // this device was built with.
+      return {
+        ...snapshot,
+        ...(isRecord(current) ? current : {}),
+        platform: snapshot.platform,
+        appVersion: snapshot.appVersion,
+        capabilities: snapshot.capabilities,
+      };
+    },
     has: (method) => capabilities.has(method),
     clipboard: {
       async readText(options) {
@@ -74,6 +119,21 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       async writeText(text, options) {
         await call("clipboard.writeText", { text: String(text) }, options);
       },
+    },
+    haptics: {
+      async impact(style = "medium", options) {
+        await call("haptics.impact", { style }, options);
+      },
+      async notification(type, options) {
+        await call("haptics.notification", { type }, options);
+      },
+      async selection(options) {
+        await call("haptics.selection", {}, options);
+      },
+    },
+    async openURL(url, options = {}) {
+      const { inApp = false, ...callOptions } = options;
+      await call("openURL", { url: String(url), inApp }, callOptions);
     },
   };
 }

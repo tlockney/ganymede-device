@@ -116,7 +116,56 @@ test("the support matrix has a row for every method the device calls, and no oth
   const device = createDevice(transport, { platform: "test", appVersion: "", capabilities: Object.keys(SUPPORT) });
   await device.clipboard.readText();
   await device.clipboard.writeText("");
+  await device.info();
+  await device.haptics.impact();
+  await device.haptics.notification("success");
+  await device.haptics.selection();
+  await device.openURL("https://example.com");
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
+});
+
+test("info adds the host's current state to hello, which it can't change", async () => {
+  const hello = { platform: "ipados", appVersion: "0.1", model: "iPad13,4", capabilities: ["info"] };
+  const current = {
+    platform: "macos",
+    capabilities: ["everything"],
+    isPad: true,
+    screen: { width: 1180, height: 820, scale: 2 },
+    battery: { level: 0.5, charging: false },
+    darkMode: true,
+    locale: "en-US",
+  };
+  const device = createDevice({ call: () => Promise.resolve(current) }, hello);
+  assert.deepEqual(await device.info(), { ...current, platform: "ipados", appVersion: "0.1", model: "iPad13,4", capabilities: ["info"] });
+});
+
+test("info on a host that doesn't answer it is the hello snapshot, without asking", async () => {
+  const transport: DeviceTransport = { call: () => Promise.reject(new Error("asked")) };
+  const hello = { platform: "macos", appVersion: "0.1", capabilities: [] };
+  assert.deepEqual(await createDevice(transport, hello).info(), hello);
+});
+
+test("haptics and openURL send their parameters; a Mac without haptics refuses them itself", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(null)) };
+  const ipad = createDevice(transport, { platform: "ipados", appVersion: "", capabilities: Object.keys(SUPPORT) });
+  await ipad.haptics.impact("heavy");
+  await ipad.haptics.impact();
+  await ipad.haptics.notification("error");
+  await ipad.openURL(new URL("https://deno.com/"), { inApp: true });
+  await ipad.openURL("mailto:a@example.com");
+  assert.deepEqual(sent, [
+    ["haptics.impact", { style: "heavy" }],
+    ["haptics.impact", { style: "medium" }],
+    ["haptics.notification", { type: "error" }],
+    ["openURL", { url: "https://deno.com/", inApp: true }],
+    ["openURL", { url: "mailto:a@example.com", inApp: false }],
+  ]);
+
+  const mac = createDevice(transport, { platform: "macos", appVersion: "", capabilities: ["openURL"] });
+  assert.equal(mac.has("haptics.impact"), false);
+  await assert.rejects(mac.haptics.selection(), (err) => err instanceof DeviceError && err.code === "unavailable");
+  assert.equal(sent.length, 5);
 });
 
 test("two kernels' handlers never send Swift the same id, so a cancel names one call", async () => {
