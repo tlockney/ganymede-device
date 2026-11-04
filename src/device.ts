@@ -92,8 +92,11 @@ export async function hello(transport: DeviceTransport): Promise<DeviceInfo> {
 
 export function createDevice(transport: DeviceTransport, info: DeviceInfo): Device {
   const capabilities = new Set(info.capabilities);
-  async function call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
+  function requireMethod(method: string): void {
     if (!capabilities.has(method)) throw new DeviceError("unavailable", `${method} isn't available on ${info.platform}`);
+  }
+  async function call(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
+    requireMethod(method);
     try {
       return await transport.call(method, params, options);
     } catch (err) {
@@ -131,6 +134,8 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
         return null;
       },
       async writeImage(image, options) {
+        // Checked first, so a host without it fails `unavailable` before a Blob is read.
+        requireMethod("clipboard.writeImage");
         await call("clipboard.writeImage", { image: await toBytes(image) }, options);
       },
     },

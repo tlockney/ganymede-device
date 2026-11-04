@@ -19,7 +19,11 @@ export const MAX_BINARY_BYTES = 16 * 1024 * 1024;
 /** `value` as a `Uint8Array`, or a `failed` DeviceError when it isn't bytes or is over the limit. */
 export async function toBytes(value: Bytes): Promise<Uint8Array> {
   let bytes: Uint8Array;
-  if (value instanceof Uint8Array) bytes = value;
+  if (value instanceof Uint8Array) {
+    // A view of part of a buffer is copied, so the Worker's postMessage,
+    // which clones the whole buffer behind a view, carries only its bytes.
+    bytes = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength ? value : value.slice();
+  }
   else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
   else if (typeof Blob !== "undefined" && value instanceof Blob) {
     checkSize(value.size);

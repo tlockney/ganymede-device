@@ -268,6 +268,22 @@ test("a call aborted while its bytes are encoded never reaches Swift", async () 
   assert.deepEqual(received, []);
 });
 
+test("a view of part of a buffer is sent as its own bytes", async () => {
+  const { toBytes } = await import("../src/binary.ts");
+  const big = new Uint8Array(1024).fill(7);
+  const part = await toBytes(big.subarray(10, 20));
+  assert.equal(part.buffer.byteLength, 10);
+  assert.deepEqual([...part], new Array(10).fill(7));
+  const whole = await toBytes(big);
+  assert.equal(whole, big, "a whole buffer isn't copied");
+});
+
+test("writeImage on a host without it is unavailable, whatever it was given", async () => {
+  fakeBridge({ hello: () => HELLO });
+  const device = await installed();
+  await assert.rejects(device.clipboard.writeImage("not bytes" as unknown as Uint8Array), (err) => err instanceof DeviceError && err.code === "unavailable");
+});
+
 test("a binary value over the limit fails before it reaches Swift", async () => {
   const received = fakeBridge({ hello: () => IMAGE_HELLO, "clipboard.writeImage": () => ({ result: null }) });
   const device = await installed();
