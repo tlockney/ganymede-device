@@ -407,16 +407,15 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
         if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== "string" || !t))) {
           throw new DeviceError("failed", "files.pick: types must be an array of MIME types or extensions");
         }
+        if (typeof multiple !== "boolean") throw new DeviceError("failed", "files.pick: multiple must be a boolean");
         return pickedFiles("files.pick", await call("files.pick", { multiple, ...defined({ types }) }, { signal }));
       },
       async export(data, options) {
         const { signal, name } = options ?? ({} as ExportFileOptions);
         if (!isPlainName(name)) throw new DeviceError("failed", "files.export needs a plain file name (no slashes)");
         requireMethod("files.export");
+        // toBytes refuses anything over MAX_BINARY_BYTES.
         const bytes = await toBytes(data);
-        if (bytes.byteLength > MAX_BINARY_BYTES) {
-          throw new DeviceError("failed", `files.export: files are limited to ${MAX_BINARY_BYTES} bytes`);
-        }
         return (await call("files.export", { name, data: bytes }, { signal })) === true;
       },
     },

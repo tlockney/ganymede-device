@@ -41,7 +41,17 @@ enum PickedFiles {
         return .files(files)
     }
 
-    static let tooLarge = DialogResult.failed("the picked files together are over \(DeviceBridge.maxBinaryBytes) bytes")
+    /// `read` off the main thread (a file on a network volume or in iCloud
+    /// can take a while), answering on the main queue.
+    static func readInBackground(_ urls: [URL], removeAfter: Bool = false, done: @escaping (DialogResult) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = read(urls, removeAfter: removeAfter)
+            DispatchQueue.main.async { done(result) }
+        }
+    }
+
+    static let tooLargeMessage = "the picked files together are over \(DeviceBridge.maxBinaryBytes) bytes"
+    static let tooLarge = DialogResult.failed(tooLargeMessage)
 
     static func mimeType(_ pathExtension: String) -> String {
         UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? ""
@@ -55,10 +65,13 @@ enum PhotoLoader {
         let lock = NSLock()
         var files: [PickedFile?]
         var failure: String?
+        var total = 0
         init(count: Int) { files = Array(repeating: nil, count: count) }
     }
 
-    static func load(_ providers: [NSItemProvider], done: @escaping (DialogResult) -> Void) {
+    /// Stops reading once the photos together pass `limit`, so a large
+    /// selection fails rather than filling memory.
+    static func load(_ providers: [NSItemProvider], limit: Int = DeviceBridge.maxBinaryBytes, done: @escaping (DialogResult) -> Void) {
         guard !providers.isEmpty else { return done(.dismissed) }
         let gathered = Gathered(count: providers.count)
         let group = DispatchGroup()
@@ -77,7 +90,12 @@ enum PhotoLoader {
                 let result: Result<PickedFile, Error> = Result {
                     guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
                     let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= DeviceBridge.maxBinaryBytes else { throw CocoaError(.fileReadTooLarge) }
+                    // Count it before reading, and skip the read once over.
+                    gathered.lock.lock()
+                    let over = gathered.failure != nil || gathered.total + size > limit
+                    if !over { gathered.total += size }
+                    gathered.lock.unlock()
+                    guard !over else { throw TooLarge() }
                     let name = (provider.suggestedName ?? "photo-\(index + 1)") + "." + (type.preferredFilenameExtension ?? url.pathExtension)
                     return PickedFile(name: name, type: type.preferredMIMEType ?? "", data: try Data(contentsOf: url))
                 }
@@ -85,6 +103,7 @@ enum PhotoLoader {
                 defer { gathered.lock.unlock() }
                 switch result {
                 case let .success(file): gathered.files[index] = file
+                case .failure(is TooLarge): gathered.failure = gathered.failure ?? PickedFiles.tooLargeMessage
                 case let .failure(error): gathered.failure = "couldn't load a picked photo: \(error.localizedDescription)"
                 }
             }
@@ -92,10 +111,12 @@ enum PhotoLoader {
         group.notify(queue: .main) {
             if let failure = gathered.failure { return done(.failed(failure)) }
             let files = gathered.files.compactMap { $0 }
-            guard files.reduce(0, { $0 + $1.data.count }) <= DeviceBridge.maxBinaryBytes else { return done(PickedFiles.tooLarge) }
+            guard files.reduce(0, { $0 + $1.data.count }) <= limit else { return done(PickedFiles.tooLarge) }
             done(.files(files))
         }
     }
+
+    private struct TooLarge: Error {}
 }
 
 private var retainedKey: UInt8 = 0
@@ -149,7 +170,7 @@ enum FilePanels {
         if !contentTypes.isEmpty { panel.allowedContentTypes = contentTypes }
         panel.beginSheetModal(for: window) { response in
             guard response == .OK else { return done(.dismissed) }
-            done(PickedFiles.read(panel.urls))
+            PickedFiles.readInBackground(panel.urls, done: done)
         }
         return { [weak window] gone in
             window?.endSheet(panel)
@@ -209,7 +230,7 @@ enum FilePicker {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes.isEmpty ? [.item] : contentTypes, asCopy: true)
         picker.allowsMultipleSelection = multiple
         let delegate = DocumentPickerDelegate(
-            picked: { urls in done(PickedFiles.read(urls, removeAfter: true)) },
+            picked: { urls in PickedFiles.readInBackground(urls, removeAfter: true, done: done) },
             cancelled: { done(.dismissed) }
         )
         picker.delegate = delegate
@@ -220,15 +241,13 @@ enum FilePicker {
     static func export(_ file: NamedFile, done: @escaping (DialogResult) -> Void) throws -> UIViewController {
         let temp = try TemporaryFiles([file])
         let picker = UIDocumentPickerViewController(forExporting: temp.urls, asCopy: true)
+        // The delegate lives as long as the picker and removes the copy when
+        // it goes, which also covers a picker closed from code (interrupt),
+        // where neither callback runs.
         let delegate = DocumentPickerDelegate(
-            picked: { _ in
-                temp.remove()
-                done(.saved)
-            },
-            cancelled: {
-                temp.remove()
-                done(.dismissed)
-            }
+            picked: { _ in done(.saved) },
+            cancelled: { done(.dismissed) },
+            temp: temp
         )
         picker.delegate = delegate
         retain(delegate, by: picker)
@@ -239,11 +258,17 @@ enum FilePicker {
 private final class DocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
     let picked: ([URL]) -> Void
     let cancelled: () -> Void
+    let temp: TemporaryFiles?
     private var answered = false
 
-    init(picked: @escaping ([URL]) -> Void, cancelled: @escaping () -> Void) {
+    init(picked: @escaping ([URL]) -> Void, cancelled: @escaping () -> Void, temp: TemporaryFiles? = nil) {
         self.picked = picked
         self.cancelled = cancelled
+        self.temp = temp
+    }
+
+    deinit {
+        temp?.remove()
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {

@@ -213,14 +213,25 @@ public enum Dialog: Equatable, Sendable {
     /// The type a `files.pick` type names: a MIME type, a wildcard such as
     /// `image/*`, or an extension with or without its dot.
     public static func contentType(_ text: String) -> UTType? {
-        let text = text.trimmingCharacters(in: .whitespaces).lowercased()
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let text = trimmed.lowercased()
         switch text {
         case "*/*", "*": return .item
         case "image/*": return .image
         case "audio/*": return .audio
         case "video/*": return .movie
         case "text/*": return .text
+        case "font/*": return .font
+        case "model/*": return .threeDContent
+        case "message/*": return .message
+        case "application/*": return .data
         default: break
+        }
+        // A type identifier such as `public.json` or `com.adobe.pdf`.
+        if !text.hasPrefix("."), !text.contains("/"), text.contains("."),
+            let type = UTType(trimmed), !type.isDynamic
+        {
+            return type
         }
         // An unknown MIME type would match no file; an unknown extension
         // still matches files with that extension.

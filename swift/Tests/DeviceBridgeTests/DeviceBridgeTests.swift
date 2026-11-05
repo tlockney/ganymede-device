@@ -1,4 +1,5 @@
-import DeviceBridge
+@testable import DeviceBridge
+import UniformTypeIdentifiers
 import XCTest
 
 /// A date from what `Date.prototype.toISOString` writes.
@@ -514,6 +515,44 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(Dialog.contentType("csv")?.identifier, "public.comma-separated-values-text")
         XCTAssertEqual(Dialog.contentType(".PNG")?.identifier, "public.png")
         XCTAssertNotNil(Dialog.contentType(".parquet"), "an unknown extension still filters by extension")
+        XCTAssertEqual(Dialog.contentType("public.json")?.identifier, "public.json", "a type identifier is taken as one")
+        XCTAssertEqual(Dialog.contentType("com.adobe.pdf")?.identifier, "com.adobe.pdf")
+        XCTAssertEqual(Dialog.contentType("font/*"), .font)
+        XCTAssertEqual(Dialog.contentType("application/*"), .data)
+    }
+
+    /// Photo providers backed by files of `sizes` bytes.
+    private func photoProviders(_ sizes: [Int]) throws -> [NSItemProvider] {
+        try sizes.map { size in
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
+            try Data(count: size).write(to: url)
+            let provider = NSItemProvider()
+            provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
+                completion(url, false, nil)
+                return nil
+            }
+            return provider
+        }
+    }
+
+    func testPhotoLoaderStopsOncePastTheLimit() throws {
+        let loaded = expectation(description: "loaded")
+        var under: DialogResult?
+        PhotoLoader.load(try photoProviders([10, 10]), limit: 100) { result in
+            under = result
+            loaded.fulfill()
+        }
+        let refused = expectation(description: "refused")
+        var over: DialogResult?
+        PhotoLoader.load(try photoProviders([10, 10, 10]), limit: 15) { result in
+            over = result
+            refused.fulfill()
+        }
+        wait(for: [loaded, refused], timeout: 10)
+        guard case let .files(files) = under else { return XCTFail("expected files, got \(String(describing: under))") }
+        XCTAssertEqual(files.map(\.data.count), [10, 10])
+        guard case let .failed(message) = over else { return XCTFail("expected failed, got \(String(describing: over))") }
+        XCTAssertEqual(message, PickedFiles.tooLargeMessage)
     }
 
     func testOtherMethodsStillAnswerThroughRespond() {

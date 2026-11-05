@@ -51,7 +51,9 @@ Rules for the Swift handler:
   `code` survives. Use the error string only for a bug in the bridge.
 - `code` is one of `unavailable`, `denied`, `cancelled`, `timeout`,
   `failed`, `disconnected` (`src/errors.ts`). A person dismissing a picker
-  or dialog is not an error: reply `{ result: null }`.
+  or dialog is not an error: reply with the method's dismissed result,
+  `null` unless its row below says otherwise (`[]` for a picker, `false`
+  for a confirm or an export).
 - After a cancel, a late result for that `id` is dropped by the page, so
   Swift needn't track whether it already answered.
 - Values are what `WKScriptMessage.body` carries: strings, numbers,
@@ -99,7 +101,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `ui.pickDate` | `{ mode: "date" \| "time" \| "datetime", title?, value?, min?, max? }`, dates as ISO 8601 strings | the date as an ISO 8601 string, or `null` when cancelled |
 | `share` | `{ text?, url?, files: [{ name, data }] }`, at least one of the three; `url` is http, https or mailto; files together at most 16 MiB | `true` when the person picked where to send them, `false` when dismissed. Shown through the dialog queue |
 | `preview` | `{ files: [{ name, data }] }`, at least one; together at most 16 MiB | `null` once Quick Look closes. Shown through the dialog queue |
-| `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards such as `image/*`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
+| `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
 
