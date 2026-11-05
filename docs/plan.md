@@ -537,14 +537,21 @@ Done:
    `files.pick`/`files.export`, `photos.pick` and `sound.play`/
    `sound.player`, with binary values as base64 and the support matrix
    in `src/support.ts` (#21, #22, #23, #25). Unit-tested on both ends;
-   not yet tried by hand in the apps.
+   not yet tried by hand in the apps. ganymede-ui installs it from
+   git, embeds the support table in its `docs/device.md`, and drops a
+   page's open handles when the kernel page navigates. The Mac app
+   isn't sandboxed, so its file panels need no entitlement.
+5. **Phase R's kernel side**: `connectDevice(jupyter.comm)` in
+   `/remote` (docs/protocol.md, "Over a Jupyter comm"). Nothing answers
+   it yet.
+6. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
+   that an HTML output can't reach the bridge.
 
 Next:
 
 1. Try Phase 1's calls in the Mac and iPad apps, including that an
-   interrupt closes a dialog or picker and that an HTML output can't
-   reach the handler (Phase 0's exit).
-2. ganymede-ui: bump the package, embed the support table in its
-   `docs/device.md`, call `dropAll()` on navigation, and check the
-   sandbox entitlement the Mac file panels need.
-3. Phase R (remote kernels, #26), then the browser fallbacks.
+   interrupt closes a dialog or picker (#21).
+2. Publish the TS package and tag the Swift package (#24).
+3. Phase R's app side (#26): the ganymede-ui plugin that answers the
+   comm, then the browser fallbacks.
+4. `device.shortcuts.run` (#40), then Phases 2 to 4 (#27).
