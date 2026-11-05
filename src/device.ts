@@ -214,10 +214,8 @@ export interface SoundState {
 
 /**
  * A loaded sound a cell controls. Close it when done, or hold it with
- * `await using`. Players live until the kernel's page reloads or
- * navigates (the app then closes them all), not until its kernel
- * restarts: in ganymede-ui every in-page kernel shares one page, and the
- * 32-player limit, so close what you open.
+ * `await using`. The app closes a kernel's players when that kernel
+ * restarts or shuts down; a kernel has at most 32 open.
  * Each method answers the player's state after the change.
  */
 export interface SoundPlayer extends AsyncDisposable {
@@ -250,7 +248,7 @@ export interface Sound {
    */
   play(data: Bytes, options?: PlaySoundOptions): Promise<void>;
   /**
-   * Loads `data` into a player, paused at the start. At most 32 open at
+   * Loads `data` into a player, paused at the start. At most 32 open per kernel at
    * once. On-device: Mac, iPad and iPhone. Remote kernels: no (a handle
    * wouldn't survive a disconnect). Browser: planned.
    */

@@ -678,6 +678,43 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(bridge.handle(play)["result"] is NSNull, "paused sounds no longer count")
     }
 
+    func testSoundsBelongToTheirKernel() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        func open(_ owner: Int) -> Int {
+            let reply = bridge.handle(["owner": owner, "method": "sound.player", "params": ["data": audio]])
+            return (reply["result"] as? [String: Any])?["player"] as? Int ?? 0
+        }
+        func state(_ owner: Int, _ player: Int) -> [String: Any] {
+            bridge.handle(["owner": owner, "method": "sound.control", "params": ["player": player]])
+        }
+        let a = open(1)
+        let b = open(2)
+        XCTAssertEqual(errorCode(state(2, a)), "failed", "another kernel's player isn't there")
+        _ = bridge.handle(["owner": 2, "method": "sound.close", "params": ["player": a]])
+        XCTAssertNotNil(state(1, a)["result"], "nor can it close it")
+
+        // Limits count per kernel.
+        for _ in 1 ..< 32 { _ = open(1) }
+        XCTAssertEqual(errorCode(bridge.handle(["owner": 1, "method": "sound.player", "params": ["data": audio]])), "failed")
+        XCTAssertNotEqual(open(2), 0, "kernel 2 still has room")
+
+        // Kernel 1's Worker restarts: its new hello closes what the old one opened.
+        _ = bridge.handle(["owner": 1, "method": "sound.play", "params": ["data": audio]])
+        let kernel1Sound = loader.loaded.last
+        XCTAssertEqual(kernel1Sound?.isPlaying, true)
+        XCTAssertNotNil(bridge.handle(["owner": 1, "method": "hello"])["result"])
+        XCTAssertEqual(kernel1Sound?.isPlaying, false, "its sound stops")
+        XCTAssertEqual(errorCode(state(1, a)), "failed", "its players close")
+        XCTAssertNotNil(state(2, b)["result"], "kernel 2's stay")
+        XCTAssertNotEqual(open(1), 0, "and kernel 1 has its slots back")
+
+        // Kernel 2 shuts down: release closes its players.
+        XCTAssertTrue(bridge.handle(["owner": 2, "release": true])["result"] is NSNull)
+        XCTAssertEqual(errorCode(state(2, b)), "failed")
+    }
+
     func testBadSoundsFail() {
         let loader = FakeSoundLoader()
         let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")

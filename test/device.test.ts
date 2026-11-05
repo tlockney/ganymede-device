@@ -8,7 +8,7 @@ import { webkitHost } from "../src/webkit.ts";
 import { createDevice, type Device, DeviceError, type DeviceTransport, MAX_BINARY_BYTES, SUPPORT, supportTable, unavailableDevice } from "../src/mod.ts";
 import { decodeBase64, decodeBinary, encodeBase64, encodeBinary } from "../src/binary.ts";
 
-type Message = { id: number; method?: string; params?: Record<string, unknown>; cancel?: true };
+type Message = { id: number; owner?: number; method?: string; params?: Record<string, unknown>; cancel?: true; release?: true };
 
 /** A fake Swift bridge: answers by method, records what it was sent. */
 function fakeBridge(answers: Record<string, (params: Record<string, unknown>) => unknown>) {
@@ -199,6 +199,19 @@ test("two kernels' handlers never send Swift the same id, so a cancel names one 
   assert.deepEqual(received.at(-1), { id: one.id, cancel: true });
   b.abort();
   assert.deepEqual(received.at(-1), { id: two.id, cancel: true });
+});
+
+test("each kernel's handler names its owner on every call, and release names it too", async () => {
+  const received = fakeBridge({ "clipboard.readText": () => ({ result: "x" }) });
+  const first = webkitHost();
+  const second = webkitHost();
+  assert.notEqual(first.owner, second.owner);
+  const signal = new AbortController().signal;
+  await first({ method: "clipboard.readText", params: {} }, signal);
+  await second({ method: "clipboard.readText", params: {} }, signal);
+  assert.deepEqual(received.map((m) => m.owner), [first.owner, second.owner]);
+  first.release();
+  assert.deepEqual(received.at(-1), { owner: first.owner, release: true });
 });
 
 test("a call aborted before it starts never reaches Swift", async () => {
