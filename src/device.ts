@@ -9,7 +9,8 @@ import { DeviceError } from "./errors.ts";
 /**
  * Every method takes these. Aborting `signal`, or interrupting the kernel,
  * cancels the call: it rejects with a `DeviceError` whose code is
- * `cancelled`, and the host drops any dialog or prompt it showed for it.
+ * `cancelled` (`timeout` for `AbortSignal.timeout()`), and the host drops
+ * any dialog or prompt it showed for it.
  *
  * Where each method works is in `SUPPORT` (src/support.ts); the docs'
  * table is generated from it.
