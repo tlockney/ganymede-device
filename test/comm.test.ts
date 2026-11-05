@@ -61,7 +61,7 @@ function fakeKernel(options: { answer?: boolean; reply?: (msg: Record<string, un
   let target: ((comm: CommLike, msg: CommMessageLike) => void) | undefined;
   const announces: FakeComm[] = [];
   const calls: FakeComm[] = [];
-  const state = { answer: options.answer ?? true };
+  const state = { answer: options.answer ?? true, pong: true, registered: 0 };
   const api: CommApiLike = {
     open(name, data) {
       assert.equal(name, ANNOUNCE_TARGET);
@@ -73,6 +73,7 @@ function fakeKernel(options: { answer?: boolean; reply?: (msg: Record<string, un
     },
     registerTarget(name, handler) {
       assert.equal(name, CALLS_TARGET);
+      state.registered++;
       target = handler;
     },
   };
@@ -80,6 +81,10 @@ function fakeKernel(options: { answer?: boolean; reply?: (msg: Record<string, un
     const comm = new FakeComm();
     comm.peer = (data) => {
       if (data.cancel) return;
+      if (typeof data.ping === "number") {
+        if (state.pong) queueMicrotask(() => comm.receive({ pong: data.ping }));
+        return;
+      }
       const answer = options.reply?.(data);
       if (answer) queueMicrotask(() => comm.receive({ id: data.id, ...answer }));
     };
@@ -156,4 +161,59 @@ test("when the app goes away, calls in flight reject disconnected and the next c
   kernel.calls[1].remoteClose();
   kernel.state.answer = false;
   await assert.rejects(device.clipboard.readText(), (err) => err instanceof DeviceError && err.code === "disconnected");
+});
+
+const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("connecting again from another cell reuses the link and its calls target", async () => {
+  const kernel = fakeKernel({ reply: () => ({ result: "ok" }) });
+  const first = await connectDevice(kernel.api);
+  const second = await connectDevice(kernel.api);
+  assert.equal(kernel.state.registered, 1);
+  assert.equal(kernel.announces.length, 1, "the open calls comm is reused");
+  assert.equal(await first.clipboard.readText(), "ok");
+  assert.equal(await second.clipboard.readText(), "ok");
+});
+
+test("an app that answers pings keeps a slow call alive; one that goes silent is dropped", async () => {
+  const kernel = fakeKernel({ reply: () => null });
+  const device = await connectDevice(kernel.api, { pingMs: 5 });
+  const slow = device.clipboard.readText();
+  let settled = false;
+  slow.catch(() => {}).finally(() => (settled = true));
+  await tick(40);
+  assert.equal(settled, false, "pongs keep it waiting");
+  assert.ok(kernel.calls[0].sent.some((m) => typeof m.ping === "number"));
+  kernel.state.pong = false;
+  await assert.rejects(slow, (err) => err instanceof DeviceError && err.code === "disconnected");
+  assert.equal(kernel.calls[0].closed, true);
+});
+
+test("after a failed reconnect, calls fail at once until the retry window passes", async () => {
+  const kernel = fakeKernel({ reply: () => ({ result: "ok" }) });
+  const device = await connectDevice(kernel.api, { timeoutMs: 10, retryMs: 30 });
+  kernel.state.answer = false;
+  kernel.calls[0].remoteClose();
+  await assert.rejects(device.clipboard.readText(), (err) => err instanceof DeviceError && err.code === "disconnected");
+  assert.equal(kernel.announces.length, 2);
+  await assert.rejects(device.clipboard.readText(), (err) => err instanceof DeviceError && err.code === "disconnected");
+  assert.equal(kernel.announces.length, 2, "no second announce inside the window");
+  await tick(35);
+  kernel.state.answer = true;
+  assert.equal(await device.clipboard.readText(), "ok");
+  assert.equal(kernel.announces.length, 3);
+});
+
+test("a reconnect stops waiting when the caller's signal aborts", async () => {
+  const kernel = fakeKernel({ reply: () => ({ result: "ok" }) });
+  const device = await connectDevice(kernel.api, { timeoutMs: 1000 });
+  kernel.state.answer = false;
+  kernel.calls[0].remoteClose();
+  const controller = new AbortController();
+  const call = device.clipboard.readText({ signal: controller.signal });
+  await tick(5);
+  controller.abort();
+  await assert.rejects(call, (err) => err instanceof DeviceError && err.code === "cancelled");
+  // Let the announce run out so the test ends cleanly.
+  kernel.openCalls();
 });

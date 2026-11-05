@@ -164,7 +164,21 @@ binary values as `{ base64 }` as on the WebKit hop, so the app forwards
 them to `DeviceBridge` unchanged. An abort rejects at once and sends the
 cancel; a late reply is dropped. When the calls comm closes, calls in
 flight reject `disconnected` and the next call announces again (it
-rejects `disconnected` if no app answers).
+rejects `disconnected` if no app answers, and calls in the next 10 s
+reject at once rather than announce again).
+
+A frontend that is killed or suspended sends no `comm_close`, so while
+calls are in flight the kernel sends `{ ping: n }` every 5 s and the app
+answers `{ pong: n }`. A comm that has sent nothing for two pings is
+dropped as if closed. A kernel connects once per `jupyter.comm`:
+`connectDevice` from a later cell reuses the link and its target.
+
+The kernel can't read a comm message while a cell runs unless it handles
+comms off the shell queue (kernel subshells, JEP 91, which JupyterLab
+uses for comms when the kernel offers them). cdp-kernel doesn't yet, so
+a call awaited inside a cell stalls there until it times out; see
+tlockney/cdp-kernel#417. An interrupt doesn't cancel a
+call either: pass a `signal`.
 
 The kernel offers only the remote subset: methods whose `remote` column
 in `src/support.ts` isn't `no`, whatever the app's `hello` lists. The
