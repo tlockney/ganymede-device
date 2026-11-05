@@ -101,7 +101,8 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(
             result?["capabilities"] as? [String],
             ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
-             "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview"]
+             "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview",
+             "files.pick", "files.export", "photos.pick"]
                 + (SystemHaptics().isAvailable
                 ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
         )
