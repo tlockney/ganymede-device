@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import install, { type WorkerHost } from "../src/preload.ts";
 import { webkitHost } from "../src/webkit.ts";
-import { createDevice, type Device, DeviceError, type DeviceTransport, MAX_BINARY_BYTES, SUPPORT, unavailableDevice } from "../src/mod.ts";
+import { createDevice, type Device, DeviceError, type DeviceTransport, MAX_BINARY_BYTES, SUPPORT, supportTable, unavailableDevice } from "../src/mod.ts";
 import { decodeBase64, decodeBinary, encodeBase64, encodeBinary } from "../src/binary.ts";
 
 type Message = { id: number; method?: string; params?: Record<string, unknown>; cancel?: true };
@@ -323,6 +323,39 @@ test("encodeBinary and decodeBinary reach nested values and leave the rest alone
   // Larger than one String.fromCharCode chunk, through the fallback too.
   const bytes = new Uint8Array(100_000).map((_, i) => i % 251);
   assert.deepEqual([...decodeBase64(encodeBase64(bytes))], [...bytes]);
+});
+
+test("supportTable has one row per method, and a note line per note", () => {
+  const table = supportTable();
+  const rows = table.split("\n").filter((l) => l.startsWith("| `device."));
+  assert.deepEqual(
+    rows.map((r) => /`device\.([\w.]+)/.exec(r)![1]),
+    Object.values(SUPPORT).map((r) => /^[\w.]+/.exec(r.call)![0]),
+  );
+  assert.deepEqual(
+    Object.values(SUPPORT).map((r) => /^[\w.]+/.exec(r.call)![0]),
+    Object.keys(SUPPORT),
+    "each row's call names its own method",
+  );
+  assert.equal(table.split("\n").filter((l) => l.startsWith("- `device.")).length, Object.values(SUPPORT).filter((r) => "note" in r).length);
+});
+
+test("supportTable says what ships, what's planned and what can't work", () => {
+  const table = supportTable({
+    a: { call: "a()", returns: "nothing", onDevice: "yes", devices: "iPhone", remote: "planned", browser: "no" },
+    b: { call: "b()", returns: "nothing", onDevice: "planned", remote: "no", browser: "planned", browserClick: true, note: "Why." },
+  });
+  assert.equal(
+    table,
+    [
+      "| Method | Returns | In the app | Remote kernel | Browser |",
+      "| --- | --- | --- | --- | --- |",
+      "| `device.a()` | nothing | iPhone | planned | no |",
+      "| `device.b()` | nothing | planned | no | planned, after a click |",
+      "",
+      "- `device.b()`: Why.",
+    ].join("\n"),
+  );
 });
 
 test("dialogs send what the cell asked and return what the person chose", async () => {

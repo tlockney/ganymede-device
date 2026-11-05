@@ -103,7 +103,8 @@ missing from `capabilities` is never sent: the TypeScript side rejects it
 as `unavailable` itself.
 
 Support for each method across on-device, remote and browser kernels is
-in `src/support.ts`.
+in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
+`supportTable()` renders the table in ganymede-ui's `docs/device.md`.
 
 ## Dialogs
 

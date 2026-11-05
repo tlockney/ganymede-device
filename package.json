@@ -35,7 +35,8 @@
     "build": "node scripts/build.mjs",
     "prepare": "npm run build",
     "check": "tsc -p tsconfig.json",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "support-table": "node -e \"import('./src/support.ts').then((m) => console.log(m.supportTable()))\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

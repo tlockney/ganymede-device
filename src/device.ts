@@ -6,6 +6,14 @@
 import { type Bytes, toBytes } from "./binary.ts";
 import { DeviceError } from "./errors.ts";
 
+/**
+ * Every method takes these. Aborting `signal`, or interrupting the kernel,
+ * cancels the call: it rejects with a `DeviceError` whose code is
+ * `cancelled`, and the host drops any dialog or prompt it showed for it.
+ *
+ * Where each method works is in `SUPPORT` (src/support.ts); the docs'
+ * table is generated from it.
+ */
 export interface CallOptions {
   signal?: AbortSignal;
 }
@@ -39,10 +47,17 @@ export interface DeviceInfo {
 export type ImpactStyle = "light" | "medium" | "heavy" | "soft" | "rigid";
 export type NotificationFeedback = "success" | "warning" | "error";
 
-/** Taptic feedback. iPhone only: iPads and Macs have no Taptic Engine, so there `has()` is false and calls fail `unavailable`. */
+/**
+ * Taptic feedback. iPhone only: iPads and Macs have no Taptic Engine, so
+ * there `has()` is false and calls fail `unavailable`. No permission.
+ * Remote kernels: planned. Browser: no.
+ */
 export interface Haptics {
+  /** A tap, `"medium"` by default. Cancel rejects `cancelled`; the tap may already have played. */
   impact(style?: ImpactStyle, options?: CallOptions): Promise<void>;
+  /** The success, warning or error pattern. Cancel rejects `cancelled`. */
   notification(type: NotificationFeedback, options?: CallOptions): Promise<void>;
+  /** The tick of a picker moving. Cancel rejects `cancelled`. */
   selection(options?: CallOptions): Promise<void>;
 }
 
@@ -51,13 +66,23 @@ export interface OpenURLOptions extends CallOptions {
   inApp?: boolean;
 }
 
+/**
+ * The system clipboard. On-device: Mac, iPad and iPhone, no permission
+ * (iPadOS may show its paste prompt on a read). Remote kernels and the
+ * browser: planned; a browser will need a click first.
+ */
 export interface Clipboard {
-  /** The clipboard's text, or null when it holds none. */
+  /** The clipboard's text, or null when it holds none. Cancel rejects `cancelled`. */
   readText(options?: CallOptions): Promise<string | null>;
+  /** Replaces the clipboard with `text`. Cancel rejects `cancelled`; the write may already have happened. */
   writeText(text: string, options?: CallOptions): Promise<void>;
-  /** The clipboard's image as PNG bytes, or null when it holds none. */
+  /** The clipboard's image as PNG bytes, or null when it holds none. Cancel rejects `cancelled`. */
   readImage(options?: CallOptions): Promise<Uint8Array | null>;
-  /** Puts an image on the clipboard. PNG, JPEG, GIF, HEIC or TIFF bytes; anything else fails `failed`. */
+  /**
+   * Puts an image on the clipboard. PNG, JPEG, GIF, HEIC or TIFF bytes;
+   * anything else fails `failed`. Cancel rejects `cancelled`; the write may
+   * already have happened.
+   */
   writeImage(image: Bytes, options?: CallOptions): Promise<void>;
 }
 
@@ -108,18 +133,20 @@ export interface PickDateOptions extends CallOptions {
  * Dialogs the app shows over the notebook: sheets on the Mac, alerts on
  * iPhone and iPad. One shows at a time; a second call waits for the first
  * to close. Dismissing one is not an error: it returns `null` or `false`.
- * An interrupt or an aborted `signal` closes it and rejects `cancelled`.
+ * An interrupt or an aborted `signal` closes it and rejects `cancelled`
+ * (`timeout` for `AbortSignal.timeout()`). On-device: Mac, iPad and iPhone,
+ * no permission. Remote kernels and the browser: planned.
  */
 export interface UI {
-  /** Shows `message` with an OK button, and resolves when it is closed. */
+  /** Shows `message` with an OK button, and resolves when it is closed. Cancel closes it and rejects `cancelled`. */
   alert(message: string, options?: AlertOptions): Promise<void>;
-  /** True when the person confirms, false when they cancel or dismiss it. */
+  /** True when the person confirms, false when they cancel or dismiss it. Cancel closes it and rejects `cancelled`. */
   confirm(message: string, options?: ConfirmOptions): Promise<boolean>;
-  /** The text entered, or null when the person cancels. */
+  /** The text entered, or null when the person cancels. Cancel closes it and rejects `cancelled`. */
   prompt(message: string, options?: PromptOptions): Promise<string | null>;
-  /** The index of the option chosen, or null when the person cancels. */
+  /** The index of the option chosen, or null when the person cancels. Cancel closes it and rejects `cancelled`. */
   actionSheet(title: string, options: string[], sheetOptions?: ActionSheetOptions): Promise<number | null>;
-  /** The date chosen, or null when the person cancels. */
+  /** The date chosen, or null when the person cancels. Cancel closes it and rejects `cancelled`. */
   pickDate(options?: PickDateOptions): Promise<Date | null>;
 }
 
@@ -127,15 +154,27 @@ export interface Device {
   /**
    * The host's answer to `hello`, as it was when the kernel started, with
    * the current screen, battery, appearance and locale when the host
-   * answers `info`.
+   * answers `info`. On-device: Mac, iPad and iPhone, no permission. Remote
+   * kernels and the browser: planned (a browser has no model or battery).
+   * Cancel rejects `cancelled`.
    */
   info(options?: CallOptions): Promise<DeviceInfo>;
-  /** Whether the host answers `method`. Synchronous: it reads the cached `hello`. */
+  /**
+   * Whether the host answers `method`, such as `"clipboard.readText"`.
+   * Synchronous: it reads the cached `hello`, so it can't be cancelled.
+   */
   has(method: string): boolean;
   readonly clipboard: Clipboard;
   readonly haptics: Haptics;
-  /** Opens an `http`, `https` or `mailto` URL; other schemes fail `failed`. */
+  /**
+   * Opens an `http`, `https` or `mailto` URL; other schemes fail `failed`.
+   * On-device: Mac, iPad and iPhone, no permission; `inApp` only on iPad
+   * and iPhone. Remote kernels and the browser: planned (a browser opens a
+   * tab after a click). Cancel rejects `cancelled`; the URL may already
+   * have opened.
+   */
   openURL(url: string | URL, options?: OpenURLOptions): Promise<void>;
+  /** Dialogs over the notebook; see `UI`. */
   readonly ui: UI;
 }
 
