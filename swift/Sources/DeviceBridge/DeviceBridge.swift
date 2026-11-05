@@ -262,10 +262,12 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     // MARK: Binary values
+    //
+    // Nonisolated: `Dialog` parses its params off the main actor.
 
     /// The largest binary value one call carries, either way: 16 MiB, as
     /// `MAX_BINARY_BYTES` in src/binary.ts.
-    public static let maxBinaryBytes = 16 * 1024 * 1024
+    nonisolated public static let maxBinaryBytes = 16 * 1024 * 1024
 
     /// Why a binary value was refused. Its description is the reply's message.
     public struct BinaryError: Error, CustomStringConvertible {
@@ -273,7 +275,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     /// The bytes in a `{ base64 }` value (docs/protocol.md, "Binary values").
-    public static func bytes(_ value: Any?) throws -> Data {
+    nonisolated public static func bytes(_ value: Any?) throws -> Data {
         guard let object = value as? [String: Any], let text = object["base64"] as? String else {
             throw BinaryError(description: "expected bytes ({ base64 })")
         }
@@ -290,7 +292,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     /// `data` as a `{ base64 }` value.
-    public static func binary(_ data: Data) throws -> [String: Any] {
+    nonisolated public static func binary(_ data: Data) throws -> [String: Any] {
         guard data.count <= maxBinaryBytes else {
             throw BinaryError(description: "binary values are limited to \(maxBinaryBytes) bytes; this one is \(data.count)")
         }
