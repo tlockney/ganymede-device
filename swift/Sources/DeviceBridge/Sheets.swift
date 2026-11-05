@@ -27,11 +27,32 @@ final class TemporaryFiles {
     let directory: URL
     let urls: [URL]
 
+    /// Where every `TemporaryFiles` goes.
+    static var root: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ganymede-device", isDirectory: true)
+    }
+
+    /// Folders left from an earlier run (the app quit before `removeLater`
+    /// fired) are removed the first time files are written.
+    private static var swept = false
+
+    /// Removes folders under `root` older than `age` seconds.
+    static func sweep(olderThan age: TimeInterval = 600) {
+        let fm = FileManager.default
+        let folders = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for folder in folders {
+            let modified = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            if Date().timeIntervalSince(modified) > age { try? fm.removeItem(at: folder) }
+        }
+    }
+
     init(_ files: [NamedFile]) throws {
         let fm = FileManager.default
-        directory = fm.temporaryDirectory
-            .appendingPathComponent("ganymede-device", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        if !Self.swept {
+            Self.swept = true
+            Self.sweep()
+        }
+        directory = Self.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         var urls: [URL] = []
         do {
             for (index, file) in files.enumerated() {
@@ -150,7 +171,10 @@ private final class ShareDelegate: NSObject, NSSharingServicePickerDelegate {
 enum PreviewPresenter {
     static func present(files: [NamedFile], window: NSWindow, done: @escaping (DialogResult) -> Void) throws -> Close {
         let temp = try TemporaryFiles(files)
-        let sheet = PreviewSheet(urls: temp.urls)
+        guard let sheet = PreviewSheet(urls: temp.urls) else {
+            temp.remove()
+            throw DialogUnavailable(description: "Quick Look couldn't open a preview")
+        }
         window.beginSheet(sheet.window) { _ in
             sheet.closePreview()
             temp.remove()
@@ -180,13 +204,14 @@ private final class PreviewSheet: NSObject {
     private let previous = NSButton(title: "Previous", target: nil, action: nil)
     private let next = NSButton(title: "Next", target: nil, action: nil)
 
-    init(urls: [URL]) {
+    init?(urls: [URL]) {
         self.urls = urls
         window = PreviewWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
             styleMask: [.titled, .resizable], backing: .buffered, defer: true
         )
-        preview = QLPreviewView(frame: NSRect(x: 0, y: 0, width: 760, height: 500), style: .normal)!
+        guard let preview = QLPreviewView(frame: NSRect(x: 0, y: 0, width: 760, height: 500), style: .normal) else { return nil }
+        self.preview = preview
         super.init()
         let done = NSButton(title: "Done", target: self, action: #selector(close))
         done.keyEquivalent = "\r"

@@ -83,6 +83,13 @@ enum PhotoLoader {
                 gathered.lock.unlock()
                 continue
             }
+            // After a non-image item, ask for no more copies. (The size
+            // limit is checked as each copy arrives; the copies are
+            // asked for together, so this rarely sees that failure.)
+            gathered.lock.lock()
+            let failed = gathered.failure != nil
+            gathered.lock.unlock()
+            if failed { break }
             group.enter()
             provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
                 defer { group.leave() }

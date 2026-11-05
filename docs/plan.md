@@ -258,7 +258,9 @@ Design patterns worth copying from Juno:
 - **Explicit lifetimes for native resources**: BLE connections and audio
   players are context managers. Ours: handles implement
   `Symbol.asyncDispose` so `await using conn = await p.connect()` works,
-  and the Swift side closes everything when the kernel restarts or exits.
+  and the Swift side closes everything when the kernel page reloads or
+  navigates (`dropAll()`). Not yet per kernel: a restart cancels calls in
+  flight but leaves open players (ganymede-device#37).
 - **Plain records**: dataclasses with every field optional on input
   (`Contact`, `Reminder`), so `add({ title: "Buy milk" })` works.
 - **Narrow, honest scope**: each module documents what it doesn't wrap
@@ -510,7 +512,7 @@ Settled by 2026-11-01: the package lives in its own repo,
 Swift `DeviceBridge` beside it; and `device` is a global, installed by
 cdp-kernel's `preload` hook (cdp-kernel#384).
 
-## Where things stand (2026-11-02)
+## Where things stand (2026-11-05)
 
 The device API lives in its own repo, `tlockney/ganymede-device`: not
 Ganymede (the Rust core never sees a device call) and not cdp-kernel (a
@@ -529,10 +531,19 @@ Done:
 3. **Phase 0's Swift side**: the `DeviceBridge` package here, registered
    by ganymede-ui's Mac and iPad apps on their hidden kernel web view
    (ganymede-ui `apple/`), which installs this package from git.
+4. **Phase 1's methods, on-device**: `info`, haptics, the text and image
+   clipboard, `openURL`, the `ui` dialogs, `share`, `preview`,
+   `files.pick`/`files.export`, `photos.pick` and `sound.play`/
+   `sound.player`, with binary values as base64 and the support matrix
+   in `src/support.ts` (#21, #22, #23, #25). Unit-tested on both ends;
+   not yet tried by hand in the apps.
 
 Next:
 
-1. Try a cell's `device.clipboard` calls in the Mac and iPad apps,
-   including that an interrupt cancels a pending call and that an HTML
-   output can't reach the handler (Phase 0's exit).
-2. Phase 1.
+1. Try Phase 1's calls in the Mac and iPad apps, including that an
+   interrupt closes a dialog or picker and that an HTML output can't
+   reach the handler (Phase 0's exit).
+2. ganymede-ui: bump the package, embed the support table in its
+   `docs/device.md`, call `dropAll()` on navigation, and check the
+   sandbox entitlement the Mac file panels need.
+3. Phase R (remote kernels, #26), then the browser fallbacks.

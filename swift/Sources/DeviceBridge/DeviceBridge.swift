@@ -23,6 +23,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let urlOpener: URLOpener
     private let state: DeviceState
     private let dialogs: DialogQueue
+    private let sounds: Sounds
     private let appVersion: String
 
     public init(
@@ -31,6 +32,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         urlOpener: URLOpener? = nil,
         state: DeviceState? = nil,
         presenter: DialogPresenter? = nil,
+        sounds: SoundLoader? = nil,
         appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     ) {
         // Made here, not as the default arguments: defaults are evaluated
@@ -40,6 +42,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.urlOpener = urlOpener ?? SystemURLOpener()
         self.state = state ?? SystemDeviceState()
         self.dialogs = DialogQueue(presenter: presenter ?? SystemDialogPresenter())
+        self.sounds = Sounds(loader: sounds ?? SystemSoundLoader())
         self.appVersion = appVersion
     }
 
@@ -95,12 +98,13 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    /// Closes every dialog shown or waiting, as when the kernel page
+    /// Closes every dialog shown or waiting and stops every sound, as when the kernel page
     /// navigates or its web content process ends (docs/protocol.md): the
     /// new page's ids start over, so none of them may be answered. Call it
     /// from the web view's navigation delegate.
     public func dropAll() {
         dialogs.dropAll()
+        sounds.stopAll()
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
@@ -155,6 +159,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
                 return Self.error("unavailable", "this device has no haptics")
             }
             return haptic(method, params)
+        case "sound.play", "sound.player", "sound.control", "sound.close":
+            return sounds.handle(method, params)
         case _ where Self.dialogMethods.contains(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         default:
@@ -175,7 +181,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public static let capabilities = [
         "clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
         "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview",
-        "files.pick", "files.export", "photos.pick",
+        "files.pick", "files.export", "photos.pick", "sound.play", "sound.player", "sound.control", "sound.close",
     ]
 
     /// The methods that show a dialog or sheet and answer once it closes.
@@ -265,7 +271,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     // MARK: Binary values
     //
-    // Nonisolated: `Dialog` parses its params off the main actor.
+    // Nonisolated: `Dialog.init`, which calls these, isn't main-actor isolated.
 
     /// The largest binary value one call carries, either way: 16 MiB, as
     /// `MAX_BINARY_BYTES` in src/binary.ts.
