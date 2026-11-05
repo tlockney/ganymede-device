@@ -386,7 +386,8 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       },
       setVolume(volume, options) {
         try {
-          checkVolume(volume);
+          // Required here: an omitted volume would change nothing.
+          checkVolume(volume ?? NaN);
         } catch (err) {
           return Promise.reject(err);
         }

@@ -45,7 +45,7 @@ not to a kernel, so they outlive a restart (ganymede-device#37).
 | Message | Meaning | Reply |
 | --- | --- | --- |
 | `{ id, method, params }` | A call. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
-| `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed. | Anything; ignored |
+| `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the player a `sound.player` call opened (the page drops its answer, so it has no id to close). | Anything; ignored |
 
 Rules for the Swift handler:
 
@@ -106,9 +106,9 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`, which allows any file), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
-| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per page |
+| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per page (one an audio interruption paused no longer counts) |
 | `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per page, shared by the page's kernels |
-| `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change |
+| `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change; a bad `action` or `time` fails `failed` and changes nothing, and `play` fails `failed` when the sound can't start |
 | `sound.close` | `{ player }` | `null`; closing one already closed is fine |
 
 `hello` is called once per Worker start, before the first cell. A method

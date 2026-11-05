@@ -599,3 +599,17 @@ test("a sound player controls the host's player by id and closes once", async ()
   assert.equal(sent.filter(([m]) => m === "sound.close").length, 2, "a second close sends nothing");
   await assert.rejects(player.play(), (err) => err instanceof DeviceError && err.code === "failed");
 });
+
+test("setVolume needs a volume", async () => {
+  const sent: string[] = [];
+  const transport: DeviceTransport = {
+    call(method) {
+      sent.push(method);
+      return Promise.resolve(method === "sound.player" ? { player: 1, duration: 1 } : { playing: false, time: 0, duration: 1 });
+    },
+  };
+  const device = createDevice(transport, { platform: "macos", appVersion: "", capabilities: ["sound.player", "sound.control", "sound.close"] });
+  const player = await device.sound.player(new Uint8Array([1]));
+  await assert.rejects(player.setVolume(undefined as unknown as number), (err) => err instanceof DeviceError && err.code === "failed");
+  assert.deepEqual(sent, ["sound.player"]);
+});

@@ -85,15 +85,22 @@ final class Sounds {
     /// `sound.play` sounds, kept until they end.
     private var playing: [ObjectIdentifier: SoundPlayback] = [:]
     private var players: [Int: SoundPlayback] = [:]
+    /// The player each `sound.player` call opened, by call id, so a cancel
+    /// that arrives after the answer closes it: the page drops that answer,
+    /// so nothing else would. Kept while the player is open.
+    private var openedBy: [Int: Int] = [:]
     private var nextID = 1
 
     init(loader: SoundLoader) {
         self.loader = loader
     }
 
-    func handle(_ method: String, _ params: [String: Any]) -> [String: Any] {
+    /// `call` is the call's id, when the page sent one.
+    func handle(_ method: String, _ params: [String: Any], call: Int? = nil) -> [String: Any] {
         switch method {
         case "sound.play":
+            // A sound an audio interruption paused never finishes; let it go.
+            playing = playing.filter { $0.value.isPlaying }
             guard playing.count < Self.maxPlaying else {
                 return DeviceBridge.error("failed", "sound.play: \(Self.maxPlaying) sounds are playing; wait for one to end")
             }
@@ -125,44 +132,62 @@ final class Sounds {
             let id = nextID
             nextID += 1
             players[id] = sound
+            if let call { openedBy[call] = id }
             return ["result": ["player": id, "duration": sound.duration]]
         case "sound.control":
             guard let id = Self.number(params["player"]).flatMap({ Int(exactly: $0) }), let sound = players[id] else {
                 return DeviceBridge.error("failed", "sound.control: no open player with that id")
             }
+            // Check everything before changing anything.
+            let action = params["action"] == nil || params["action"] is NSNull ? "state" : params["action"] as? String ?? ""
+            guard ["state", "play", "pause", "stop", "seek"].contains(action) else {
+                return DeviceBridge.error("failed", "sound.control takes play, pause, stop, seek or state")
+            }
+            var time: Double?
+            if action == "seek" {
+                guard let t = Self.number(params["time"]), t.isFinite, t >= 0 else {
+                    return DeviceBridge.error("failed", "sound.control: seek needs a time in seconds")
+                }
+                time = t
+            }
+            let volume: Float?
             do {
-                if let volume = try Self.volume(params) { sound.volume = volume }
+                volume = try Self.volume(params)
             } catch {
                 return DeviceBridge.error("failed", "\(error)")
             }
-            switch params["action"] as? String {
-            case nil, "state":
-                break
+            if let volume { sound.volume = volume }
+            switch action {
             case "play":
-                sound.play()
+                guard sound.play() else {
+                    return DeviceBridge.error("failed", "sound.control: the sound couldn't start")
+                }
             case "pause":
                 sound.pause()
             case "stop":
                 sound.pause()
                 sound.currentTime = 0
             case "seek":
-                guard let time = Self.number(params["time"]), time.isFinite, time >= 0 else {
-                    return DeviceBridge.error("failed", "sound.control: seek needs a time in seconds")
-                }
-                sound.currentTime = min(time, sound.duration)
+                sound.currentTime = min(time ?? 0, sound.duration)
             default:
-                return DeviceBridge.error("failed", "sound.control takes play, pause, stop, seek or state")
+                break
             }
             return ["result": ["playing": sound.isPlaying, "time": sound.currentTime, "duration": sound.duration]]
         case "sound.close":
             guard let id = Self.number(params["player"]).flatMap({ Int(exactly: $0) }) else {
                 return DeviceBridge.error("failed", "sound.close needs a player id")
             }
-            players.removeValue(forKey: id)?.pause()
+            close(id)
             return ["result": NSNull()]
         default:
             return DeviceBridge.error("unavailable", "\(method) isn't available in this app")
         }
+    }
+
+    /// The page cancelled call `call`. If it opened a player, the page
+    /// dropped the answer and has no handle to close it with.
+    func cancel(_ call: Int) {
+        if let id = openedBy[call] { close(id) }
     }
 
     /// Stops every sound and closes every player.
@@ -171,6 +196,12 @@ final class Sounds {
         for sound in players.values { sound.pause() }
         playing = [:]
         players = [:]
+        openedBy = [:]
+    }
+
+    private func close(_ id: Int) {
+        players.removeValue(forKey: id)?.pause()
+        openedBy = openedBy.filter { $0.value != id }
     }
 
     private func load(_ method: String, _ params: [String: Any]) throws -> SoundPlayback {

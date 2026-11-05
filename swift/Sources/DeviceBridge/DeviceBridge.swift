@@ -115,9 +115,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return Self.error("failed", "a device message must be an object")
         }
         if call["cancel"] as? Bool == true {
-            // Closes the dialog the call showed, or takes it off the queue.
+            // Closes the dialog the call showed, or takes it off the queue,
+            // or closes the player it opened.
             if let id = Self.callID(call["id"]) {
                 dialogs.cancel(id)
+                sounds.cancel(id)
             }
             return ["result": NSNull()]
         }
@@ -160,7 +162,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return haptic(method, params)
         case "sound.play", "sound.player", "sound.control", "sound.close":
-            return sounds.handle(method, params)
+            return sounds.handle(method, params, call: Self.callID(call["id"]))
         case _ where Self.dialogMethods.contains(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         default:
