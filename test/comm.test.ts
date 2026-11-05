@@ -125,6 +125,12 @@ test("errors carry their code, binary results decode, and a late or second app i
   await assert.rejects(device.clipboard.writeText("x"), (err) => err instanceof DeviceError && err.code === "denied" && err.message === "no");
   const second = kernel.openCalls();
   assert.deepEqual(second.closedWith, { error: "taken" });
+  kernel.calls[0].peer = (data) => {
+    if (typeof data.ping === "number") return;
+    queueMicrotask(() => kernel.calls[0].receive(data.id === 3 ? { id: 3, error: "denied" } : { id: data.id, result: { base64: "!!" } }));
+  };
+  await assert.rejects(device.clipboard.readText(), (err) => err instanceof DeviceError && err.code === "failed", "a result that fails to decode rejects");
+  await assert.rejects(device.clipboard.readText(), (err) => err instanceof DeviceError && err.code === "failed" && err.message === "denied");
   const bad = kernel.openCalls({ nonsense: true });
   assert.equal(bad.closed, true);
 });

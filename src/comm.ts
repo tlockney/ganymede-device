@@ -240,12 +240,19 @@ class CommLink {
       const pending = this.#pending.get(id);
       if (!pending) return;
       const error = data.error;
-      if (typeof error === "object" && error !== null) {
-        const { code, message } = error as { code?: unknown; message?: unknown };
-        pending.reject(DeviceError.from({ code: String(code ?? "failed"), message: String(message ?? "the call failed") }));
-      } else {
-        pending.resolve(decodeBinary(data.result));
+      if (error !== undefined && error !== null) {
+        const { code, message } = (typeof error === "object" ? error : {}) as { code?: unknown; message?: unknown };
+        pending.reject(DeviceError.from({ code: String(code ?? "failed"), message: String(message ?? error) }));
+        return;
       }
+      let value: unknown;
+      try {
+        value = decodeBinary(data.result);
+      } catch (err) {
+        pending.reject(DeviceError.from(err));
+        return;
+      }
+      pending.resolve(value);
     });
     comm.onClose(() => this.#drop(comm));
   }
@@ -278,14 +285,17 @@ class CommLink {
     this.#pinger = setInterval(() => {
       const comm = this.#comm;
       if (!comm) return this.#watch();
-      if (performance.now() - this.#heardAt > 2 * this.pingMs) return this.#drop(comm);
+      // The pinger starts with #heardAt reset, so two pings unanswered is
+      // three intervals.
+      if (performance.now() - this.#heardAt > 3 * this.pingMs) return this.#drop(comm);
       if (!send(comm, { ping: ++this.#pings })) this.#drop(comm);
     }, this.pingMs);
   }
 }
 
-/** Sends on `comm`; false when the comm refuses (closed underneath us). */
+/** Sends on `comm`; false when it is closed (cdp-kernel's comm then drops the send quietly) or refuses. */
 function send(comm: CommLike, data: Record<string, unknown>): boolean {
+  if (comm.closed) return false;
   try {
     comm.send(data);
     return true;

@@ -180,7 +180,8 @@ uses for comms when the kernel offers them). cdp-kernel doesn't yet, so
 `connectDevice` awaited in a cell rejects `unavailable` after
 `timeoutMs`, and a call on an open link has no timeout of its own: it
 ends `disconnected` about two pings later, when the ping check drops the
-comm (pongs can't be read during the cell either); see
+comm (pongs can't be read during the cell either), which also starts
+the 10 s window in which calls fail at once; see
 tlockney/cdp-kernel#417. An interrupt doesn't cancel a
 call either: pass a `signal`.
 
