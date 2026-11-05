@@ -22,13 +22,27 @@ public enum DateMode: String, Sendable {
     case date, time, datetime
 }
 
-/// One dialog, as a cell asked for it.
+/// A file a cell hands to `share` or `preview`: the name it is shown and
+/// saved under, and its bytes.
+public struct NamedFile: Equatable, Sendable {
+    public let name: String
+    public let data: Data
+    public init(name: String, data: Data) {
+        self.name = name
+        self.data = data
+    }
+}
+
+/// One dialog, as a cell asked for it. `share` and `preview` are sheets
+/// too, so they queue with the rest.
 public enum Dialog: Equatable, Sendable {
     case alert(title: String?, message: String)
     case confirm(title: String?, message: String, destructive: Bool, okLabel: String?)
     case prompt(title: String?, message: String, placeholder: String?, defaultValue: String?, secure: Bool)
     case actionSheet(title: String, message: String?, options: [String], cancel: String?, destructive: Int?)
     case pickDate(title: String?, mode: DateMode, value: Date?, min: Date?, max: Date?)
+    case share(text: String?, url: URL?, files: [NamedFile])
+    case preview(files: [NamedFile])
 
     /// Why a dialog call's params were refused. Its description is the
     /// reply's message.
@@ -76,6 +90,27 @@ public enum Dialog: Equatable, Sendable {
                 throw ParamsError(description: "ui.pickDate takes a mode of date, time or datetime")
             }
             self = .pickDate(title: text("title"), mode: mode, value: try date("value"), min: try date("min"), max: try date("max"))
+        case "share":
+            var url: URL?
+            if let text = text("url") {
+                // The schemes openURL allows: a file: URL would put a file
+                // from the app's container on the sheet.
+                guard let parsed = URL(string: text), let scheme = parsed.scheme?.lowercased(),
+                    DeviceBridge.urlSchemes.contains(scheme)
+                else {
+                    throw ParamsError(description: "share: url must be http, https or mailto")
+                }
+                url = parsed
+            }
+            let files = try Self.files(method, params["files"] ?? [Any]())
+            guard text("text") != nil || url != nil || !files.isEmpty else {
+                throw ParamsError(description: "share needs text, a url or files")
+            }
+            self = .share(text: text("text"), url: url, files: files)
+        case "preview":
+            let files = try Self.files(method, params["files"] ?? [Any]())
+            guard !files.isEmpty else { throw ParamsError(description: "preview needs at least one file") }
+            self = .preview(files: files)
         default:
             throw ParamsError(description: "\(method) isn't a dialog")
         }
@@ -95,9 +130,42 @@ public enum Dialog: Equatable, Sendable {
             return index
         case let (.pickDate, .date(date)):
             return Self.formatDate(date)
+        case (.share, .shared):
+            return true
+        case (.share, _):
+            return false
         default:
             return NSNull()
         }
+    }
+
+    /// `[{ name, data: { base64 } }]`, each name a plain file name, all
+    /// the bytes together within the binary limit.
+    private static func files(_ method: String, _ value: Any) throws -> [NamedFile] {
+        guard let list = value as? [Any] else {
+            throw ParamsError(description: "\(method): files must be an array")
+        }
+        var files: [NamedFile] = []
+        var total = 0
+        for item in list {
+            guard let object = item as? [String: Any], let name = object["name"] as? String,
+                  NamedFile.isPlainName(name)
+            else {
+                throw ParamsError(description: "\(method): each file needs a plain file name (no slashes)")
+            }
+            let data: Data
+            do {
+                data = try DeviceBridge.bytes(object["data"])
+            } catch {
+                throw ParamsError(description: "\(method): \(name): \(error)")
+            }
+            total += data.count
+            guard total <= DeviceBridge.maxBinaryBytes else {
+                throw ParamsError(description: "\(method): files together are limited to \(DeviceBridge.maxBinaryBytes) bytes")
+            }
+            files.append(NamedFile(name: name, data: data))
+        }
+        return files
     }
 
     /// A whole number, not a boolean, which WebKit also hands over as an
@@ -135,6 +203,8 @@ public enum DialogResult: Equatable, Sendable {
     case text(String)
     case option(Int)
     case date(Date)
+    /// The share sheet's person picked where to send the items.
+    case shared
 }
 
 /// Shows dialogs, behind a protocol so tests needn't show any.
@@ -228,6 +298,8 @@ final class DialogQueue {
                 self?.finish(current, .answered(call.dialog.result(answer)))
             }
             current.close = close
+        } catch let error as DialogFailed {
+            finish(current, .failed("failed", "\(error)"))
         } catch {
             finish(current, .failed("unavailable", "\(error)"))
         }
@@ -266,6 +338,13 @@ public struct DialogUnavailable: Error, CustomStringConvertible {
     public init(description: String) { self.description = description }
 }
 
+/// A dialog that couldn't be shown for a reason other than the device:
+/// its call fails `failed`, not `unavailable`.
+public struct DialogFailed: Error, CustomStringConvertible {
+    public let description: String
+    public init(description: String) { self.description = description }
+}
+
 #if os(macOS)
 
 /// `NSAlert` sheets on the app's key window.
@@ -277,10 +356,20 @@ public struct SystemDialogPresenter: DialogPresenter {
         guard let window = host?.window ?? NSApp?.keyWindow ?? NSApp?.mainWindow ?? NSApp?.windows.first(where: { $0.isVisible }) else {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
+        switch dialog {
+        case let .share(text, url, files):
+            return try SharePresenter.present(text: text, url: url, files: files, on: host, window: window, done: done)
+        case let .preview(files):
+            return try PreviewPresenter.present(files: files, window: window, done: done)
+        default:
+            break
+        }
         let alert = NSAlert()
         let first = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         let answer: (NSApplication.ModalResponse) -> DialogResult
         switch dialog {
+        case .share, .preview:
+            preconditionFailure("shown above")
         case let .alert(title, message):
             Self.text(alert, title: title, message: message)
             alert.addButton(withTitle: "OK")
@@ -412,6 +501,10 @@ public struct SystemDialogPresenter: DialogPresenter {
             navigation.modalPresentationStyle = .formSheet
             navigation.presentationController?.delegate = picker
             controller = navigation
+        case let .share(text, url, files):
+            controller = try SharePresenter.controller(text: text, url: url, files: files, anchor: top.view, done: done)
+        case let .preview(files):
+            controller = try PreviewPresenter.controller(files: files, done: done)
         }
         let state = Presentation()
         let show = {

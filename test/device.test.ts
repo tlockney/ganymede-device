@@ -129,6 +129,8 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.ui.prompt("");
   await device.ui.actionSheet("", ["a"]);
   await device.ui.pickDate();
+  await device.share({ text: "t" });
+  await device.preview([{ name: "a.txt", data: new Uint8Array([1]) }]);
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
@@ -436,4 +438,48 @@ test("a timeout signal's abort is a timeout, and also closes the dialog", async 
   clearTimeout(alive);
   const confirm = received.find((m) => m.method === "ui.confirm")!;
   assert.deepEqual(received.at(-1), { id: confirm.id, cancel: true });
+});
+
+test("share sends text, url and named files, and says whether it was sent", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  let answer: unknown = true;
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(answer)) };
+  const device = createDevice(transport, { platform: "ios", appVersion: "", capabilities: ["share", "preview"] });
+  const file = new File([new Uint8Array([1, 2])], "plot.png", { type: "image/png" });
+  assert.equal(await device.share({ text: "hi", url: new URL("https://deno.com/"), files: [file, { name: "a.csv", data: new Uint8Array([3]) }] }), true);
+  assert.deepEqual(sent[0], [
+    "share",
+    {
+      text: "hi",
+      url: "https://deno.com/",
+      files: [
+        { name: "plot.png", data: new Uint8Array([1, 2]) },
+        { name: "a.csv", data: new Uint8Array([3]) },
+      ],
+    },
+  ]);
+  answer = null;
+  assert.equal(await device.share({ text: "hi" }), false, "a dismissed sheet is false, not an error");
+  assert.deepEqual(sent[1], ["share", { text: "hi", files: [] }]);
+  answer = null;
+  assert.equal(await device.preview([file]), undefined);
+  assert.deepEqual(sent[2], ["preview", { files: [{ name: "plot.png", data: new Uint8Array([1, 2]) }] }]);
+});
+
+test("share and preview refuse bad files before asking the host", async () => {
+  const sent: string[] = [];
+  const transport: DeviceTransport = { call: (method) => (sent.push(method), Promise.resolve(null)) };
+  const device = createDevice(transport, { platform: "ios", appVersion: "", capabilities: ["share", "preview"] });
+  const failed = (err: unknown) => err instanceof DeviceError && err.code === "failed";
+  await assert.rejects(device.share({}), failed);
+  await assert.rejects(device.share({ files: [] }), failed);
+  await assert.rejects(device.preview([]), failed);
+  for (const name of ["", "a/b", "..", "a\\b"]) {
+    await assert.rejects(device.preview([{ name, data: new Uint8Array([1]) }]), failed, JSON.stringify(name));
+  }
+  const half = new Uint8Array(MAX_BINARY_BYTES / 2 + 1);
+  await assert.rejects(device.share({ files: [{ name: "a", data: half }, { name: "b", data: half }] }), failed, "files together over the limit");
+  assert.deepEqual(sent, []);
+  const none = createDevice(transport, { platform: "macos", appVersion: "", capabilities: [] });
+  await assert.rejects(none.share({ text: "x" }), (err) => err instanceof DeviceError && err.code === "unavailable");
 });

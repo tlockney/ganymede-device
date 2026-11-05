@@ -3,13 +3,14 @@
 // (a Worker's host channel today; a host function in an embedded engine, or
 // a Jupyter comm for remote kernels, later). See docs/protocol.md.
 
-import { type Bytes, toBytes } from "./binary.ts";
+import { type Bytes, MAX_BINARY_BYTES, toBytes } from "./binary.ts";
 import { DeviceError } from "./errors.ts";
 
 /**
  * Every method takes these. Aborting `signal`, or interrupting the kernel,
  * cancels the call: it rejects with a `DeviceError` whose code is
- * `cancelled`, and the host drops any dialog or prompt it showed for it.
+ * `cancelled` (`timeout` for `AbortSignal.timeout()`), and the host drops
+ * any dialog or prompt it showed for it.
  *
  * Where each method works is in `SUPPORT` (src/support.ts); the docs'
  * table is generated from it.
@@ -129,6 +130,18 @@ export interface PickDateOptions extends CallOptions {
   max?: Date;
 }
 
+/** A file a cell hands over: a `File`, or bytes with the name to show and save them under. */
+export type NamedBytes = File | { name: string; data: Bytes };
+
+export interface ShareOptions extends CallOptions {
+  /** Text to share, such as a message or a caption. */
+  text?: string;
+  /** A link to share. */
+  url?: string | URL;
+  /** Files to share; their names are what the receiving app sees. */
+  files?: NamedBytes[];
+}
+
 /**
  * Dialogs the app shows over the notebook: sheets on the Mac, alerts on
  * iPhone and iPad. One shows at a time; a second call waits for the first
@@ -176,6 +189,24 @@ export interface Device {
   openURL(url: string | URL, options?: OpenURLOptions): Promise<void>;
   /** Dialogs over the notebook; see `UI`. */
   readonly ui: UI;
+  /**
+   * Shows the system share sheet (`NSSharingServicePicker` on the Mac)
+   * with `text`, `url` and `files`; at least one is needed. True when the
+   * person picked where to send them, false when they dismissed it. The
+   * sheet is its own consent, so no permission. Files together are at
+   * most 16 MiB. On-device: Mac, iPad and iPhone. Remote kernels and the
+   * browser: planned (a browser after a click). Cancel closes it and
+   * rejects `cancelled`.
+   */
+  share(options: ShareOptions): Promise<boolean>;
+  /**
+   * Shows `files` in Quick Look and resolves when the person closes it.
+   * Quick Look picks the viewer from each name's extension, so name a PNG
+   * `*.png`. Files together are at most 16 MiB. On-device: Mac, iPad and
+   * iPhone, no permission. Remote kernels: planned. Browser: no. Cancel
+   * closes it and rejects `cancelled`.
+   */
+  preview(files: NamedBytes[], options?: CallOptions): Promise<void>;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -292,7 +323,50 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
         return date;
       },
     },
+    async share(options) {
+      const { signal, text, url, files } = options ?? {};
+      if (text === undefined && url === undefined && (files === undefined || files.length === 0)) {
+        throw new DeviceError("failed", "share needs text, a url or files");
+      }
+      // Checked first, so a host without it fails `unavailable` before files are read.
+      requireMethod("share");
+      const params = {
+        ...defined({ text: text === undefined ? undefined : String(text), url: url === undefined ? undefined : String(url) }),
+        files: files === undefined ? [] : await namedFiles("share", files),
+      };
+      return (await call("share", params, { signal })) === true;
+    },
+    async preview(files, options = {}) {
+      if (!Array.isArray(files) || files.length === 0) throw new DeviceError("failed", "preview needs at least one file");
+      requireMethod("preview");
+      await call("preview", { files: await namedFiles("preview", files) }, options);
+    },
   };
+}
+
+/** Each file as `{ name, data }` bytes, checked for a name and a total within the binary limit. */
+async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: string; data: Uint8Array }[]> {
+  if (!Array.isArray(files)) throw new DeviceError("failed", `${method} takes an array of files`);
+  const out: { name: string; data: Uint8Array }[] = [];
+  let total = 0;
+  for (const file of files) {
+    const isFile = typeof File !== "undefined" && file instanceof File;
+    const name = isFile ? file.name : (file as { name?: unknown })?.name;
+    if (typeof name !== "string" || !name.trim() || name === "." || name === ".." || /[/\\\0]/.test(name)) {
+      throw new DeviceError("failed", `${method}: each file needs a plain file name (no slashes)`);
+    }
+    // A File's size is known before reading it.
+    if (isFile && total + file.size > MAX_BINARY_BYTES) {
+      throw new DeviceError("failed", `${method}: files together are limited to ${MAX_BINARY_BYTES} bytes`);
+    }
+    const data = await toBytes(isFile ? file : (file as { data: Bytes }).data);
+    total += data.byteLength;
+    if (total > MAX_BINARY_BYTES) {
+      throw new DeviceError("failed", `${method}: files together are limited to ${MAX_BINARY_BYTES} bytes`);
+    }
+    out.push({ name, data });
+  }
+  return out;
 }
 
 /** `fields` without its undefined values, so they aren't sent. */
