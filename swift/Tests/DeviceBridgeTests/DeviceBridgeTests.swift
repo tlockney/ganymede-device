@@ -630,6 +630,53 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(loader.loaded.allSatisfy { !$0.isPlaying }, "dropAll stops every sound")
     }
 
+    func testCancellingAnOpenClosesThePlayer() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        let kept = (bridge.handle(["id": 1, "method": "sound.player", "params": ["data": audio]])["result"] as? [String: Any])?["player"] as? Int
+        let dropped = (bridge.handle(["id": 2, "method": "sound.player", "params": ["data": audio]])["result"] as? [String: Any])?["player"] as? Int
+        // The page cancelled call 2 after the answer left: it never learns the id.
+        XCTAssertTrue(bridge.handle(["id": 2, "cancel": true])["result"] is NSNull)
+        let state: [String: Any] = ["method": "sound.control", "params": ["player": dropped ?? 0]]
+        XCTAssertEqual(errorCode(bridge.handle(state)), "failed", "the cancelled call's player is closed")
+        XCTAssertNotNil(bridge.handle(["method": "sound.control", "params": ["player": kept ?? 0]])["result"], "the other stays open")
+        // A cancel for a call that opened nothing, or after its player closed, does nothing.
+        _ = bridge.handle(["method": "sound.close", "params": ["player": kept ?? 0]])
+        XCTAssertTrue(bridge.handle(["id": 1, "cancel": true])["result"] is NSNull)
+        XCTAssertTrue(bridge.handle(["id": 9, "cancel": true])["result"] is NSNull)
+    }
+
+    func testSoundControlChecksBeforeChanging() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let opened = bridge.handle(["method": "sound.player", "params": ["data": ["base64": "AQI="]]])["result"] as? [String: Any]
+        let id = opened?["player"] as? Int ?? 0
+        let player = loader.loaded.last
+        func control(_ params: [String: Any]) -> [String: Any] {
+            bridge.handle(["method": "sound.control", "params": params.merging(["player": id]) { $1 }])
+        }
+        XCTAssertEqual(errorCode(control(["action": "rewind", "volume": 0.5])), "failed")
+        XCTAssertEqual(errorCode(control(["action": "seek", "volume": 0.5])), "failed")
+        XCTAssertEqual(errorCode(control(["action": 3, "volume": 0.5])), "failed")
+        XCTAssertEqual(player?.volume, 1, "a refused call leaves the volume alone")
+        player?.starts = false
+        XCTAssertEqual(errorCode(control(["action": "play"])), "failed", "play that can't start fails")
+    }
+
+    func testInterruptedSoundsFreeTheirSlots() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let play: [String: Any] = ["method": "sound.play", "params": ["data": ["base64": "AQI="]]]
+        for _ in 0 ..< 32 {
+            XCTAssertTrue(bridge.handle(play)["result"] is NSNull)
+        }
+        XCTAssertEqual(errorCode(bridge.handle(play)), "failed", "at most 32 playing")
+        // An interruption pauses them; they never call onFinish.
+        for sound in loader.loaded { sound.pause() }
+        XCTAssertTrue(bridge.handle(play)["result"] is NSNull, "paused sounds no longer count")
+    }
+
     func testBadSoundsFail() {
         let loader = FakeSoundLoader()
         let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
