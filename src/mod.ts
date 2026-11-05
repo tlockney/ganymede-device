@@ -13,8 +13,10 @@ export {
   type DeviceInfo,
   type DeviceTransport,
   hello,
+  type NamedBytes,
   type PickDateOptions,
   type PromptOptions,
+  type ShareOptions,
   type UI,
   unavailableDevice,
 } from "./device.ts";

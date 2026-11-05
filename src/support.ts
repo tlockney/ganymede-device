@@ -145,6 +145,23 @@ export const SUPPORT = {
     remote: "planned",
     browser: "planned",
   },
+  share: {
+    call: "share({ text, url, files })",
+    returns: "`true` when sent, `false` when dismissed",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    browserClick: true,
+    note: "The share sheet; `NSSharingServicePicker` on the Mac. A browser will use the Web Share API, after a click.",
+  },
+  preview: {
+    call: "preview(files)",
+    returns: "nothing, once closed",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "no",
+    note: "Quick Look, which picks the viewer from each file name's extension. A browser has no Quick Look.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

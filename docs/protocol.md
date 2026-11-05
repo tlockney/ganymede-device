@@ -97,6 +97,8 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `ui.prompt` | `{ message, title?, placeholder?, defaultValue?, secure }` | the text, or `null` when cancelled |
 | `ui.actionSheet` | `{ title, options: string[], message?, cancel?, destructive?: index }` | the chosen option's index, or `null` when cancelled |
 | `ui.pickDate` | `{ mode: "date" \| "time" \| "datetime", title?, value?, min?, max? }`, dates as ISO 8601 strings | the date as an ISO 8601 string, or `null` when cancelled |
+| `share` | `{ text?, url?, files: [{ name, data }] }`, at least one of the three; files together at most 16 MiB | `true` when the person picked where to send them, `false` when dismissed. Shown through the dialog queue |
+| `preview` | `{ files: [{ name, data }] }`, at least one; together at most 16 MiB | `null` once Quick Look closes. Shown through the dialog queue |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -108,8 +110,8 @@ in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
 
 ## Dialogs
 
-`ui.*` calls wait on a person, so Swift answers them when the dialog
-closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
+`ui.*`, `share` and `preview` calls wait on a person, so Swift answers
+them when the dialog closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
 Each shows on the window of the web view that sent the call, the notebook
 whose cell asked, or on the key window when that isn't known. The Mac
 shows a sheet; iPhone and iPad show an alert, an action sheet (a popover
@@ -125,5 +127,13 @@ view controller.
 - An aborted `signal` sends the cancel. A `signal` from
   `AbortSignal.timeout()` rejects `timeout` instead of `cancelled`.
 - With no window to show it on, the call fails `unavailable`.
+- `share` and `preview` write their files to a fresh folder under the
+  app's temporary directory, each file in a folder of its own so names
+  can repeat. Quick Look's are removed when it closes; a share's ten
+  minutes later, since the app it went to may read the URL after the
+  sheet has gone. A file name must be plain: no slash, backslash or NUL,
+  and not `.` or `..`.
+- The Mac's share menu can't be closed from code: a cancel answers
+  `cancelled` at once and the menu stays until the person closes it.
 - A kernel interrupt closes the dialog: cdp-kernel 0.7.2 or later
   aborts the cell's open host requests, which sends the cancel.

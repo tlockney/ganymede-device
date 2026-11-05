@@ -389,6 +389,61 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(presenter.shown.count, 1, "a refused dialog doesn't block the next")
     }
 
+    func testShareAndPreviewShowAsSheets() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        let file: [String: Any] = ["name": "plot.png", "data": ["base64": png.base64EncodedString()]]
+        XCTAssertTrue(bridge.capabilities.contains("share") && bridge.capabilities.contains("preview"))
+
+        bridge.respond(
+            to: ["id": 1, "method": "share", "params": ["text": "hi", "url": "https://deno.com/", "files": [file]]],
+            reply: replies.reply
+        )
+        XCTAssertEqual(
+            presenter.shown.last,
+            .share(text: "hi", url: URL(string: "https://deno.com/"), files: [NamedFile(name: "plot.png", data: png)])
+        )
+        XCTAssertTrue(replies.all.isEmpty, "a sheet answers only once it closes")
+        presenter.answer(.shared)
+        XCTAssertEqual(replies.last?["result"] as? Bool, true)
+
+        bridge.respond(to: ["id": 2, "method": "share", "params": ["text": "hi", "files": []]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .share(text: "hi", url: nil, files: []))
+        presenter.answer(.dismissed)
+        XCTAssertEqual(replies.last?["result"] as? Bool, false, "a dismissed share sheet is false, not an error")
+
+        bridge.respond(to: ["id": 3, "method": "preview", "params": ["files": [file, file]]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .preview(files: Array(repeating: NamedFile(name: "plot.png", data: png), count: 2)))
+        presenter.answer(.dismissed)
+        XCTAssertTrue(replies.last?["result"] is NSNull)
+        XCTAssertEqual(replies.all.count, 3)
+    }
+
+    func testBadSharesAndPreviewsFail() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        let data: [String: Any] = ["base64": "AQ=="]
+        let bad: [[String: Any]] = [
+            ["id": 1, "method": "share", "params": [:]],
+            ["id": 2, "method": "share", "params": ["url": "not a url"]],
+            ["id": 3, "method": "share", "params": ["files": [["name": "a/b", "data": data]]]],
+            ["id": 4, "method": "share", "params": ["files": [["name": "..", "data": data]]]],
+            ["id": 5, "method": "share", "params": ["files": [["name": "a", "data": ["base64": "!!"]]]]],
+            ["id": 6, "method": "preview", "params": ["files": []]],
+            ["id": 7, "method": "preview", "params": ["files": "x"]],
+        ]
+        for call in bad {
+            bridge.respond(to: call, reply: replies.reply)
+            XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "\(call)")
+        }
+        XCTAssertTrue(presenter.shown.isEmpty)
+        XCTAssertTrue(NamedFile.isPlainName("report 1.pdf"))
+        XCTAssertFalse(NamedFile.isPlainName(" "))
+    }
+
     func testOtherMethodsStillAnswerThroughRespond() {
         let replies = Replies()
         let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), appVersion: "")
