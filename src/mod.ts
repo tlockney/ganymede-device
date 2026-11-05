@@ -4,4 +4,4 @@
 export { type CallOptions, type Clipboard, createDevice, type Device, type DeviceInfo, type DeviceTransport, hello, unavailableDevice } from "./device.ts";
 export { type Bytes, MAX_BINARY_BYTES } from "./binary.ts";
 export { DeviceError, type DeviceErrorCode } from "./errors.ts";
-export { type Method, SUPPORT, type Support, type SupportRow } from "./support.ts";
+export { type Method, SUPPORT, type Support, type SupportRow, supportTable } from "./support.ts";

@@ -36,7 +36,9 @@ register it on their hidden kernel web view.
 - `src/webkit.ts`: the page's `host` handler, forwarding to
   `webkit.messageHandlers.device`.
 - `src/support.ts`: which methods work on-device, remotely and in a
-  browser; the source for docs and tests.
+  browser, today and planned; the source for docs and tests.
+  `npm run support-table` prints it as the Markdown that ganymede-ui's
+  `docs/device.md` embeds.
 - `src/globals.ts`: ambient types for cells.
 - `Package.swift`, `swift/Sources/DeviceBridge/`: the Swift side, a
   `WKScriptMessageHandlerWithReply` named `device`.
