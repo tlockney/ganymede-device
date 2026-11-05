@@ -221,7 +221,9 @@ export interface SoundState {
 export interface SoundPlayer extends AsyncDisposable {
   /** The sound's length in seconds. */
   readonly duration: number;
+  /** Plays from the current time. Fails `failed` when the sound can't start. */
   play(options?: CallOptions): Promise<SoundState>;
+  /** Pauses at the current time. */
   pause(options?: CallOptions): Promise<SoundState>;
   /** Pauses and goes back to the start. */
   stop(options?: CallOptions): Promise<SoundState>;
@@ -229,6 +231,7 @@ export interface SoundPlayer extends AsyncDisposable {
   seek(seconds: number, options?: CallOptions): Promise<SoundState>;
   /** Sets the volume, from 0 to 1. */
   setVolume(volume: number, options?: CallOptions): Promise<SoundState>;
+  /** The player's state, changing nothing. */
   state(options?: CallOptions): Promise<SoundState>;
   /** Stops it and frees it; later calls fail `failed`. Closing twice is fine. */
   close(): Promise<void>;
