@@ -18,16 +18,23 @@ wire format and the Swift side's contract in
 
 ## Status
 
-Phase 0 is done and Phase 1 is under way. The TypeScript side answers
-`hello`, the text and image clipboard, `info`, haptics, `openURL`, the
-`ui` dialogs (alert, confirm, prompt, action sheet, date picker), the
-share sheet, Quick Look previews, the file and photo pickers, and sound, with bytes crossing the bridge as base64 (docs/protocol.md). It runs in
-cdp-kernel's browser Worker through its `preload` and `host` options
+Phase 0 and Phase 1's methods are done on both sides. The TypeScript
+side answers `hello`, the text and image clipboard, `info`, haptics,
+`openURL`, the `ui` dialogs (alert, confirm, prompt, action sheet, date
+picker), the share sheet, Quick Look previews, the file and photo
+pickers, and sound, with bytes crossing the bridge as base64
+(docs/protocol.md). It runs in cdp-kernel's browser Worker through its
+`preload` and `host` options
 ([tlockney/cdp-kernel#384](https://github.com/tlockney/cdp-kernel/issues/384)),
 and is tested end to end in headless Chromium against a fake Swift
 bridge. The Swift `DeviceBridge` answers the same methods; the Mac and
 iPad apps in [tlockney/ganymede-ui](https://github.com/tlockney/ganymede-ui)
 register it on their hidden kernel web view.
+
+Only cdp-kernel running in the app's kernel web view gets `device`.
+Process and remote kernels (Phase R) and browsers come next, so
+`src/support.ts` marks those columns "planned". The package isn't
+published yet (#24).
 
 ## Layout
 
@@ -112,6 +119,5 @@ swift test      # the Swift bridge; macOS only
 
 ## Next
 
-1. Try a cell's `device.clipboard` calls in the Mac and iPad apps
-   (docs/plan.md, Phase 0's exit).
-2. Phase 1's no-permission methods.
+The plan's "Where things stand" has the list, and
+[#18](https://github.com/tlockney/ganymede-device/issues/18) tracks it.
