@@ -214,7 +214,10 @@ export interface SoundState {
 
 /**
  * A loaded sound a cell controls. Close it when done, or hold it with
- * `await using`; the app closes every player when the kernel restarts.
+ * `await using`. Players live until the kernel's page reloads or
+ * navigates (the app then closes them all), not until its kernel
+ * restarts: in ganymede-ui every in-page kernel shares one page, and the
+ * 32-player limit, so close what you open.
  * Each method answers the player's state after the change.
  */
 export interface SoundPlayer extends AsyncDisposable {
@@ -365,8 +368,9 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
     }
     async function close(): Promise<void> {
       if (closed) return;
-      closed = true;
+      // Closed only once the host has it, so a failed close can be retried.
       await call("sound.close", { player: id });
+      closed = true;
     }
     return {
       duration,

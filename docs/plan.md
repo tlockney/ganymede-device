@@ -258,7 +258,9 @@ Design patterns worth copying from Juno:
 - **Explicit lifetimes for native resources**: BLE connections and audio
   players are context managers. Ours: handles implement
   `Symbol.asyncDispose` so `await using conn = await p.connect()` works,
-  and the Swift side closes everything when the kernel restarts or exits.
+  and the Swift side closes everything when the kernel page reloads or
+  navigates (`dropAll()`). Not yet per kernel: a restart cancels calls in
+  flight but leaves open players (ganymede-device#37).
 - **Plain records**: dataclasses with every field optional on input
   (`Contact`, `Reminder`), so `add({ title: "Buy milk" })` works.
 - **Narrow, honest scope**: each module documents what it doesn't wrap

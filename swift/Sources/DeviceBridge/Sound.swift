@@ -13,9 +13,10 @@ public protocol SoundPlayback: AnyObject {
     var currentTime: TimeInterval { get set }
     var isPlaying: Bool { get }
     var volume: Float { get set }
-    /// Called once each time the sound plays to its end.
+    /// Called once each time the sound plays to its end, or fails to.
     var onFinish: (() -> Void)? { get set }
-    func play()
+    /// False when the sound couldn't start.
+    @discardableResult func play() -> Bool
     func pause()
 }
 
@@ -59,10 +60,14 @@ private final class SystemSound: NSObject, SoundPlayback, AVAudioPlayerDelegate 
         get { player.volume }
         set { player.volume = newValue }
     }
-    func play() { player.play() }
+    func play() -> Bool { player.play() }
     func pause() { player.pause() }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish?()
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         onFinish?()
     }
 }
@@ -73,6 +78,8 @@ final class Sounds {
     /// Players one page may have open at once, so a loop that forgets to
     /// close them fails rather than filling memory.
     static let maxPlayers = 32
+    /// `sound.play` sounds one page may have playing at once, for the same reason.
+    static let maxPlaying = 32
 
     private let loader: SoundLoader
     /// `sound.play` sounds, kept until they end.
@@ -87,6 +94,9 @@ final class Sounds {
     func handle(_ method: String, _ params: [String: Any]) -> [String: Any] {
         switch method {
         case "sound.play":
+            guard playing.count < Self.maxPlaying else {
+                return DeviceBridge.error("failed", "sound.play: \(Self.maxPlaying) sounds are playing; wait for one to end")
+            }
             let sound: SoundPlayback
             do {
                 sound = try load(method, params)
@@ -97,7 +107,10 @@ final class Sounds {
             let key = ObjectIdentifier(sound)
             playing[key] = sound
             sound.onFinish = { [weak self] in self?.playing[key] = nil }
-            sound.play()
+            guard sound.play() else {
+                playing[key] = nil
+                return DeviceBridge.error("failed", "sound.play: the sound couldn't start")
+            }
             return ["result": NSNull()]
         case "sound.player":
             guard players.count < Self.maxPlayers else {

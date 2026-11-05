@@ -53,7 +53,11 @@ private final class FakeSound: SoundPlayback {
     var isPlaying = false
     var volume: Float = 1
     var onFinish: (() -> Void)?
-    func play() { isPlaying = true }
+    var starts = true
+    func play() -> Bool {
+        isPlaying = starts
+        return starts
+    }
     func pause() { isPlaying = false }
 }
 
@@ -61,9 +65,11 @@ private final class FakeSound: SoundPlayback {
 private final class FakeSoundLoader: SoundLoader {
     var loaded: [FakeSound] = []
     var refuse = false
+    var silent = false
     func load(_ data: Data) throws -> SoundPlayback {
         if refuse { throw CocoaError(.fileReadCorruptFile) }
         let sound = FakeSound()
+        sound.starts = !silent
         loaded.append(sound)
         return sound
     }
@@ -590,6 +596,9 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(bridge.handle(["method": "sound.play", "params": ["data": audio, "volume": 0.5]])["result"] is NSNull)
         XCTAssertEqual(loader.loaded.last?.isPlaying, true)
         XCTAssertEqual(loader.loaded.last?.volume, 0.5)
+        loader.silent = true
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.play", "params": ["data": audio]])), "failed", "a sound that can't start")
+        loader.silent = false
 
         let opened = bridge.handle(["method": "sound.player", "params": ["data": audio]])["result"] as? [String: Any]
         let id = opened?["player"] as? Int

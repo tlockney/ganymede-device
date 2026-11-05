@@ -83,7 +83,9 @@ enum PhotoLoader {
                 gathered.lock.unlock()
                 continue
             }
-            // Once over the limit, don't have the rest copied to disk.
+            // After a non-image item, ask for no more copies. (The size
+            // limit is checked as each copy arrives; the copies are
+            // asked for together, so this rarely sees that failure.)
             gathered.lock.lock()
             let failed = gathered.failure != nil
             gathered.lock.unlock()

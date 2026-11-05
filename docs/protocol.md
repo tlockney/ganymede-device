@@ -37,6 +37,8 @@ open (dismissing what it showed) before taking calls from the new page.
 Only dialogs and sounds stay open; the app calls `DeviceBridge.dropAll()`
 from the web view's navigation delegate, which closes the dialogs and
 answers each `cancelled`, and stops every sound and closes every player.
+A kernel restart doesn't: players and playing sounds belong to the page,
+not to a kernel, so they outlive a restart (ganymede-device#37).
 
 ## Messages Swift receives
 
@@ -104,8 +106,8 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`, which allows any file), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
-| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end |
-| `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per page |
+| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per page |
+| `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per page, shared by the page's kernels |
 | `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change |
 | `sound.close` | `{ player }` | `null`; closing one already closed is fine |
 
