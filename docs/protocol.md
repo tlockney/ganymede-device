@@ -97,7 +97,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `ui.prompt` | `{ message, title?, placeholder?, defaultValue?, secure }` | the text, or `null` when cancelled |
 | `ui.actionSheet` | `{ title, options: string[], message?, cancel?, destructive?: index }` | the chosen option's index, or `null` when cancelled |
 | `ui.pickDate` | `{ mode: "date" \| "time" \| "datetime", title?, value?, min?, max? }`, dates as ISO 8601 strings | the date as an ISO 8601 string, or `null` when cancelled |
-| `share` | `{ text?, url?, files: [{ name, data }] }`, at least one of the three; files together at most 16 MiB | `true` when the person picked where to send them, `false` when dismissed. Shown through the dialog queue |
+| `share` | `{ text?, url?, files: [{ name, data }] }`, at least one of the three; `url` is http, https or mailto; files together at most 16 MiB | `true` when the person picked where to send them, `false` when dismissed. Shown through the dialog queue |
 | `preview` | `{ files: [{ name, data }] }`, at least one; together at most 16 MiB | `null` once Quick Look closes. Shown through the dialog queue |
 
 `hello` is called once per Worker start, before the first cell. A method

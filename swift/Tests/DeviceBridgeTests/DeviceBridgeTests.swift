@@ -435,6 +435,7 @@ final class DeviceBridgeTests: XCTestCase {
         let bad: [[String: Any]] = [
             ["id": 1, "method": "share", "params": [:]],
             ["id": 2, "method": "share", "params": ["url": "not a url"]],
+            ["id": 9, "method": "share", "params": ["url": "file:///etc/hosts"]],
             ["id": 3, "method": "share", "params": ["files": [["name": "a/b", "data": data]]]],
             ["id": 4, "method": "share", "params": ["files": [["name": "..", "data": data]]]],
             ["id": 5, "method": "share", "params": ["files": [["name": "a", "data": ["base64": "!!"]]]]],

@@ -93,8 +93,12 @@ public enum Dialog: Equatable, Sendable {
         case "share":
             var url: URL?
             if let text = text("url") {
-                guard let parsed = URL(string: text), parsed.scheme != nil else {
-                    throw ParamsError(description: "share: url must be an absolute URL")
+                // The schemes openURL allows: a file: URL would put a file
+                // from the app's container on the sheet.
+                guard let parsed = URL(string: text), let scheme = parsed.scheme?.lowercased(),
+                    DeviceBridge.urlSchemes.contains(scheme)
+                else {
+                    throw ParamsError(description: "share: url must be http, https or mailto")
                 }
                 url = parsed
             }

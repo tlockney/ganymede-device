@@ -96,7 +96,7 @@ enum SharePresenter {
         }
         let temp = try TemporaryFiles(files)
         let picker = NSSharingServicePicker(items: shareItems(text: text, url: url, files: temp))
-        let delegate = ShareDelegate(temp: temp, done: done)
+        let delegate = ShareDelegate(temp: temp, picker: picker, done: done)
         picker.delegate = delegate
         ShareDelegate.live.insert(delegate)
         // The menu tracks the mouse modally; show it after this call returns.
@@ -119,12 +119,15 @@ private final class ShareDelegate: NSObject, NSSharingServicePickerDelegate {
     /// Kept alive until the menu closes: the picker holds its delegate weakly.
     static var live: Set<ShareDelegate> = []
     let temp: TemporaryFiles
+    /// Held with the delegate, so the menu's picker outlives the `Task` that shows it.
+    let picker: NSSharingServicePicker
     let done: (DialogResult) -> Void
     var closed = false
     private var finished = false
 
-    init(temp: TemporaryFiles, done: @escaping (DialogResult) -> Void) {
+    init(temp: TemporaryFiles, picker: NSSharingServicePicker, done: @escaping (DialogResult) -> Void) {
         self.temp = temp
+        self.picker = picker
         self.done = done
     }
 

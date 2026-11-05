@@ -351,6 +351,10 @@ async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: 
     if (typeof name !== "string" || !name.trim() || name === "." || name === ".." || /[/\\\0]/.test(name)) {
       throw new DeviceError("failed", `${method}: each file needs a plain file name (no slashes)`);
     }
+    // A File's size is known before reading it.
+    if (isFile && total + file.size > MAX_BINARY_BYTES) {
+      throw new DeviceError("failed", `${method}: files together are limited to ${MAX_BINARY_BYTES} bytes`);
+    }
     const data = await toBytes(isFile ? file : (file as { data: Bytes }).data);
     total += data.byteLength;
     if (total > MAX_BINARY_BYTES) {
