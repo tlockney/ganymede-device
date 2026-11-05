@@ -131,6 +131,9 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.ui.pickDate();
   await device.share({ text: "t" });
   await device.preview([{ name: "a.txt", data: new Uint8Array([1]) }]);
+  await device.files.pick();
+  await device.files.export(new Uint8Array([1]), { name: "a.txt" });
+  await device.photos.pick();
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
@@ -482,4 +485,54 @@ test("share and preview refuse bad files before asking the host", async () => {
   assert.deepEqual(sent, []);
   const none = createDevice(transport, { platform: "macos", appVersion: "", capabilities: [] });
   await assert.rejects(none.share({ text: "x" }), (err) => err instanceof DeviceError && err.code === "unavailable");
+});
+
+test("files.pick and photos.pick answer Files, and [] when cancelled", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  let answer: unknown = [
+    { name: "a.csv", type: "text/csv", data: new Uint8Array([1, 2]) },
+    { name: "b.bin", data: new Uint8Array([3]) },
+  ];
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(answer)) };
+  const device = createDevice(transport, { platform: "ios", appVersion: "", capabilities: ["files.pick", "photos.pick"] });
+  const files = await device.files.pick({ types: ["text/csv", ".parquet"], multiple: true });
+  assert.deepEqual(sent[0], ["files.pick", { multiple: true, types: ["text/csv", ".parquet"] }]);
+  assert.deepEqual(
+    files.map((f) => [f.name, f.type, f.size]),
+    [
+      ["a.csv", "text/csv", 2],
+      ["b.bin", "", 1],
+    ],
+  );
+  assert.deepEqual([...new Uint8Array(await files[0].arrayBuffer())], [1, 2]);
+  answer = [];
+  assert.deepEqual(await device.photos.pick({ limit: 0 }), []);
+  assert.deepEqual(sent[1], ["photos.pick", { limit: 0 }]);
+  answer = null;
+  assert.deepEqual(await device.photos.pick(), [], "a dismissed picker is [], not an error");
+  assert.deepEqual(sent[2], ["photos.pick", { limit: 1 }]);
+  answer = [{ name: "x" }];
+  await assert.rejects(device.files.pick(), (err) => err instanceof DeviceError && err.code === "failed");
+});
+
+test("files.export sends named bytes and says whether they were saved", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  let answer: unknown = true;
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(answer)) };
+  const device = createDevice(transport, { platform: "macos", appVersion: "", capabilities: ["files.export", "files.pick", "photos.pick"] });
+  assert.equal(await device.files.export(new Blob(["hi"]), { name: "out.txt" }), true);
+  assert.deepEqual(sent[0], ["files.export", { name: "out.txt", data: new TextEncoder().encode("hi") }]);
+  answer = null;
+  assert.equal(await device.files.export(new Uint8Array([1]), { name: "out.txt" }), false);
+  const failed = (err: unknown) => err instanceof DeviceError && err.code === "failed";
+  for (const name of ["", "a/b", ".."]) {
+    await assert.rejects(device.files.export(new Uint8Array([1]), { name }), failed, JSON.stringify(name));
+  }
+  await assert.rejects(device.files.export(new Uint8Array(MAX_BINARY_BYTES + 1), { name: "big" }), failed);
+  await assert.rejects(device.files.pick({ types: ["", "x"] }), failed);
+  await assert.rejects(device.photos.pick({ limit: -1 }), failed);
+  await assert.rejects(device.photos.pick({ limit: 1.5 }), failed);
+  assert.equal(sent.length, 2);
+  const none = createDevice(transport, { platform: "macos", appVersion: "", capabilities: [] });
+  await assert.rejects(none.files.export(new Uint8Array([1]), { name: "a" }), (err) => err instanceof DeviceError && err.code === "unavailable");
 });

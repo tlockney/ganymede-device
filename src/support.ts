@@ -162,6 +162,32 @@ export const SUPPORT = {
     browser: "no",
     note: "Quick Look, which picks the viewer from each file name's extension. A browser has no Quick Look.",
   },
+  "files.pick": {
+    call: "files.pick({ types, multiple })",
+    returns: "`File[]`, `[]` when cancelled",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    browserClick: true,
+    note: "The open panel on the Mac, the document picker on iPad and iPhone. Files are copied in; no access to where they came from is kept.",
+  },
+  "files.export": {
+    call: "files.export(data, { name })",
+    returns: "`true` when saved, `false` when cancelled",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    note: "The save panel on the Mac, the document picker on iPad and iPhone. A browser will download the file.",
+  },
+  "photos.pick": {
+    call: "photos.pick({ limit })",
+    returns: "`File[]`, `[]` when cancelled",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    browserClick: true,
+    note: "The system photo picker, which needs no photo library permission. A browser will show a file picker for images.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

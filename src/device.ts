@@ -142,6 +142,64 @@ export interface ShareOptions extends CallOptions {
   files?: NamedBytes[];
 }
 
+export interface PickFilesOptions extends CallOptions {
+  /**
+   * What may be picked: MIME types (`"text/csv"`), wildcards (`"image/*"`)
+   * or extensions (`".parquet"`). Anything by default.
+   */
+  types?: string[];
+  /** Whether several files may be picked; one by default. */
+  multiple?: boolean;
+}
+
+export interface ExportFileOptions extends CallOptions {
+  /** The name the save panel suggests: a plain file name. */
+  name: string;
+}
+
+export interface PickPhotosOptions extends CallOptions {
+  /** How many photos may be picked; 1 by default, 0 for no limit. */
+  limit?: number;
+}
+
+/**
+ * Files in and out through the system's own pickers, which are the
+ * person's consent, so no permission. A picked file is copied in by value:
+ * the notebook keeps no access to where it came from.
+ */
+export interface Files {
+  /**
+   * The files the person picked, as `File`s with their names and types,
+   * or `[]` when they cancel. The open panel on the Mac, the document
+   * picker on iPad and iPhone. Together at most 16 MiB; more fails
+   * `failed`. On-device: Mac, iPad and iPhone. Remote kernels and the
+   * browser: planned (a browser after a click). Cancel closes it and
+   * rejects `cancelled`.
+   */
+  pick(options?: PickFilesOptions): Promise<File[]>;
+  /**
+   * Asks where to save `data`, and saves it there: the save panel on the
+   * Mac, the document picker on iPad and iPhone. True when saved, false
+   * when the person cancels. At most 16 MiB. On-device: Mac, iPad and
+   * iPhone. Remote kernels and the browser: planned (a browser downloads
+   * it). Cancel closes it and rejects `cancelled`.
+   */
+  export(data: Bytes, options: ExportFileOptions): Promise<boolean>;
+}
+
+/** The photo library, through the system photo picker. */
+export interface Photos {
+  /**
+   * The photos the person picked, as image `File`s in their stored format
+   * (often HEIC or JPEG), or `[]` when they cancel. The system photo
+   * picker shows the library without the app being let in, so no
+   * permission. Together at most 16 MiB; more fails `failed`. On-device:
+   * Mac, iPad and iPhone. Remote kernels: planned. Browser: planned, as a
+   * file picker after a click. Cancel closes it and rejects `cancelled`.
+   */
+  pick(options?: PickPhotosOptions): Promise<File[]>;
+}
+
 /**
  * Dialogs the app shows over the notebook: sheets on the Mac, alerts on
  * iPhone and iPad. One shows at a time; a second call waits for the first
@@ -207,6 +265,8 @@ export interface Device {
    * closes it and rejects `cancelled`.
    */
   preview(files: NamedBytes[], options?: CallOptions): Promise<void>;
+  readonly files: Files;
+  readonly photos: Photos;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -341,6 +401,31 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       requireMethod("preview");
       await call("preview", { files: await namedFiles("preview", files) }, options);
     },
+    files: {
+      async pick(options = {}) {
+        const { signal, types, multiple = false } = options;
+        if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== "string" || !t))) {
+          throw new DeviceError("failed", "files.pick: types must be an array of MIME types or extensions");
+        }
+        if (typeof multiple !== "boolean") throw new DeviceError("failed", "files.pick: multiple must be a boolean");
+        return pickedFiles("files.pick", await call("files.pick", { multiple, ...defined({ types }) }, { signal }));
+      },
+      async export(data, options) {
+        const { signal, name } = options ?? ({} as ExportFileOptions);
+        if (!isPlainName(name)) throw new DeviceError("failed", "files.export needs a plain file name (no slashes)");
+        requireMethod("files.export");
+        // toBytes refuses anything over MAX_BINARY_BYTES.
+        const bytes = await toBytes(data);
+        return (await call("files.export", { name, data: bytes }, { signal })) === true;
+      },
+    },
+    photos: {
+      async pick(options = {}) {
+        const { signal, limit = 1 } = options;
+        if (!Number.isInteger(limit) || limit < 0) throw new DeviceError("failed", "photos.pick: limit must be a whole number, 0 for no limit");
+        return pickedFiles("photos.pick", await call("photos.pick", { limit }, { signal }));
+      },
+    },
   };
 }
 
@@ -352,7 +437,7 @@ async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: 
   for (const file of files) {
     const isFile = typeof File !== "undefined" && file instanceof File;
     const name = isFile ? file.name : (file as { name?: unknown })?.name;
-    if (typeof name !== "string" || !name.trim() || name === "." || name === ".." || /[/\\\0]/.test(name)) {
+    if (!isPlainName(name)) {
       throw new DeviceError("failed", `${method}: each file needs a plain file name (no slashes)`);
     }
     // A File's size is known before reading it.
@@ -367,6 +452,23 @@ async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: 
     out.push({ name, data });
   }
   return out;
+}
+
+/** A name a file can be saved under as it is: no slashes, NUL, `.` or `..`. */
+function isPlainName(name: unknown): name is string {
+  return typeof name === "string" && name.trim() !== "" && name !== "." && name !== ".." && !/[/\\\0]/.test(name);
+}
+
+/** The host's `[{ name, type, data }]` as `File`s; anything else is no files. */
+function pickedFiles(method: string, result: unknown): File[] {
+  if (!Array.isArray(result)) return [];
+  return result.map((item) => {
+    if (!isRecord(item) || typeof item.name !== "string" || !(item.data instanceof Uint8Array)) {
+      throw new DeviceError("failed", `${method} answered a file it can't read`);
+    }
+    const type = typeof item.type === "string" ? item.type : "";
+    return new File([item.data as Uint8Array<ArrayBuffer>], item.name, { type });
+  });
 }
 
 /** `fields` without its undefined values, so they aren't sent. */

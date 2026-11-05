@@ -1,4 +1,5 @@
-import DeviceBridge
+@testable import DeviceBridge
+import UniformTypeIdentifiers
 import XCTest
 
 /// A date from what `Date.prototype.toISOString` writes.
@@ -101,7 +102,8 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(
             result?["capabilities"] as? [String],
             ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
-             "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview"]
+             "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview",
+             "files.pick", "files.export", "photos.pick"]
                 + (SystemHaptics().isAvailable
                 ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
         )
@@ -450,6 +452,107 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(NamedFile.isPlainName("report 1.pdf"))
         XCTAssertFalse(NamedFile.isPlainName(" "))
         XCTAssertFalse(NamedFile.isPlainName("\n"), "as the page trims it")
+    }
+
+    func testPickersAnswerFilesAndExportSaves() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        for method in ["files.pick", "files.export", "photos.pick"] {
+            XCTAssertTrue(bridge.capabilities.contains(method), method)
+        }
+
+        bridge.respond(
+            to: ["id": 1, "method": "files.pick", "params": ["types": ["text/csv", ".json", "image/*"], "multiple": true]],
+            reply: replies.reply
+        )
+        XCTAssertEqual(presenter.shown.last, .pickFiles(types: ["public.comma-separated-values-text", "public.json", "public.image"], multiple: true))
+        presenter.answer(.files([PickedFile(name: "a.csv", type: "text/csv", data: Data([1, 2]))]))
+        let picked = replies.last?["result"] as? [[String: Any]]
+        XCTAssertEqual(picked?.count, 1)
+        XCTAssertEqual(picked?.first?["name"] as? String, "a.csv")
+        XCTAssertEqual(picked?.first?["type"] as? String, "text/csv")
+        XCTAssertEqual((picked?.first?["data"] as? [String: Any])?["base64"] as? String, "AQI=")
+
+        bridge.respond(to: ["id": 2, "method": "files.pick", "params": [:]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .pickFiles(types: [], multiple: false))
+        presenter.answer(.dismissed)
+        XCTAssertEqual((replies.last?["result"] as? [Any])?.count, 0, "a cancelled picker is [], not an error")
+
+        bridge.respond(to: ["id": 3, "method": "photos.pick", "params": [:]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .pickPhotos(limit: 1))
+        presenter.answer(.failed("the picked files together are too large"))
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed")
+
+        bridge.respond(to: ["id": 4, "method": "files.export", "params": ["name": "out.txt", "data": ["base64": "aGk="]]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .exportFile(NamedFile(name: "out.txt", data: Data("hi".utf8))))
+        presenter.answer(.saved)
+        XCTAssertEqual(replies.last?["result"] as? Bool, true)
+
+        bridge.respond(to: ["id": 5, "method": "files.export", "params": ["name": "out.txt", "data": ["base64": "aGk="]]], reply: replies.reply)
+        presenter.answer(.dismissed)
+        XCTAssertEqual(replies.last?["result"] as? Bool, false)
+        XCTAssertEqual(replies.all.count, 5)
+    }
+
+    func testBadPickerCallsFail() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        let bad: [[String: Any]] = [
+            ["id": 1, "method": "files.pick", "params": ["types": "text/csv"]],
+            ["id": 2, "method": "files.pick", "params": ["types": ["no/such-type-here"]]],
+            ["id": 3, "method": "files.export", "params": ["name": "a/b", "data": ["base64": "AQ=="]]],
+            ["id": 4, "method": "files.export", "params": ["name": "a"]],
+            ["id": 5, "method": "photos.pick", "params": ["limit": -1]],
+            ["id": 6, "method": "photos.pick", "params": ["limit": true]],
+        ]
+        for call in bad {
+            bridge.respond(to: call, reply: replies.reply)
+            XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "\(call)")
+        }
+        XCTAssertTrue(presenter.shown.isEmpty)
+        XCTAssertEqual(Dialog.contentType("csv")?.identifier, "public.comma-separated-values-text")
+        XCTAssertEqual(Dialog.contentType(".PNG")?.identifier, "public.png")
+        XCTAssertNotNil(Dialog.contentType(".parquet"), "an unknown extension still filters by extension")
+        XCTAssertEqual(Dialog.contentType("public.json")?.identifier, "public.json", "a type identifier is taken as one")
+        XCTAssertEqual(Dialog.contentType("com.adobe.pdf")?.identifier, "com.adobe.pdf")
+        XCTAssertEqual(Dialog.contentType("font/*"), .font)
+        XCTAssertEqual(Dialog.contentType("application/*"), .data)
+    }
+
+    /// Photo providers backed by files of `sizes` bytes.
+    private func photoProviders(_ sizes: [Int]) throws -> [NSItemProvider] {
+        try sizes.map { size in
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
+            try Data(count: size).write(to: url)
+            let provider = NSItemProvider()
+            provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
+                completion(url, false, nil)
+                return nil
+            }
+            return provider
+        }
+    }
+
+    func testPhotoLoaderStopsOncePastTheLimit() throws {
+        let loaded = expectation(description: "loaded")
+        var under: DialogResult?
+        PhotoLoader.load(try photoProviders([10, 10]), limit: 100) { result in
+            under = result
+            loaded.fulfill()
+        }
+        let refused = expectation(description: "refused")
+        var over: DialogResult?
+        PhotoLoader.load(try photoProviders([10, 10, 10]), limit: 15) { result in
+            over = result
+            refused.fulfill()
+        }
+        wait(for: [loaded, refused], timeout: 10)
+        guard case let .files(files) = under else { return XCTFail("expected files, got \(String(describing: under))") }
+        XCTAssertEqual(files.map(\.data.count), [10, 10])
+        guard case let .failed(message) = over else { return XCTFail("expected failed, got \(String(describing: over))") }
+        XCTAssertEqual(message, PickedFiles.tooLargeMessage)
     }
 
     func testOtherMethodsStillAnswerThroughRespond() {
