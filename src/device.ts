@@ -307,7 +307,8 @@ export interface Device {
   /**
    * Shows the system share sheet (`NSSharingServicePicker` on the Mac)
    * with `text`, `url` and `files`; at least one is needed. True when the
-   * person picked where to send them, false when they dismissed it. The
+   * person picked where to send them (on iOS, once the share completes;
+   * on the Mac, as soon as they pick a service), false when they dismissed it. The
    * sheet is its own consent, so no permission. Files together are at
    * most 16 MiB. On-device: Mac, iPad and iPhone. Remote kernels and the
    * browser: planned (a browser after a click). Cancel closes it and
@@ -550,11 +551,12 @@ async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: 
     if (!isPlainName(name)) {
       throw new DeviceError("failed", `${method}: each file needs a plain file name (no slashes)`);
     }
-    // A File's size is known before reading it.
-    if (isFile && total + file.size > MAX_BINARY_BYTES) {
+    // A Blob's (or File's) size is known before reading it.
+    const source = isFile ? file : (file as { data: Bytes }).data;
+    if (typeof Blob !== "undefined" && source instanceof Blob && total + source.size > MAX_BINARY_BYTES) {
       throw new DeviceError("failed", `${method}: files together are limited to ${MAX_BINARY_BYTES} bytes`);
     }
-    const data = await toBytes(isFile ? file : (file as { data: Bytes }).data);
+    const data = await toBytes(source);
     total += data.byteLength;
     if (total > MAX_BINARY_BYTES) {
       throw new DeviceError("failed", `${method}: files together are limited to ${MAX_BINARY_BYTES} bytes`);

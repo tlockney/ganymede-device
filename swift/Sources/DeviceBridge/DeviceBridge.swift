@@ -271,7 +271,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     // MARK: Binary values
     //
-    // Nonisolated: `Dialog` parses its params off the main actor.
+    // Nonisolated: `Dialog.init`, which calls these, isn't main-actor isolated.
 
     /// The largest binary value one call carries, either way: 16 MiB, as
     /// `MAX_BINARY_BYTES` in src/binary.ts.
