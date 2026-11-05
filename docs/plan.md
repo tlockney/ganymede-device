@@ -544,13 +544,13 @@ Done:
 5. **Phase R's kernel side**: `connectDevice(jupyter.comm)` in
    `/remote` (docs/protocol.md, "Over a Jupyter comm"). Nothing answers
    it yet.
+6. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
+   that an HTML output can't reach the bridge.
 
 Next:
 
 1. Try Phase 1's calls in the Mac and iPad apps, including that an
-   interrupt closes a dialog or picker and that an HTML output can't
-   reach the handler (Phase 0's exit, #19; #21 has a by-hand check for
-   dialogs).
+   interrupt closes a dialog or picker (#21).
 2. Publish the TS package and tag the Swift package (#24).
 3. Phase R's app side (#26): the ganymede-ui plugin that answers the
    comm, then the browser fallbacks.
