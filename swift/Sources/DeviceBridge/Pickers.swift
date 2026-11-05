@@ -83,6 +83,11 @@ enum PhotoLoader {
                 gathered.lock.unlock()
                 continue
             }
+            // Once over the limit, don't have the rest copied to disk.
+            gathered.lock.lock()
+            let failed = gathered.failure != nil
+            gathered.lock.unlock()
+            if failed { break }
             group.enter()
             provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
                 defer { group.leave() }

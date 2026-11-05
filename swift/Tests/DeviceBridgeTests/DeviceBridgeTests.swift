@@ -549,6 +549,7 @@ final class DeviceBridgeTests: XCTestCase {
         try sizes.map { size in
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
             try Data(count: size).write(to: url)
+            addTeardownBlock { try? FileManager.default.removeItem(at: url) }
             let provider = NSItemProvider()
             provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
                 completion(url, false, nil)
