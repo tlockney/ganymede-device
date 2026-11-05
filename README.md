@@ -36,6 +36,10 @@ register it on their hidden kernel web view.
   `globalThis.device` when the host answers `hello`.
 - `src/webkit.ts`: the page's `host` handler, forwarding to
   `webkit.messageHandlers.device`.
+- `src/comm.ts` (`/remote`): `connectDevice(jupyter.comm)`, the kernel
+  side of the remote transport over Jupyter comms, for kernels that
+  aren't in the app (docs/protocol.md, "Over a Jupyter comm"). The app
+  side isn't built yet.
 - `src/support.ts`: which methods work on-device, remotely and in a
   browser, today and planned; the source for docs and tests.
   `npm run support-table` prints it as the Markdown that ganymede-ui's
