@@ -177,11 +177,11 @@ test("connecting again from another cell reuses the link and its calls target", 
 
 test("an app that answers pings keeps a slow call alive; one that goes silent is dropped", async () => {
   const kernel = fakeKernel({ reply: () => null });
-  const device = await connectDevice(kernel.api, { pingMs: 5 });
+  const device = await connectDevice(kernel.api, { pingMs: 25 });
   const slow = device.clipboard.readText();
   let settled = false;
   slow.catch(() => {}).finally(() => (settled = true));
-  await tick(40);
+  await tick(150);
   assert.equal(settled, false, "pongs keep it waiting");
   assert.ok(kernel.calls[0].sent.some((m) => typeof m.ping === "number"));
   kernel.state.pong = false;

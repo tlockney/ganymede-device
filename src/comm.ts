@@ -223,7 +223,7 @@ class CommLink {
     // Only an answer to our announce, and only the first: a second app
     // window, or one late after a timeout, is turned away.
     if (!this.#waiting || (this.#comm && !this.#comm.closed)) {
-      comm.close({ error: "taken" });
+      comm.close({ error: this.#comm && !this.#comm.closed ? "taken" : "not waiting" });
       return;
     }
     this.#waiting.resolve(comm, hello);
@@ -306,7 +306,9 @@ const links = new WeakMap<CommApiLike, CommLink>();
  * of the cell that sent it. Calling it again reuses the same link.
  *
  * `has()` and `info()` reflect the app that answered first; a call checks
- * the app that answers now.
+ * the app that answers now. The options apply to the shared link, so a
+ * later `connectDevice` with other options changes them for every device
+ * on that `jupyter.comm`.
  *
  * An interrupt doesn't cancel a call by itself (the kernel's interrupt
  * reaches host requests, not comms): pass a `signal` to cancel one.

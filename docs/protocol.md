@@ -154,7 +154,8 @@ closes one whose target it doesn't know, for everyone. Instead:
    comm to `ganymede.device.v1.calls` whose open data is its `hello`
    reply. No other client knows that comm.
 3. The kernel takes the first such comm, closes the announce, and turns
-   away any other with `comm_close` `{ error: "taken" }`. With no answer
+   away any other with `comm_close` `{ error: "taken" }` (`"not waiting"`
+   for one that comes after the announce timed out). With no answer
    in 2 s, every call rejects `unavailable`.
 
 Over the calls comm, the kernel sends `{ id, method, params }` and
@@ -176,7 +177,10 @@ dropped as if closed. A kernel connects once per `jupyter.comm`:
 The kernel can't read a comm message while a cell runs unless it handles
 comms off the shell queue (kernel subshells, JEP 91, which JupyterLab
 uses for comms when the kernel offers them). cdp-kernel doesn't yet, so
-a call awaited inside a cell stalls there until it times out; see
+`connectDevice` awaited in a cell rejects `unavailable` after
+`timeoutMs`, and a call on an open link has no timeout of its own: it
+ends `disconnected` about two pings later, when the ping check drops the
+comm (pongs can't be read during the cell either); see
 tlockney/cdp-kernel#417. An interrupt doesn't cancel a
 call either: pass a `signal`.
 
