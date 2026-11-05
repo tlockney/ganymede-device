@@ -99,6 +99,9 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `ui.pickDate` | `{ mode: "date" \| "time" \| "datetime", title?, value?, min?, max? }`, dates as ISO 8601 strings | the date as an ISO 8601 string, or `null` when cancelled |
 | `share` | `{ text?, url?, files: [{ name, data }] }`, at least one of the three; `url` is http, https or mailto; files together at most 16 MiB | `true` when the person picked where to send them, `false` when dismissed. Shown through the dialog queue |
 | `preview` | `{ files: [{ name, data }] }`, at least one; together at most 16 MiB | `null` once Quick Look closes. Shown through the dialog queue |
+| `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards such as `image/*`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
+| `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
+| `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -110,7 +113,7 @@ in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
 
 ## Dialogs
 
-`ui.*`, `share` and `preview` calls wait on a person, so Swift answers
+`ui.*`, `share`, `preview`, `files.*` and `photos.pick` calls wait on a person, so Swift answers
 them when the dialog closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
 Each shows on the window of the web view that sent the call, the notebook
 whose cell asked, or on the key window when that isn't known. The Mac
@@ -133,6 +136,13 @@ view controller.
   minutes later, since the app it went to may read the URL after the
   sheet has gone. A file name must be plain: no slash, backslash or NUL,
   and not `.` or `..`.
+- Pickers are the person's consent, so there is no permission prompt.
+  A picked file is read in by value and the app keeps no access to it:
+  the Mac's open panel, the iOS document picker (copying in) and the
+  photo picker (which doesn't let the app into the library). The Mac
+  open and save panels need the app's
+  `com.apple.security.files.user-selected.read-write` entitlement; the
+  photo picker shows on the window's content view controller.
 - The Mac's share menu can't be closed from code: a cancel answers
   `cancelled` at once and the menu stays until the person closes it.
 - A kernel interrupt closes the dialog: cdp-kernel 0.7.2 or later

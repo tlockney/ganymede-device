@@ -21,7 +21,7 @@ wire format and the Swift side's contract in
 Phase 0 is done and Phase 1 is under way. The TypeScript side answers
 `hello`, the text and image clipboard, `info`, haptics, `openURL`, the
 `ui` dialogs (alert, confirm, prompt, action sheet, date picker), the
-share sheet and Quick Look previews, with bytes crossing the bridge as base64 (docs/protocol.md). It runs in
+share sheet, Quick Look previews, and the file and photo pickers, with bytes crossing the bridge as base64 (docs/protocol.md). It runs in
 cdp-kernel's browser Worker through its `preload` and `host` options
 ([tlockney/cdp-kernel#384](https://github.com/tlockney/cdp-kernel/issues/384)),
 and is tested end to end in headless Chromium against a fake Swift

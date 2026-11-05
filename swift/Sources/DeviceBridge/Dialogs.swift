@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #else
@@ -43,6 +44,11 @@ public enum Dialog: Equatable, Sendable {
     case pickDate(title: String?, mode: DateMode, value: Date?, min: Date?, max: Date?)
     case share(text: String?, url: URL?, files: [NamedFile])
     case preview(files: [NamedFile])
+    /// `files.pick`: `types` are type identifiers, empty for anything.
+    case pickFiles(types: [String], multiple: Bool)
+    case exportFile(NamedFile)
+    /// `photos.pick`: `limit` 0 for no limit.
+    case pickPhotos(limit: Int)
 
     /// Why a dialog call's params were refused. Its description is the
     /// reply's message.
@@ -111,6 +117,34 @@ public enum Dialog: Equatable, Sendable {
             let files = try Self.files(method, params["files"] ?? [Any]())
             guard !files.isEmpty else { throw ParamsError(description: "preview needs at least one file") }
             self = .preview(files: files)
+        case "files.pick":
+            var types: [String] = []
+            if let value = params["types"], !(value is NSNull) {
+                guard let list = value as? [String] else {
+                    throw ParamsError(description: "files.pick: types must be an array of strings")
+                }
+                types = try list.map { text in
+                    guard let type = Self.contentType(text) else {
+                        throw ParamsError(description: "files.pick: \(text) isn't a MIME type or extension this device knows")
+                    }
+                    return type.identifier
+                }
+            }
+            self = .pickFiles(types: types, multiple: params["multiple"] as? Bool ?? false)
+        case "files.export":
+            guard let name = text("name"), NamedFile.isPlainName(name) else {
+                throw ParamsError(description: "files.export needs a plain file name (no slashes)")
+            }
+            do {
+                self = .exportFile(NamedFile(name: name, data: try DeviceBridge.bytes(params["data"])))
+            } catch {
+                throw ParamsError(description: "files.export: \(error)")
+            }
+        case "photos.pick":
+            guard let limit = Self.index(params["limit"] ?? 1), limit >= 0 else {
+                throw ParamsError(description: "photos.pick: limit must be a whole number, 0 for no limit")
+            }
+            self = .pickPhotos(limit: limit)
         default:
             throw ParamsError(description: "\(method) isn't a dialog")
         }
@@ -133,6 +167,14 @@ public enum Dialog: Equatable, Sendable {
         case (.share, .shared):
             return true
         case (.share, _):
+            return false
+        case let (.pickFiles, .files(files)), let (.pickPhotos, .files(files)):
+            return files.map { ["name": $0.name, "type": $0.type, "data": ["base64": $0.data.base64EncodedString()]] }
+        case (.pickFiles, _), (.pickPhotos, _):
+            return [Any]()
+        case (.exportFile, .saved):
+            return true
+        case (.exportFile, _):
             return false
         default:
             return NSNull()
@@ -166,6 +208,25 @@ public enum Dialog: Equatable, Sendable {
             files.append(NamedFile(name: name, data: data))
         }
         return files
+    }
+
+    /// The type a `files.pick` type names: a MIME type, a wildcard such as
+    /// `image/*`, or an extension with or without its dot.
+    public static func contentType(_ text: String) -> UTType? {
+        let text = text.trimmingCharacters(in: .whitespaces).lowercased()
+        switch text {
+        case "*/*", "*": return .item
+        case "image/*": return .image
+        case "audio/*": return .audio
+        case "video/*": return .movie
+        case "text/*": return .text
+        default: break
+        }
+        // An unknown MIME type would match no file; an unknown extension
+        // still matches files with that extension.
+        if text.contains("/") { return UTType(mimeType: text).flatMap { $0.isDynamic ? nil : $0 } }
+        let ext = text.hasPrefix(".") ? String(text.dropFirst()) : text
+        return ext.isEmpty ? nil : UTType(filenameExtension: ext)
     }
 
     /// A whole number, not a boolean, which WebKit also hands over as an
@@ -205,6 +266,26 @@ public enum DialogResult: Equatable, Sendable {
     case date(Date)
     /// The share sheet's person picked where to send the items.
     case shared
+    /// Files a picker handed over.
+    case files([PickedFile])
+    /// The save panel's file was written.
+    case saved
+    /// The person answered, but the answer couldn't be handed over, such
+    /// as picked files over the binary limit. The call fails `failed`.
+    case failed(String)
+}
+
+/// A file a picker handed over: its name, MIME type (empty when unknown)
+/// and bytes.
+public struct PickedFile: Equatable, Sendable {
+    public let name: String
+    public let type: String
+    public let data: Data
+    public init(name: String, type: String, data: Data) {
+        self.name = name
+        self.type = type
+        self.data = data
+    }
 }
 
 /// Shows dialogs, behind a protocol so tests needn't show any.
@@ -295,7 +376,11 @@ final class DialogQueue {
         showing = current
         do {
             let close = try presenter.present(call.dialog, on: call.host) { [weak self] answer in
-                self?.finish(current, .answered(call.dialog.result(answer)))
+                if case let .failed(message) = answer {
+                    self?.finish(current, .failed("failed", message))
+                } else {
+                    self?.finish(current, .answered(call.dialog.result(answer)))
+                }
             }
             current.close = close
         } catch let error as DialogFailed {
@@ -361,6 +446,12 @@ public struct SystemDialogPresenter: DialogPresenter {
             return try SharePresenter.present(text: text, url: url, files: files, on: host, window: window, done: done)
         case let .preview(files):
             return try PreviewPresenter.present(files: files, window: window, done: done)
+        case let .pickFiles(types, multiple):
+            return FilePanels.open(types: types, multiple: multiple, window: window, done: done)
+        case let .exportFile(file):
+            return FilePanels.save(file, window: window, done: done)
+        case let .pickPhotos(limit):
+            return try PhotoPicker.present(limit: limit, window: window, done: done)
         default:
             break
         }
@@ -368,7 +459,7 @@ public struct SystemDialogPresenter: DialogPresenter {
         let first = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         let answer: (NSApplication.ModalResponse) -> DialogResult
         switch dialog {
-        case .share, .preview:
+        case .share, .preview, .pickFiles, .exportFile, .pickPhotos:
             preconditionFailure("shown above")
         case let .alert(title, message):
             Self.text(alert, title: title, message: message)
@@ -505,6 +596,12 @@ public struct SystemDialogPresenter: DialogPresenter {
             controller = try SharePresenter.controller(text: text, url: url, files: files, anchor: top.view, done: done)
         case let .preview(files):
             controller = try PreviewPresenter.controller(files: files, done: done)
+        case let .pickFiles(types, multiple):
+            controller = FilePicker.open(types: types, multiple: multiple, done: done)
+        case let .exportFile(file):
+            controller = try FilePicker.export(file, done: done)
+        case let .pickPhotos(limit):
+            controller = PhotoPicker.controller(limit: limit, done: done)
         }
         let state = Presentation()
         let show = {

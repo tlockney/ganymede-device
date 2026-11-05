@@ -175,11 +175,13 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public static let capabilities = [
         "clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "info", "openURL",
         "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview",
+        "files.pick", "files.export", "photos.pick",
     ]
 
     /// The methods that show a dialog or sheet and answer once it closes.
     public static let dialogMethods: Set<String> = [
         "ui.alert", "ui.confirm", "ui.prompt", "ui.actionSheet", "ui.pickDate", "share", "preview",
+        "files.pick", "files.export", "photos.pick",
     ]
 
     /// The methods this bridge answers, as `hello` reports them.

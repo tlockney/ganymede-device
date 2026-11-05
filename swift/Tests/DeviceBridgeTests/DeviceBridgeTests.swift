@@ -452,6 +452,69 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertFalse(NamedFile.isPlainName("\n"), "as the page trims it")
     }
 
+    func testPickersAnswerFilesAndExportSaves() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        for method in ["files.pick", "files.export", "photos.pick"] {
+            XCTAssertTrue(bridge.capabilities.contains(method), method)
+        }
+
+        bridge.respond(
+            to: ["id": 1, "method": "files.pick", "params": ["types": ["text/csv", ".json", "image/*"], "multiple": true]],
+            reply: replies.reply
+        )
+        XCTAssertEqual(presenter.shown.last, .pickFiles(types: ["public.comma-separated-values-text", "public.json", "public.image"], multiple: true))
+        presenter.answer(.files([PickedFile(name: "a.csv", type: "text/csv", data: Data([1, 2]))]))
+        let picked = replies.last?["result"] as? [[String: Any]]
+        XCTAssertEqual(picked?.count, 1)
+        XCTAssertEqual(picked?.first?["name"] as? String, "a.csv")
+        XCTAssertEqual(picked?.first?["type"] as? String, "text/csv")
+        XCTAssertEqual((picked?.first?["data"] as? [String: Any])?["base64"] as? String, "AQI=")
+
+        bridge.respond(to: ["id": 2, "method": "files.pick", "params": [:]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .pickFiles(types: [], multiple: false))
+        presenter.answer(.dismissed)
+        XCTAssertEqual((replies.last?["result"] as? [Any])?.count, 0, "a cancelled picker is [], not an error")
+
+        bridge.respond(to: ["id": 3, "method": "photos.pick", "params": [:]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .pickPhotos(limit: 1))
+        presenter.answer(.failed("the picked files together are too large"))
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed")
+
+        bridge.respond(to: ["id": 4, "method": "files.export", "params": ["name": "out.txt", "data": ["base64": "aGk="]]], reply: replies.reply)
+        XCTAssertEqual(presenter.shown.last, .exportFile(NamedFile(name: "out.txt", data: Data("hi".utf8))))
+        presenter.answer(.saved)
+        XCTAssertEqual(replies.last?["result"] as? Bool, true)
+
+        bridge.respond(to: ["id": 5, "method": "files.export", "params": ["name": "out.txt", "data": ["base64": "aGk="]]], reply: replies.reply)
+        presenter.answer(.dismissed)
+        XCTAssertEqual(replies.last?["result"] as? Bool, false)
+        XCTAssertEqual(replies.all.count, 5)
+    }
+
+    func testBadPickerCallsFail() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let replies = Replies()
+        let bad: [[String: Any]] = [
+            ["id": 1, "method": "files.pick", "params": ["types": "text/csv"]],
+            ["id": 2, "method": "files.pick", "params": ["types": ["no/such-type-here"]]],
+            ["id": 3, "method": "files.export", "params": ["name": "a/b", "data": ["base64": "AQ=="]]],
+            ["id": 4, "method": "files.export", "params": ["name": "a"]],
+            ["id": 5, "method": "photos.pick", "params": ["limit": -1]],
+            ["id": 6, "method": "photos.pick", "params": ["limit": true]],
+        ]
+        for call in bad {
+            bridge.respond(to: call, reply: replies.reply)
+            XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "\(call)")
+        }
+        XCTAssertTrue(presenter.shown.isEmpty)
+        XCTAssertEqual(Dialog.contentType("csv")?.identifier, "public.comma-separated-values-text")
+        XCTAssertEqual(Dialog.contentType(".PNG")?.identifier, "public.png")
+        XCTAssertNotNil(Dialog.contentType(".parquet"), "an unknown extension still filters by extension")
+    }
+
     func testOtherMethodsStillAnswerThroughRespond() {
         let replies = Replies()
         let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), appVersion: "")

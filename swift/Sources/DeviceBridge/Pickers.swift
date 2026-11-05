@@ -1,0 +1,277 @@
+import Foundation
+import ObjectiveC
+import PhotosUI
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+// `device.files.pick`, `device.files.export` and `device.photos.pick`: the
+// system's own pickers, shown through the dialog queue (Dialogs.swift).
+// A picker is the person's consent, so there is no permission prompt, and
+// a picked file is read in by value: no bookmark or other access is kept.
+
+/// Reads picked files, refusing when they are together over the binary
+/// limit.
+enum PickedFiles {
+    static func read(_ urls: [URL], removeAfter: Bool = false) -> DialogResult {
+        var files: [PickedFile] = []
+        var total = 0
+        defer {
+            if removeAfter {
+                for url in urls { try? FileManager.default.removeItem(at: url) }
+            }
+        }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                // The size first, so a large file isn't read just to be refused.
+                total += try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard total <= DeviceBridge.maxBinaryBytes else { return tooLarge }
+                let data = try Data(contentsOf: url)
+                files.append(PickedFile(name: url.lastPathComponent, type: mimeType(url.pathExtension), data: data))
+            } catch {
+                return .failed("couldn't read \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        guard files.reduce(0, { $0 + $1.data.count }) <= DeviceBridge.maxBinaryBytes else { return tooLarge }
+        return .files(files)
+    }
+
+    static let tooLarge = DialogResult.failed("the picked files together are over \(DeviceBridge.maxBinaryBytes) bytes")
+
+    static func mimeType(_ pathExtension: String) -> String {
+        UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? ""
+    }
+}
+
+/// Loads what a photo picker handed over, each in the format it is stored
+/// in, and answers on the main queue.
+enum PhotoLoader {
+    private final class Gathered: @unchecked Sendable {
+        let lock = NSLock()
+        var files: [PickedFile?]
+        var failure: String?
+        init(count: Int) { files = Array(repeating: nil, count: count) }
+    }
+
+    static func load(_ providers: [NSItemProvider], done: @escaping (DialogResult) -> Void) {
+        guard !providers.isEmpty else { return done(.dismissed) }
+        let gathered = Gathered(count: providers.count)
+        let group = DispatchGroup()
+        for (index, provider) in providers.enumerated() {
+            let type = provider.registeredTypeIdentifiers.lazy.compactMap { UTType($0) }.first { $0.conforms(to: .image) }
+            guard let type else {
+                gathered.lock.lock()
+                gathered.failure = "a picked item isn't an image"
+                gathered.lock.unlock()
+                continue
+            }
+            group.enter()
+            provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
+                defer { group.leave() }
+                // The file is removed once this returns, so read it now.
+                let result: Result<PickedFile, Error> = Result {
+                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size <= DeviceBridge.maxBinaryBytes else { throw CocoaError(.fileReadTooLarge) }
+                    let name = (provider.suggestedName ?? "photo-\(index + 1)") + "." + (type.preferredFilenameExtension ?? url.pathExtension)
+                    return PickedFile(name: name, type: type.preferredMIMEType ?? "", data: try Data(contentsOf: url))
+                }
+                gathered.lock.lock()
+                defer { gathered.lock.unlock() }
+                switch result {
+                case let .success(file): gathered.files[index] = file
+                case let .failure(error): gathered.failure = "couldn't load a picked photo: \(error.localizedDescription)"
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            if let failure = gathered.failure { return done(.failed(failure)) }
+            let files = gathered.files.compactMap { $0 }
+            guard files.reduce(0, { $0 + $1.data.count }) <= DeviceBridge.maxBinaryBytes else { return done(PickedFiles.tooLarge) }
+            done(.files(files))
+        }
+    }
+}
+
+private var retainedKey: UInt8 = 0
+
+/// Keeps `object` alive as long as `owner`: pickers hold their delegates
+/// weakly.
+private func retain(_ object: AnyObject, by owner: AnyObject) {
+    objc_setAssociatedObject(owner, &retainedKey, object, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+}
+
+/// The system photo picker, which shows the library without the app being
+/// let in: images only, `limit` 0 for no limit.
+@MainActor
+private func photoPicker(limit: Int, finished: @escaping (PHPickerViewController, [PHPickerResult]) -> Void) -> PHPickerViewController {
+    var configuration = PHPickerConfiguration()
+    configuration.filter = .images
+    configuration.selectionLimit = limit
+    let picker = PHPickerViewController(configuration: configuration)
+    let delegate = PhotoPickerDelegate(finished: finished)
+    picker.delegate = delegate
+    retain(delegate, by: picker)
+    return picker
+}
+
+private final class PhotoPickerDelegate: NSObject, PHPickerViewControllerDelegate {
+    let finished: (PHPickerViewController, [PHPickerResult]) -> Void
+    private var answered = false
+
+    init(finished: @escaping (PHPickerViewController, [PHPickerResult]) -> Void) {
+        self.finished = finished
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        guard !answered else { return }
+        answered = true
+        finished(picker, results)
+    }
+}
+
+#if os(macOS)
+
+/// The open and save panels, as sheets on the asking notebook's window.
+@MainActor
+enum FilePanels {
+    static func open(types: [String], multiple: Bool, window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = multiple
+        let contentTypes = types.compactMap { UTType($0) }
+        if !contentTypes.isEmpty { panel.allowedContentTypes = contentTypes }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK else { return done(.dismissed) }
+            done(PickedFiles.read(panel.urls))
+        }
+        return { [weak window] gone in
+            window?.endSheet(panel)
+            gone()
+        }
+    }
+
+    static func save(_ file: NamedFile, window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = file.name
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return done(.dismissed) }
+            do {
+                try file.data.write(to: url, options: .atomic)
+                done(.saved)
+            } catch {
+                done(.failed("couldn't save \(url.lastPathComponent): \(error.localizedDescription)"))
+            }
+        }
+        return { [weak window] gone in
+            window?.endSheet(panel)
+            gone()
+        }
+    }
+}
+
+/// The photo picker as a sheet on the window's content view controller.
+@MainActor
+enum PhotoPicker {
+    static func present(limit: Int, window: NSWindow, done: @escaping (DialogResult) -> Void) throws -> Close {
+        guard let host = window.contentViewController else {
+            throw DialogUnavailable(description: "there is no view controller to show the photo picker on")
+        }
+        let picker = photoPicker(limit: limit) { [weak host] picker, results in
+            if picker.presentingViewController != nil { host?.dismiss(picker) }
+            PhotoLoader.load(results.map(\.itemProvider), done: done)
+        }
+        if picker.preferredContentSize == .zero {
+            picker.preferredContentSize = NSSize(width: 760, height: 560)
+        }
+        host.presentAsSheet(picker)
+        return { [weak host, weak picker] gone in
+            if let picker, picker.presentingViewController != nil { host?.dismiss(picker) }
+            gone()
+        }
+    }
+}
+
+#else
+
+/// The document picker, to open files (copied in) or save one.
+@MainActor
+enum FilePicker {
+    static func open(types: [String], multiple: Bool, done: @escaping (DialogResult) -> Void) -> UIViewController {
+        let contentTypes = types.compactMap { UTType($0) }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes.isEmpty ? [.item] : contentTypes, asCopy: true)
+        picker.allowsMultipleSelection = multiple
+        let delegate = DocumentPickerDelegate(
+            picked: { urls in done(PickedFiles.read(urls, removeAfter: true)) },
+            cancelled: { done(.dismissed) }
+        )
+        picker.delegate = delegate
+        retain(delegate, by: picker)
+        return picker
+    }
+
+    static func export(_ file: NamedFile, done: @escaping (DialogResult) -> Void) throws -> UIViewController {
+        let temp = try TemporaryFiles([file])
+        let picker = UIDocumentPickerViewController(forExporting: temp.urls, asCopy: true)
+        let delegate = DocumentPickerDelegate(
+            picked: { _ in
+                temp.remove()
+                done(.saved)
+            },
+            cancelled: {
+                temp.remove()
+                done(.dismissed)
+            }
+        )
+        picker.delegate = delegate
+        retain(delegate, by: picker)
+        return picker
+    }
+}
+
+private final class DocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    let picked: ([URL]) -> Void
+    let cancelled: () -> Void
+    private var answered = false
+
+    init(picked: @escaping ([URL]) -> Void, cancelled: @escaping () -> Void) {
+        self.picked = picked
+        self.cancelled = cancelled
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard !answered else { return }
+        answered = true
+        picked(urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        guard !answered else { return }
+        answered = true
+        cancelled()
+    }
+}
+
+/// The photo picker, answering once it has gone and the photos are read.
+@MainActor
+enum PhotoPicker {
+    static func controller(limit: Int, done: @escaping (DialogResult) -> Void) -> UIViewController {
+        photoPicker(limit: limit) { picker, results in
+            let providers = results.map(\.itemProvider)
+            if picker.presentingViewController != nil {
+                picker.dismiss(animated: true) { PhotoLoader.load(providers, done: done) }
+            } else {
+                PhotoLoader.load(providers, done: done)
+            }
+        }
+    }
+}
+
+#endif
