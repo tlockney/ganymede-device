@@ -14,7 +14,7 @@ export interface SupportRow {
   call: string;
   /** What the call resolves to, for the docs. */
   returns: string;
-  /** An on-device kernel in the Mac or iPad app. */
+  /** An on-device kernel in the Mac, iPad or iPhone app. */
   onDevice: Support;
   /** Shown instead of "yes" on-device when only some devices have it, such as "iPhone". */
   devices?: string;
@@ -31,7 +31,7 @@ export interface SupportRow {
 export const SUPPORT = {
   info: {
     call: "info()",
-    returns: "platform, version, methods",
+    returns: "platform, version, methods, and the device's current state",
     onDevice: "yes",
     remote: "planned",
     browser: "planned",
@@ -108,6 +108,42 @@ export const SUPPORT = {
     browser: "planned",
     browserClick: true,
     note: "http, https and mailto only. `inApp` works on iPhone and iPad, not the Mac; a browser opens a tab after a click.",
+  },
+  "ui.alert": {
+    call: "ui.alert(message, { title })",
+    returns: "nothing, once closed",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    note: "A sheet on the Mac, an alert on iPhone and iPad; a browser will show it in the cell's output.",
+  },
+  "ui.confirm": {
+    call: "ui.confirm(message, { title, destructive, okLabel })",
+    returns: "`boolean`",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+  },
+  "ui.prompt": {
+    call: "ui.prompt(message, { title, placeholder, defaultValue, secure })",
+    returns: "`string`, or `null`",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+  },
+  "ui.actionSheet": {
+    call: "ui.actionSheet(title, options, { message, cancel, destructive })",
+    returns: "the option's index, or `null`",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+  },
+  "ui.pickDate": {
+    call: "ui.pickDate({ mode, title, value, min, max })",
+    returns: "`Date`, or `null`",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
   },
 } as const satisfies Record<string, SupportRow>;
 

@@ -5,7 +5,7 @@
 // bridge and comes back.
 //
 // Needs the playwright package and a cdp-kernel checkout with its `preload`
-// and `host` options (v0.7.1 or later), named by CDPK_DIR. Skipped when
+// and `host` options (v0.7.1 or later; v0.7.2 for interrupts), named by CDPK_DIR. Skipped when
 // CDPK_DIR is unset; fails when it is set but the setup isn't usable, so CI
 // can't pass with the test skipped.
 import { test } from "node:test";
@@ -34,8 +34,8 @@ try {
 }
 // Resolved once, so a relative path means the same thing to every use below.
 const CDPK_DIR = process.env.CDPK_DIR ? resolve(process.env.CDPK_DIR) : undefined;
-/** The oldest cdp-kernel with the `preload` and `host` options (#384). */
-const CDPK_MIN = [0, 7, 1];
+/** The oldest cdp-kernel whose interrupt aborts host requests (cdp-kernel#388). */
+const CDPK_MIN = [0, 7, 2];
 const skip = CDPK_DIR ? false : "needs CDPK_DIR, a cdp-kernel checkout";
 
 /** Why the setup CDPK_DIR names can't run the test, or null when it can. */
@@ -62,7 +62,9 @@ let image = null;
 globalThis.bridgeLog = [];
 globalThis.webkit = { messageHandlers: { device: { async postMessage(msg) {
   bridgeLog.push(msg);
-  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage"] } };
+  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "ui.prompt"] } };
+  // A dialog the person never answers.
+  if (msg.method === "ui.prompt") return new Promise(() => {});
   if (msg.method === "clipboard.readText") return { result: clipboard };
   if (msg.method === "clipboard.writeText") { clipboard = msg.params.text; return { result: null }; }
   if (msg.method === "clipboard.readImage") return { result: image && { base64: image } };
@@ -97,6 +99,10 @@ globalThis.execute = (code) => {
     poll();
   });
 };
+globalThis.interrupt = () => kernel.send("control", {
+  header: { msg_id: crypto.randomUUID(), msg_type: "interrupt_request", session: "s", username: "", date: new Date().toISOString(), version: "5.3" },
+  parent_header: {}, metadata: {}, content: {},
+});
 globalThis.ready = true;
 </script>`;
 
@@ -139,6 +145,24 @@ test("a cell reads and writes the clipboard through the fake Swift bridge", { sk
   const read = await execute("const png = await device.clipboard.readImage(); [png instanceof Uint8Array, [...png].join(',')]");
   assert.equal(read.text, "[ true, '137,80,78,71,0,255' ]");
 
+  // A cell waiting on a dialog that its signal aborts: the call rejects
+  // cancelled in the cell, and Swift is told to close that dialog.
+  const cancelled = await execute("await device.ui.prompt('Name?', { signal: AbortSignal.timeout(50) }).catch((e) => e.code)");
+  assert.equal(cancelled.text, "'timeout'");
+  const calls = await page.evaluate(() => (globalThis as unknown as { bridgeLog: { id: number; method?: string; cancel?: true }[] }).bridgeLog, null);
+  const prompt = calls.find((m) => m.method === "ui.prompt")!;
+  assert.deepEqual(calls.at(-1), { id: prompt.id, cancel: true });
+
+  // An interrupt while a cell waits on a dialog: Swift is told to close it.
+  const waiting = execute("await device.ui.prompt('Again?')");
+  await page.waitForFunction("bridgeLog.filter((m) => m.method === 'ui.prompt').length === 2");
+  await page.evaluate(() => (globalThis as unknown as { interrupt(): void }).interrupt(), null);
+  assert.equal((await waiting).status, "error");
+  const after = await page.evaluate(() => (globalThis as unknown as { bridgeLog: { id: number; method?: string; cancel?: true }[] }).bridgeLog, null);
+  const again = after.filter((m) => m.method === "ui.prompt")[1];
+  assert.deepEqual(after.at(-1), { id: again.id, cancel: true });
+
   const log = await page.evaluate(() => (globalThis as unknown as { bridgeLog: { method?: string }[] }).bridgeLog.map((m) => m.method), null);
-  assert.deepEqual(log, ["hello", "clipboard.readText", "clipboard.writeText", "clipboard.readText", "clipboard.writeImage", "clipboard.readImage"]);
+  // The cancel has no method.
+  assert.deepEqual(log, ["hello", "clipboard.readText", "clipboard.writeText", "clipboard.readText", "clipboard.writeImage", "clipboard.readImage", "ui.prompt", undefined, "ui.prompt", undefined]);
 });

@@ -34,7 +34,9 @@ A page reload or a restarted web content process sends no cancels, and
 the new page's ids start over. So when the kernel web view navigates or
 its content process terminates, Swift drops every call it still has
 open (dismissing what it showed) before taking calls from the new page.
-Today's bridge answers each call synchronously, so it holds none.
+Only dialogs stay open; the app calls `DeviceBridge.dropAll()` from the
+web view's navigation delegate, which closes them and answers each
+`cancelled`.
 
 ## Messages Swift receives
 
@@ -90,6 +92,11 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `haptics.notification` | `{ type }`: `success`, `warning` or `error` | `null` |
 | `haptics.selection` | `{}` | `null` |
 | `openURL` | `{ url, inApp }` | `null`; only `http`, `https` and `mailto` URLs, anything else fails `failed`. `inApp` shows a web page in a Safari view on iOS and iPadOS |
+| `ui.alert` | `{ message, title? }` | `null` once closed |
+| `ui.confirm` | `{ message, title?, destructive, okLabel? }` | `true` when confirmed, `false` when cancelled |
+| `ui.prompt` | `{ message, title?, placeholder?, defaultValue?, secure }` | the text, or `null` when cancelled |
+| `ui.actionSheet` | `{ title, options: string[], message?, cancel?, destructive?: index }` | the chosen option's index, or `null` when cancelled |
+| `ui.pickDate` | `{ mode: "date" \| "time" \| "datetime", title?, value?, min?, max? }`, dates as ISO 8601 strings | the date as an ISO 8601 string, or `null` when cancelled |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -98,3 +105,25 @@ as `unavailable` itself.
 Support for each method across on-device, remote and browser kernels is
 in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
 `supportTable()` renders the table in ganymede-ui's `docs/device.md`.
+
+## Dialogs
+
+`ui.*` calls wait on a person, so Swift answers them when the dialog
+closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
+Each shows on the window of the web view that sent the call, the notebook
+whose cell asked, or on the key window when that isn't known. The Mac
+shows a sheet; iPhone and iPad show an alert, an action sheet (a popover
+with no arrow on an iPad) or a date picker sheet over that window's top
+view controller.
+
+- One dialog at a time per bridge. A second call waits for the first to
+  close, in the order the calls came, rather than failing: a cell that
+  asks twice in a row gets both.
+- A cancel for the dialog showing closes it and answers `cancelled`; a
+  cancel for one still waiting takes it off the queue. Either way the
+  next waiting dialog shows, once the closed one has left the screen.
+- An aborted `signal` sends the cancel. A `signal` from
+  `AbortSignal.timeout()` rejects `timeout` instead of `cancelled`.
+- With no window to show it on, the call fails `unavailable`.
+- A kernel interrupt closes the dialog: cdp-kernel 0.7.2 or later
+  aborts the cell's open host requests, which sends the cancel.
