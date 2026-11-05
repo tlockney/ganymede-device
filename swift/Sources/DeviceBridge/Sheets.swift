@@ -16,7 +16,7 @@ extension NamedFile {
     /// A name a file can be written under as it is: not empty, `.` or `..`,
     /// and no slash, backslash or NUL.
     public static func isPlainName(_ name: String) -> Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && name != "." && name != ".."
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name != "." && name != ".."
             && !name.contains(where: { $0 == "/" || $0 == "\\" || $0 == "\0" })
     }
 }
@@ -43,9 +43,17 @@ final class TemporaryFiles {
             }
         } catch {
             try? fm.removeItem(at: directory)
-            throw DialogUnavailable(description: "couldn't write the files to show: \(error.localizedDescription)")
+            throw DialogFailed(description: "couldn't write the files to show: \(error.localizedDescription)")
         }
         self.urls = urls
+    }
+
+    /// Removes the files when this goes, for a controller that may never
+    /// be shown (a cancel before it is presented) and so never calls back.
+    var removeWhenGone = false
+
+    deinit {
+        if removeWhenGone { remove() }
     }
 
     func remove() {
@@ -81,7 +89,9 @@ enum SharePresenter {
         text: String?, url: URL?, files: [NamedFile], on host: DialogHost?, window: NSWindow,
         done: @escaping (DialogResult) -> Void
     ) throws -> Close {
-        guard let view = host ?? window.contentView else {
+        // The window's content view: the asking web view may be a hidden
+        // one (ganymede-ui's kernel page is 1x1 in a corner).
+        guard let view = host?.window?.contentView ?? window.contentView else {
             throw DialogUnavailable(description: "there is no view to show the share menu on")
         }
         let temp = try TemporaryFiles(files)
@@ -139,6 +149,7 @@ enum PreviewPresenter {
         let temp = try TemporaryFiles(files)
         let sheet = PreviewSheet(urls: temp.urls)
         window.beginSheet(sheet.window) { _ in
+            sheet.closePreview()
             temp.remove()
             done(.dismissed)
             _ = sheet // held until the sheet ends
@@ -150,9 +161,15 @@ enum PreviewPresenter {
     }
 }
 
+/// Escape reaches the window when nothing in it handles `cancelOperation`.
+private final class PreviewWindow: NSWindow {
+    var onCancel: (() -> Void)?
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
+}
+
 @MainActor
 private final class PreviewSheet: NSObject {
-    let window: NSWindow
+    let window: PreviewWindow
     private let urls: [URL]
     private var index = 0
     private let preview: QLPreviewView
@@ -162,7 +179,7 @@ private final class PreviewSheet: NSObject {
 
     init(urls: [URL]) {
         self.urls = urls
-        window = NSWindow(
+        window = PreviewWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
             styleMask: [.titled, .resizable], backing: .buffered, defer: true
         )
@@ -184,7 +201,13 @@ private final class PreviewSheet: NSObject {
         stack.spacing = 0
         preview.setContentHuggingPriority(.defaultLow, for: .vertical)
         window.contentView = stack
+        window.onCancel = { [weak self] in self?.close() }
         show(0)
+    }
+
+    /// Lets go of the file shown, before its folder is removed.
+    func closePreview() {
+        preview.close()
     }
 
     private func show(_ i: Int) {
@@ -201,11 +224,6 @@ private final class PreviewSheet: NSObject {
     @objc private func close() {
         window.sheetParent?.endSheet(window)
     }
-
-    /// Escape closes it, as it would a sheet with a Cancel button.
-    @objc func cancelOperation(_ sender: Any?) {
-        close()
-    }
 }
 
 #else
@@ -218,12 +236,16 @@ enum SharePresenter {
         text: String?, url: URL?, files: [NamedFile], anchor: UIView, done: @escaping (DialogResult) -> Void
     ) throws -> UIViewController {
         let temp = try TemporaryFiles(files)
+        temp.removeWhenGone = true
         let sheet = UIActivityViewController(activityItems: shareItems(text: text, url: url, files: temp), applicationActivities: nil)
         var answered = false
-        // Called once the sheet, and any activity it showed, has gone.
-        sheet.completionWithItemsHandler = { _, completed, _, _ in
-            guard !answered else { return }
+        // Called once the sheet has gone, and also (since iOS 13) when the
+        // person backs out of an activity with the sheet still up: that one
+        // has an activity type and isn't completed, and isn't the answer.
+        sheet.completionWithItemsHandler = { activity, completed, _, _ in
+            guard !answered, completed || activity == nil else { return }
             answered = true
+            temp.removeWhenGone = false
             temp.removeLater()
             done(completed ? .shared : .dismissed)
         }
@@ -240,7 +262,9 @@ enum SharePresenter {
 @MainActor
 enum PreviewPresenter {
     static func controller(files: [NamedFile], done: @escaping (DialogResult) -> Void) throws -> UIViewController {
-        PreviewController(temp: try TemporaryFiles(files), done: done)
+        let temp = try TemporaryFiles(files)
+        temp.removeWhenGone = true
+        return PreviewController(temp: temp, done: done)
     }
 }
 

@@ -52,12 +52,14 @@ private final class FakePresenter: DialogPresenter {
     var hosts: [DialogHost?] = []
     var closed = 0
     var refuse = false
+    var fail = false
     /// Holds each close's `gone` until `finishClosing()`, as an animation would.
     var slowClose = false
     private var closing: [() -> Void] = []
     private var answers: [(DialogResult) -> Void] = []
     func present(_ dialog: Dialog, on host: DialogHost?, done: @escaping (DialogResult) -> Void) throws -> Close {
         if refuse { throw DialogUnavailable(description: "no window") }
+        if fail { throw DialogFailed(description: "disk full") }
         shown.append(dialog)
         hosts.append(host)
         answers.append(done)
@@ -385,6 +387,10 @@ final class DeviceBridgeTests: XCTestCase {
         bridge.respond(to: ["id": 6, "method": "ui.alert", "params": ["message": "m"]], reply: replies.reply)
         XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
         presenter.refuse = false
+        presenter.fail = true
+        bridge.respond(to: ["id": 8, "method": "ui.alert", "params": ["message": "m"]], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "a write that fails isn't a missing device")
+        presenter.fail = false
         bridge.respond(to: ["id": 7, "method": "ui.alert", "params": ["message": "m"]], reply: replies.reply)
         XCTAssertEqual(presenter.shown.count, 1, "a refused dialog doesn't block the next")
     }
@@ -442,6 +448,7 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertTrue(presenter.shown.isEmpty)
         XCTAssertTrue(NamedFile.isPlainName("report 1.pdf"))
         XCTAssertFalse(NamedFile.isPlainName(" "))
+        XCTAssertFalse(NamedFile.isPlainName("\n"), "as the page trims it")
     }
 
     func testOtherMethodsStillAnswerThroughRespond() {

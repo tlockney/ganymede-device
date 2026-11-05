@@ -294,6 +294,8 @@ final class DialogQueue {
                 self?.finish(current, .answered(call.dialog.result(answer)))
             }
             current.close = close
+        } catch let error as DialogFailed {
+            finish(current, .failed("failed", "\(error)"))
         } catch {
             finish(current, .failed("unavailable", "\(error)"))
         }
@@ -328,6 +330,13 @@ final class DialogQueue {
 
 /// Why a presenter couldn't show a dialog; the call fails `unavailable`.
 public struct DialogUnavailable: Error, CustomStringConvertible {
+    public let description: String
+    public init(description: String) { self.description = description }
+}
+
+/// A dialog that couldn't be shown for a reason other than the device:
+/// its call fails `failed`, not `unavailable`.
+public struct DialogFailed: Error, CustomStringConvertible {
     public let description: String
     public init(description: String) { self.description = description }
 }
