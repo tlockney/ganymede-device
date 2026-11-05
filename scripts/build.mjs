@@ -13,7 +13,7 @@ import { build } from "esbuild";
 
 const outdir = process.argv[2] ?? "dist";
 await build({
-  entryPoints: { preload: "src/preload.ts", webkit: "src/webkit.ts", mod: "src/mod.ts" },
+  entryPoints: { preload: "src/preload.ts", webkit: "src/webkit.ts", mod: "src/mod.ts", remote: "src/comm.ts" },
   outdir,
   bundle: true,
   format: "esm",
@@ -30,4 +30,4 @@ for (const file of readdirSync(outdir).filter(f => f.endsWith(".d.ts"))) {
   const path = join(outdir, file);
   writeFileSync(path, readFileSync(path, "utf8").replace(/(from\s+"\.\/[\w-]+)\.ts"/g, '$1.js"'));
 }
-console.log(`built ${outdir}/preload.js, webkit.js, mod.js and their .d.ts`);
+console.log(`built ${outdir}/preload.js, webkit.js, mod.js, remote.js and their .d.ts`);

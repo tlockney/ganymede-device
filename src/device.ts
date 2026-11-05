@@ -180,7 +180,11 @@ export interface Device {
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
 export async function hello(transport: DeviceTransport): Promise<DeviceInfo> {
-  const info = await transport.call("hello", {});
+  return helloInfo(await transport.call("hello", {}));
+}
+
+/** A `hello` reply checked and tidied: a platform and a list of method names. */
+export function helloInfo(info: unknown): DeviceInfo {
   if (!isRecord(info) || typeof info.platform !== "string" || !Array.isArray(info.capabilities)) {
     throw new DeviceError("failed", "the host's hello reply is malformed");
   }

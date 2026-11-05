@@ -109,9 +109,12 @@ ganymede-ui in the app ── device-bridge plugin ── Swift DeviceBridge
 ```
 
 How the kernel side finds it: if the host installed a transport, use it.
-Otherwise open the comm and send `hello`; if the app answers within ~2 s,
-use `CommTransport`, else every call rejects `unavailable`. Same message
-format as the on-device transports, carried in comm data and buffers.
+Otherwise announce on a comm; if the app answers within ~2 s, use the
+comm transport, else every call rejects `unavailable`. Same message
+format as the on-device transports, carried in comm data. The kernel
+only announces; the app opens the comm the calls go over, since
+JupyterLab closes a kernel-opened comm whose target it doesn't know
+(docs/protocol.md, "Over a Jupyter comm").
 
 ### What changes when the kernel is remote
 

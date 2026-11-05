@@ -27,6 +27,10 @@
       "types": "./dist/webkit.d.ts",
       "default": "./dist/webkit.js"
     },
+    "./remote": {
+      "types": "./dist/comm.d.ts",
+      "default": "./dist/remote.js"
+    },
     "./globals": {
       "types": "./dist/globals.d.ts"
     }

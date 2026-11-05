@@ -127,3 +127,46 @@ view controller.
 - With no window to show it on, the call fails `unavailable`.
 - A kernel interrupt closes the dialog: cdp-kernel 0.7.2 or later
   aborts the cell's open host requests, which sends the cancel.
+
+## Over a Jupyter comm (remote kernels)
+
+> Kernel side only so far (#26): `connectDevice` in `src/comm.ts`,
+> exported as `@tlockney/ganymede-device/remote`. The app side, a
+> ganymede-ui plugin that answers it, is next.
+
+A kernel that isn't in the app, such as cdp-kernel on Node behind
+Ganymede, reaches the app through the notebook page that shows it:
+
+```ts
+import { connectDevice } from "@tlockney/ganymede-device/remote";
+const device = await connectDevice(jupyter.comm);
+```
+
+The kernel doesn't open a comm that carries calls, because a
+kernel-opened comm goes to every client on the kernel and JupyterLab
+closes one whose target it doesn't know, for everyone. Instead:
+
+1. The kernel registers target `ganymede.device.v1.calls` and opens a
+   comm to target `ganymede.device.v1` with `{ protocol: 1 }`: the
+   announce. It comes from a cell, so its parent header carries that
+   `execute_request`'s session.
+2. The app answers only an announce whose session is its own: it opens a
+   comm to `ganymede.device.v1.calls` whose open data is its `hello`
+   reply. No other client knows that comm.
+3. The kernel takes the first such comm, closes the announce, and turns
+   away any other with `comm_close` `{ error: "taken" }`. With no answer
+   in 2 s, every call rejects `unavailable`.
+
+Over the calls comm, the kernel sends `{ id, method, params }` and
+`{ id, cancel: true }`, and the app replies `{ id, result }` or
+`{ id, error: { code, message } }`: the messages Swift receives, with
+binary values as `{ base64 }` as on the WebKit hop, so the app forwards
+them to `DeviceBridge` unchanged. An abort rejects at once and sends the
+cancel; a late reply is dropped. When the calls comm closes, calls in
+flight reject `disconnected` and the next call announces again (it
+rejects `disconnected` if no app answers).
+
+The kernel offers only the remote subset: methods whose `remote` column
+in `src/support.ts` isn't `no`, whatever the app's `hello` lists. The
+app enforces the same subset on its side.
+
