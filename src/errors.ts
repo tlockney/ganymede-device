@@ -25,13 +25,16 @@ export class DeviceError extends Error {
   /**
    * The DeviceError an error stands for. A host's error loses its class
    * crossing postMessage but keeps `name`, `message` and `code`; an abort
-   * becomes `cancelled`, anything else `failed`.
+   * becomes `cancelled`, a timeout signal's abort `timeout`, anything else
+   * `failed`.
    */
   static from(err: unknown): DeviceError {
     if (err instanceof DeviceError) return err;
     const e = err as { name?: unknown; message?: unknown; code?: unknown } | null;
     const message = typeof e?.message === "string" ? e.message : String(err);
     if (e?.name === "AbortError") return new DeviceError("cancelled", message);
+    // What `AbortSignal.timeout()` aborts with.
+    if (e?.name === "TimeoutError") return new DeviceError("timeout", message);
     if (typeof e?.code === "string" && CODES.has(e.code)) return new DeviceError(e.code as DeviceErrorCode, message);
     return new DeviceError("failed", message);
   }

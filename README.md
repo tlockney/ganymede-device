@@ -19,7 +19,8 @@ wire format and the Swift side's contract in
 ## Status
 
 Phase 0 is done and Phase 1 is under way. The TypeScript side answers
-`hello`, the text and image clipboard, `info`, haptics and `openURL`,
+`hello`, the text and image clipboard, `info`, haptics, `openURL` and
+the `ui` dialogs (alert, confirm, prompt, action sheet, date picker),
 with bytes crossing the bridge as base64 (docs/protocol.md). It runs in
 cdp-kernel's browser Worker through its `preload` and `host` options
 ([tlockney/cdp-kernel#384](https://github.com/tlockney/cdp-kernel/issues/384)),
@@ -95,8 +96,8 @@ DeviceBridge().register(in: kernelWebView.configuration.userContentController)
 npm ci
 npm run check   # type check
 npm test        # unit tests; the browser test skips without CDPK_DIR
-# The browser test, as CI runs it, against cdp-kernel v0.7.1:
-git clone --branch v0.7.1 https://github.com/tlockney/cdp-kernel ../cdp-kernel
+# The browser test, as CI runs it, against cdp-kernel v0.7.2:
+git clone --branch v0.7.2 https://github.com/tlockney/cdp-kernel ../cdp-kernel
 (cd ../cdp-kernel && npm ci)
 npm i --no-save playwright@1.64.1 && npx playwright install --with-deps chromium
 CDPK_DIR=../cdp-kernel node --test test/browser.test.ts
