@@ -23,7 +23,9 @@ Swift: WKScriptMessageHandlerWithReply named "device"
 
 The `id` in the WebKit message is the page's, unique per page load across
 every kernel the page runs (one counter for all `webkitHost()` handlers).
-It is what a cancel refers to.
+It is what a cancel refers to. The `owner` names the kernel: each
+`webkitHost()` handler, one per kernel, takes its own, also unique per page
+load. Swift keeps sound players and playing sounds under their owner.
 
 There is no kernel generation (`gen`) in the message. A restart or
 shutdown stops the kernel's Worker, and cdp-kernel aborts each call that
@@ -37,15 +39,21 @@ open (dismissing what it showed) before taking calls from the new page.
 Only dialogs and sounds stay open; the app calls `DeviceBridge.dropAll()`
 from the web view's navigation delegate, which closes the dialogs and
 answers each `cancelled`, and stops every sound and closes every player.
-A kernel restart doesn't: players and playing sounds belong to the page,
-not to a kernel, so they outlive a restart (ganymede-device#37).
+A kernel restart or shutdown closes that kernel's players and stops its
+sounds, and no other kernel's. A restart starts a new Worker, whose
+preload calls `hello`; a `hello` from an owner closes what that owner
+opened before. A shutdown sends no `hello`, so the page calls the
+handler's `release()`, which sends `{ owner, release: true }`. A message
+with no `owner` (a page from before owners) counts as owner 0, whose
+`hello` closes nothing.
 
 ## Messages Swift receives
 
 | Message | Meaning | Reply |
 | --- | --- | --- |
-| `{ id, method, params }` | A call. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
+| `{ id, owner, method, params }` | A call from kernel `owner`. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
 | `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the player a `sound.player` call opened (the page drops its answer, so it has no id to close). | Anything; ignored |
+| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds and close its players. | Anything; ignored |
 
 Rules for the Swift handler:
 
@@ -106,8 +114,8 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`, which allows any file), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
-| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per page (one an audio interruption paused no longer counts) |
-| `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per page, shared by the page's kernels |
+| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per kernel (one an audio interruption paused no longer counts) |
+| `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per kernel; `sound.control` and `sound.close` reach only the calling kernel's players |
 | `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change; a bad `action` or `time` fails `failed` and changes nothing, and `play` fails `failed` when the sound can't start |
 | `sound.close` | `{ player }` | `null`; closing one already closed is fine |
 

@@ -32,6 +32,17 @@ export function findMessageHandler(name = "device"): MessageHandler | null {
 // handler per kernel, and every one posts to the same Swift handler, so a
 // cancel's id must name one call across all of them.
 let nextId = 0;
+// Each handler's `owner`, also unique per page: Swift keeps what a kernel
+// opened (sound players, playing sounds) under it, and drops it when that
+// kernel's Worker restarts or the handler is released.
+let nextOwner = 0;
+
+/**
+ * A host handler for one kernel. `release()` tells Swift the kernel is
+ * gone (shut down), so it stops that kernel's sounds and closes its
+ * players. A restart needs no call: the new Worker's `hello` does it.
+ */
+export type WebKitHost = HostHandler & { readonly owner: number; release(): void };
 
 /**
  * A host handler backed by the Swift bridge. Swift replies `{ result }` or
@@ -40,9 +51,10 @@ let nextId = 0;
  * Aborting sends `{ id, cancel: true }` so Swift can dismiss what it showed.
  * Bytes cross as `{ base64 }` both ways (docs/protocol.md, "Binary values").
  */
-export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
+export function webkitHost(options: WebKitHostOptions = {}): WebKitHost {
   const name = options.name ?? "device";
-  return async ({ method, params }, signal) => {
+  const owner = ++nextOwner;
+  const handler: HostHandler = async ({ method, params }, signal) => {
     const handler = findMessageHandler(name);
     if (!handler) throw deviceError("unavailable", "this page isn't in the app (no WebKit device handler)");
     if (signal.aborted) throw deviceError("cancelled", `${method} was cancelled before it was sent`);
@@ -54,7 +66,7 @@ export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
     const onAbort = () => void handler.postMessage({ id, cancel: true }).catch(() => {});
     signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const reply = await handler.postMessage({ id, method, params: encoded });
+      const reply = await handler.postMessage({ id, owner, method, params: encoded });
       if (isRecord(reply) && isRecord(reply.error)) {
         throw deviceError(String(reply.error.code ?? "failed"), String(reply.error.message ?? `${method} failed`));
       }
@@ -63,6 +75,8 @@ export function webkitHost(options: WebKitHostOptions = {}): HostHandler {
       signal.removeEventListener("abort", onAbort);
     }
   };
+  const release = () => void findMessageHandler(name)?.postMessage({ owner, release: true }).catch(() => {});
+  return Object.assign(handler, { owner, release });
 }
 
 function deviceError(code: string, message: string): Error {
