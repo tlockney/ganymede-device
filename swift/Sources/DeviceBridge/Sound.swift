@@ -139,7 +139,7 @@ final class Sounds {
                 return DeviceBridge.error("failed", "sound.control: no open player with that id")
             }
             // Check everything before changing anything.
-            let action = params["action"] == nil ? "state" : params["action"] as? String ?? ""
+            let action = params["action"] == nil || params["action"] is NSNull ? "state" : params["action"] as? String ?? ""
             guard ["state", "play", "pause", "stop", "seek"].contains(action) else {
                 return DeviceBridge.error("failed", "sound.control takes play, pause, stop, seek or state")
             }

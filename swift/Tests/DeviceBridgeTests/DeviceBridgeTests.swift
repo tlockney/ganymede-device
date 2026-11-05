@@ -660,6 +660,7 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(errorCode(control(["action": "seek", "volume": 0.5])), "failed")
         XCTAssertEqual(errorCode(control(["action": 3, "volume": 0.5])), "failed")
         XCTAssertEqual(player?.volume, 1, "a refused call leaves the volume alone")
+        XCTAssertNotNil(control(["action": NSNull()])["result"], "a null action means state, as a null volume means none")
         player?.starts = false
         XCTAssertEqual(errorCode(control(["action": "play"])), "failed", "play that can't start fails")
     }
