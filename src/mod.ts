@@ -20,8 +20,12 @@ export {
   type PickDateOptions,
   type PickFilesOptions,
   type PickPhotosOptions,
+  type PlaySoundOptions,
   type PromptOptions,
   type ShareOptions,
+  type Sound,
+  type SoundPlayer,
+  type SoundState,
   type UI,
   unavailableDevice,
 } from "./device.ts";

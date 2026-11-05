@@ -134,6 +134,8 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.files.pick();
   await device.files.export(new Uint8Array([1]), { name: "a.txt" });
   await device.photos.pick();
+  await device.sound.play(new Uint8Array([1]));
+  await device.sound.player(new Uint8Array([1])).catch(() => {}); // null isn't a player; the call is what counts
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
@@ -535,4 +537,65 @@ test("files.export sends named bytes and says whether they were saved", async ()
   assert.equal(sent.length, 2);
   const none = createDevice(transport, { platform: "macos", appVersion: "", capabilities: [] });
   await assert.rejects(none.files.export(new Uint8Array([1]), { name: "a" }), (err) => err instanceof DeviceError && err.code === "unavailable");
+});
+
+test("sound.play sends the bytes and volume, and checks them first", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  const transport: DeviceTransport = { call: (method, params) => (sent.push([method, params]), Promise.resolve(null)) };
+  const device = createDevice(transport, { platform: "macos", appVersion: "", capabilities: ["sound.play"] });
+  await device.sound.play(new Blob([new Uint8Array([1, 2])]), { volume: 0.5 });
+  assert.deepEqual(sent, [["sound.play", { data: new Uint8Array([1, 2]), volume: 0.5 }]]);
+  const failed = (err: unknown) => err instanceof DeviceError && err.code === "failed";
+  await assert.rejects(device.sound.play(new Uint8Array()), failed, "no bytes");
+  await assert.rejects(device.sound.play(new Uint8Array([1]), { volume: 2 }), failed);
+  await assert.rejects(device.sound.play(new Uint8Array([1]), { volume: NaN }), failed);
+  await assert.rejects(device.sound.play(new Uint8Array(MAX_BINARY_BYTES + 1)), failed);
+  assert.equal(sent.length, 1);
+});
+
+test("a sound player controls the host's player by id and closes once", async () => {
+  const sent: [string, Record<string, unknown>][] = [];
+  const transport: DeviceTransport = {
+    call(method, params) {
+      sent.push([method, params]);
+      if (method === "sound.player") return Promise.resolve({ player: 7, duration: 2.5 });
+      if (method === "sound.control") return Promise.resolve({ playing: params.action === "play", time: 1, duration: 2.5 });
+      return Promise.resolve(null);
+    },
+  };
+  const capabilities = ["sound.player", "sound.control", "sound.close"];
+  const device = createDevice(transport, { platform: "ios", appVersion: "", capabilities });
+  // What `await using player = …` does; Node 22 can't parse that yet.
+  {
+    const player = await device.sound.player(new Uint8Array([1]));
+    assert.equal(player.duration, 2.5);
+    assert.deepEqual(await player.play(), { playing: true, time: 1, duration: 2.5 });
+    assert.deepEqual(await player.pause(), { playing: false, time: 1, duration: 2.5 });
+    await player.seek(1.25);
+    await player.setVolume(0.2);
+    await player.stop();
+    await player.state();
+    await assert.rejects(player.seek(-1), (err) => err instanceof DeviceError && err.code === "failed");
+    await assert.rejects(player.setVolume(1.5), (err) => err instanceof DeviceError && err.code === "failed");
+    await player[Symbol.asyncDispose]();
+  }
+  assert.deepEqual(
+    sent.map(([method, params]) => [method, params.action, params.time ?? params.volume]),
+    [
+      ["sound.player", undefined, undefined],
+      ["sound.control", "play", undefined],
+      ["sound.control", "pause", undefined],
+      ["sound.control", "seek", 1.25],
+      ["sound.control", "state", 0.2],
+      ["sound.control", "stop", undefined],
+      ["sound.control", "state", undefined],
+      ["sound.close", undefined, undefined],
+    ],
+  );
+  assert.ok(sent.slice(1).every(([, params]) => params.player === 7));
+  const player = await device.sound.player(new Uint8Array([1]));
+  await player.close();
+  await player.close();
+  assert.equal(sent.filter(([m]) => m === "sound.close").length, 2, "a second close sends nothing");
+  await assert.rejects(player.play(), (err) => err instanceof DeviceError && err.code === "failed");
 });

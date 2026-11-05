@@ -200,6 +200,60 @@ export interface Photos {
   pick(options?: PickPhotosOptions): Promise<File[]>;
 }
 
+export interface PlaySoundOptions extends CallOptions {
+  /** From 0 to 1; 1 by default. */
+  volume?: number;
+}
+
+/** Where a player is: whether it is playing, and its time and length in seconds. */
+export interface SoundState {
+  playing: boolean;
+  time: number;
+  duration: number;
+}
+
+/**
+ * A loaded sound a cell controls. Close it when done, or hold it with
+ * `await using`; the app closes every player when the kernel restarts.
+ * Each method answers the player's state after the change.
+ */
+export interface SoundPlayer extends AsyncDisposable {
+  /** The sound's length in seconds. */
+  readonly duration: number;
+  play(options?: CallOptions): Promise<SoundState>;
+  pause(options?: CallOptions): Promise<SoundState>;
+  /** Pauses and goes back to the start. */
+  stop(options?: CallOptions): Promise<SoundState>;
+  /** Moves to `seconds` from the start, playing or not. */
+  seek(seconds: number, options?: CallOptions): Promise<SoundState>;
+  /** Sets the volume, from 0 to 1. */
+  setVolume(volume: number, options?: CallOptions): Promise<SoundState>;
+  state(options?: CallOptions): Promise<SoundState>;
+  /** Stops it and frees it; later calls fail `failed`. Closing twice is fine. */
+  close(): Promise<void>;
+}
+
+/**
+ * Sound from bytes in any format the device reads (WAV, AIFF, MP3,
+ * AAC/M4A, CAF, FLAC), at most 16 MiB. No permission. On iPhone the
+ * ring/silent switch can silence it.
+ */
+export interface Sound {
+  /**
+   * Starts playing `data` and resolves once it has started; it plays to
+   * its end on its own. On-device: Mac, iPad and iPhone. Remote kernels:
+   * planned. Browser: planned, after a click. Cancel rejects `cancelled`;
+   * the sound may already be playing.
+   */
+  play(data: Bytes, options?: PlaySoundOptions): Promise<void>;
+  /**
+   * Loads `data` into a player, paused at the start. At most 32 open at
+   * once. On-device: Mac, iPad and iPhone. Remote kernels: no (a handle
+   * wouldn't survive a disconnect). Browser: planned.
+   */
+  player(data: Bytes, options?: CallOptions): Promise<SoundPlayer>;
+}
+
 /**
  * Dialogs the app shows over the notebook: sheets on the Mac, alerts on
  * iPhone and iPad. One shows at a time; a second call waits for the first
@@ -267,6 +321,7 @@ export interface Device {
   preview(files: NamedBytes[], options?: CallOptions): Promise<void>;
   readonly files: Files;
   readonly photos: Photos;
+  readonly sound: Sound;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -299,6 +354,43 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
     } catch (err) {
       throw DeviceError.from(err);
     }
+  }
+  function soundPlayer(id: number, duration: number): SoundPlayer {
+    let closed = false;
+    async function control(action: string, extra: Record<string, unknown>, options?: CallOptions): Promise<SoundState> {
+      if (closed) throw new DeviceError("failed", "this sound player is closed");
+      const state = await call("sound.control", { player: id, action, ...extra }, options);
+      if (!isRecord(state)) throw new DeviceError("failed", "the host's sound.control reply is malformed");
+      return { playing: state.playing === true, time: Number(state.time), duration: Number(state.duration) };
+    }
+    async function close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      await call("sound.close", { player: id });
+    }
+    return {
+      duration,
+      play: (options) => control("play", {}, options),
+      pause: (options) => control("pause", {}, options),
+      stop: (options) => control("stop", {}, options),
+      seek(seconds, options) {
+        if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
+          return Promise.reject(new DeviceError("failed", "seek takes a time in seconds, 0 or more"));
+        }
+        return control("seek", { time: seconds }, options);
+      },
+      setVolume(volume, options) {
+        try {
+          checkVolume(volume);
+        } catch (err) {
+          return Promise.reject(err);
+        }
+        return control("state", { volume }, options);
+      },
+      state: (options) => control("state", {}, options),
+      close,
+      [asyncDispose]: close,
+    };
   }
   return {
     async info(options) {
@@ -419,6 +511,20 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
         return (await call("files.export", { name, data: bytes }, { signal })) === true;
       },
     },
+    sound: {
+      async play(data, options = {}) {
+        const { signal, volume } = options;
+        checkVolume(volume);
+        requireMethod("sound.play");
+        await call("sound.play", { data: await audioBytes("sound.play", data), ...defined({ volume }) }, { signal });
+      },
+      async player(data, options = {}) {
+        requireMethod("sound.player");
+        const opened = await call("sound.player", { data: await audioBytes("sound.player", data) }, options);
+        if (!isRecord(opened) || typeof opened.player !== "number") throw new DeviceError("failed", "the host's sound.player reply is malformed");
+        return soundPlayer(opened.player, typeof opened.duration === "number" ? opened.duration : NaN);
+      },
+    },
     photos: {
       async pick(options = {}) {
         const { signal, limit = 1 } = options;
@@ -452,6 +558,24 @@ async function namedFiles(method: string, files: NamedBytes[]): Promise<{ name: 
     out.push({ name, data });
   }
   return out;
+}
+
+// Symbol.asyncDispose where the engine has it; the registered symbol
+// TypeScript's `using` downlevel looks for otherwise.
+const asyncDispose: typeof Symbol.asyncDispose = Symbol.asyncDispose ?? (Symbol.for("Symbol.asyncDispose") as typeof Symbol.asyncDispose);
+
+function checkVolume(volume: unknown): void {
+  if (volume !== undefined && (typeof volume !== "number" || !(volume >= 0 && volume <= 1))) {
+    throw new DeviceError("failed", "volume must be a number from 0 to 1");
+  }
+}
+
+/** Sound bytes, checked against the binary limit before the host is asked. */
+async function audioBytes(method: string, data: Bytes): Promise<Uint8Array> {
+  const bytes = await toBytes(data);
+  if (bytes.byteLength === 0) throw new DeviceError("failed", `${method} needs some bytes`);
+  if (bytes.byteLength > MAX_BINARY_BYTES) throw new DeviceError("failed", `${method}: sounds are limited to ${MAX_BINARY_BYTES} bytes`);
+  return bytes;
 }
 
 /** A name a file can be saved under as it is: no slashes, NUL, `.` or `..`. */

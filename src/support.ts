@@ -179,6 +179,22 @@ export const SUPPORT = {
     browser: "planned",
     note: "The save panel on the Mac, the document picker on iPad and iPhone. A browser will download the file.",
   },
+  "sound.play": {
+    call: "sound.play(data, { volume })",
+    returns: "nothing, once it starts",
+    onDevice: "yes",
+    remote: "planned",
+    browser: "planned",
+    browserClick: true,
+  },
+  "sound.player": {
+    call: "sound.player(data)",
+    returns: "a `SoundPlayer`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "planned",
+    note: "Play, pause, stop, seek and volume; close it, or hold it with `await using`. Remote kernels: a handle wouldn't survive a disconnect.",
+  },
   "photos.pick": {
     call: "photos.pick({ limit })",
     returns: "`File[]`, `[]` when cancelled",

@@ -46,6 +46,29 @@ private struct FakeState: DeviceState {
     }
 }
 
+@MainActor
+private final class FakeSound: SoundPlayback {
+    let duration: TimeInterval = 3
+    var currentTime: TimeInterval = 0
+    var isPlaying = false
+    var volume: Float = 1
+    var onFinish: (() -> Void)?
+    func play() { isPlaying = true }
+    func pause() { isPlaying = false }
+}
+
+@MainActor
+private final class FakeSoundLoader: SoundLoader {
+    var loaded: [FakeSound] = []
+    var refuse = false
+    func load(_ data: Data) throws -> SoundPlayback {
+        if refuse { throw CocoaError(.fileReadCorruptFile) }
+        let sound = FakeSound()
+        loaded.append(sound)
+        return sound
+    }
+}
+
 /// Shows nothing: records each dialog, and the test answers it.
 @MainActor
 private final class FakePresenter: DialogPresenter {
@@ -553,6 +576,63 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(files.map(\.data.count), [10, 10])
         guard case let .failed(message) = over else { return XCTFail("expected failed, got \(String(describing: over))") }
         XCTAssertEqual(message, PickedFiles.tooLargeMessage)
+    }
+
+    func testSoundsPlayAndPlayersAnswerByID() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        for method in ["sound.play", "sound.player", "sound.control", "sound.close"] {
+            XCTAssertTrue(bridge.capabilities.contains(method), method)
+        }
+
+        XCTAssertTrue(bridge.handle(["method": "sound.play", "params": ["data": audio, "volume": 0.5]])["result"] is NSNull)
+        XCTAssertEqual(loader.loaded.last?.isPlaying, true)
+        XCTAssertEqual(loader.loaded.last?.volume, 0.5)
+
+        let opened = bridge.handle(["method": "sound.player", "params": ["data": audio]])["result"] as? [String: Any]
+        let id = opened?["player"] as? Int
+        XCTAssertNotNil(id)
+        XCTAssertEqual(opened?["duration"] as? Double, 3)
+        let player = loader.loaded.last
+        XCTAssertEqual(player?.isPlaying, false, "a player opens paused")
+
+        func control(_ params: [String: Any]) -> [String: Any] {
+            bridge.handle(["method": "sound.control", "params": params.merging(["player": id ?? 0]) { $1 }])
+        }
+        XCTAssertEqual((control(["action": "play"])["result"] as? [String: Any])?["playing"] as? Bool, true)
+        XCTAssertEqual((control(["action": "seek", "time": 1.5])["result"] as? [String: Any])?["time"] as? Double, 1.5)
+        XCTAssertEqual((control(["action": "seek", "time": 9])["result"] as? [String: Any])?["time"] as? Double, 3, "seek stops at the end")
+        _ = control(["action": "stop"])
+        XCTAssertEqual(player?.isPlaying, false)
+        XCTAssertEqual(player?.currentTime, 0)
+        _ = control(["volume": 0.25])
+        XCTAssertEqual(player?.volume, 0.25)
+        XCTAssertEqual(errorCode(control(["action": "rewind"])), "failed")
+        XCTAssertEqual(errorCode(control(["action": "seek", "time": -1])), "failed")
+
+        XCTAssertTrue(bridge.handle(["method": "sound.close", "params": ["player": id ?? 0]])["result"] is NSNull)
+        XCTAssertEqual(errorCode(control(["action": "play"])), "failed", "a closed player is gone")
+
+        _ = bridge.handle(["method": "sound.player", "params": ["data": audio]])
+        loader.loaded.last?.play()
+        bridge.dropAll()
+        XCTAssertTrue(loader.loaded.allSatisfy { !$0.isPlaying }, "dropAll stops every sound")
+    }
+
+    func testBadSoundsFail() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.play", "params": [:]])), "failed")
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.play", "params": ["data": ["base64": "AQ=="], "volume": 2]])), "failed")
+        loader.refuse = true
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.player", "params": ["data": ["base64": "AQ=="]]])), "failed")
+        loader.refuse = false
+        for _ in 0 ..< 32 {
+            _ = bridge.handle(["method": "sound.player", "params": ["data": ["base64": "AQ=="]]])
+        }
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.player", "params": ["data": ["base64": "AQ=="]]])), "failed", "at most 32 open")
+        XCTAssertEqual(errorCode(bridge.handle(["method": "sound.close", "params": [:]])), "failed")
     }
 
     func testOtherMethodsStillAnswerThroughRespond() {

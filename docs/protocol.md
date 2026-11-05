@@ -34,9 +34,9 @@ A page reload or a restarted web content process sends no cancels, and
 the new page's ids start over. So when the kernel web view navigates or
 its content process terminates, Swift drops every call it still has
 open (dismissing what it showed) before taking calls from the new page.
-Only dialogs stay open; the app calls `DeviceBridge.dropAll()` from the
-web view's navigation delegate, which closes them and answers each
-`cancelled`.
+Only dialogs and sounds stay open; the app calls `DeviceBridge.dropAll()`
+from the web view's navigation delegate, which closes the dialogs and
+answers each `cancelled`, and stops every sound and closes every player.
 
 ## Messages Swift receives
 
@@ -104,6 +104,10 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
+| `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end |
+| `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per page |
+| `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change |
+| `sound.close` | `{ player }` | `null`; closing one already closed is fine |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
