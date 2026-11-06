@@ -117,6 +117,11 @@ CDPK_DIR=../cdp-kernel node --test test/browser.test.ts
 swift test      # the Swift bridge; macOS only
 ```
 
+On a pull request, CI runs only the jobs its files can affect
+(`scripts/ci-changes.sh`): the `swift` job for `Package.swift` and
+`swift/`, `test` and `browser` for the TypeScript side, none for docs.
+Pushes to `main` run everything.
+
 ## Next
 
 The plan's "Where things stand" has the list, and

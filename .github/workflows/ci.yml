@@ -6,7 +6,28 @@ on:
   pull_request:
 
 jobs:
+  # Which jobs a pull request needs (scripts/ci-changes.sh, #45): docs and
+  # Markdown need none, Swift alone needs only swift, TypeScript alone
+  # only test and browser. A job skipped by its `if` reports success, so
+  # the required checks pass. If this job fails, its outputs are empty and
+  # every job runs. Pushes to main run everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ts: ${{ steps.changes.outputs.ts }}
+      swift: ${{ steps.changes.outputs.swift }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge commit and its first parent, the base.
+          fetch-depth: 2
+      - id: changes
+        run: scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
   test:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.ts != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +45,8 @@ jobs:
   # here when the package needs a newer one. The test fails, not skips,
   # when CDPK_DIR is set but unusable.
   browser:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.ts != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +69,8 @@ jobs:
 
   # The Swift DeviceBridge: unit tests on macOS, and a build for iOS.
   swift:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.swift != 'false' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
