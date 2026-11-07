@@ -376,6 +376,25 @@ test("a dismissed picker or share prompt answers as a cancel does on the device"
   assert.deepEqual(await forward({ id: 3, owner: 1, method: "share", params: { text: "t" } }), { result: false });
 });
 
+test("a kernel cancel while a picker, share or export prompt shows answers cancelled", async () => {
+  const { env } = fakeBrowser();
+  const click: Click = (request) =>
+    new Promise((_, reject) => request.signal.addEventListener("abort", () => reject(new Error("taken down"))));
+  const forward = browserForward({ env, click });
+  const calls: [string, Record<string, unknown>][] = [
+    ["files.pick", {}],
+    ["photos.pick", {}],
+    ["share", { text: "t" }],
+    ["files.export", { name: "out.csv", data: b64(PNG) }],
+  ];
+  for (const [n, [method, params]] of calls.entries()) {
+    const reply = forward({ id: n + 1, owner: 1, method, params });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await forward({ id: n + 1, cancel: true });
+    assert.equal(((await reply) as { error: { code: string } }).error.code, "cancelled", method);
+  }
+});
+
 test("one prompt at a time, and a cancelled call waiting its turn shows none", async () => {
   const { env } = fakeBrowser();
   const shown: { label: string; click: () => void }[] = [];
@@ -393,6 +412,8 @@ test("one prompt at a time, and a cancelled call waiting its turn shows none", a
   assert.deepEqual(shown.map((p) => p.label), ["clipboard.writeText"], "only the first prompt shows");
   await forward({ id: 2, cancel: true });
   assert.equal(((await second) as { error: { code: string } }).error.code, "cancelled");
+  await tick();
+  assert.deepEqual(shown.map((p) => p.label), ["clipboard.writeText"], "the third waits for the first to close");
   shown[0].click();
   assert.deepEqual(await first, { result: null });
   await tick();

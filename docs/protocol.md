@@ -102,7 +102,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `clipboard.writeText` | `{ text }` | `null` |
 | `clipboard.readImage` | `{}` | the clipboard's image as PNG bytes, or `null` when it holds none |
 | `clipboard.writeImage` | `{ image }`: PNG, JPEG, GIF, HEIC or TIFF bytes | `null`; bytes that aren't an image fail `failed` |
-| `info` | `{}` | `{ isPad, screen?: { width, height, scale }, battery?: { level, charging }, darkMode, locale }`, read when called; `battery` is left out without one, and `level` (0 to 1) is `null` when unknown |
+| `info` | `{}` | `{ isPad?, screen?: { width, height, scale }, battery?: { level, charging }, darkMode, locale }`, read when called; `battery` is left out without one, and `level` (0 to 1) is `null` when unknown |
 | `haptics.impact` | `{ style }`: `light`, `medium`, `heavy`, `soft` or `rigid` | `null` |
 | `haptics.notification` | `{ type }`: `success`, `warning` or `error` | `null` |
 | `haptics.selection` | `{}` | `null` |

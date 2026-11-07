@@ -128,11 +128,15 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         ran = true;
         return run();
       }).catch((err: unknown) => {
-        // Rejected before the click: the person dismissed the prompt.
-        throw ran ? err : new Dismissed(`${method}: the prompt was dismissed`);
+        // Rejected before the click: the kernel cancelled the call, or
+        // the person dismissed the prompt.
+        if (ran) throw err;
+        throw signal.aborted ? cancelled() : new Dismissed(`${method}: the prompt was dismissed`);
       });
     } finally {
-      finished();
+      // In order: a call cancelled while it waits lets the next one show
+      // only after the prompt ahead of it closes.
+      void before.then(finished);
     }
   };
 
