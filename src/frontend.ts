@@ -22,14 +22,26 @@ export interface KernelCommMessage {
   content: { data?: unknown };
 }
 
+/** A JSON value, as Lumino's `JSONValue`, which comm data must be. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+/**
+ * A message callback. Declared as a method, so its parameter is checked
+ * both ways and `IComm`'s callbacks, typed with the full message, fit.
+ */
+export type CommCallback = { bivarianceHack(msg: KernelCommMessage): void | PromiseLike<void> }["bivarianceHack"];
+
 /** The part of a `@jupyterlab/services` `IComm` this uses. */
 export interface KernelComm {
   readonly isDisposed: boolean;
-  onMsg: ((msg: KernelCommMessage) => void | PromiseLike<void>) | undefined;
-  onClose: ((msg: KernelCommMessage) => void | PromiseLike<void>) | undefined;
-  open(data?: Record<string, unknown>): unknown;
-  send(data: Record<string, unknown>): unknown;
-  close(data?: Record<string, unknown>): unknown;
+  onMsg: CommCallback | undefined;
+  onClose: CommCallback | undefined;
+  open(data?: JsonObject): unknown;
+  send(data: JsonObject): unknown;
+  close(data?: JsonObject): unknown;
 }
 
 /** The part of a `@jupyterlab/services` `IKernelConnection` this uses. */
@@ -149,7 +161,7 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
         comm = null;
         cancelAll();
       };
-      calls.open({ ...hello, capabilities: capabilities.filter((c) => typeof c === "string" && REMOTE_METHODS.has(c)) });
+      calls.open({ ...hello, capabilities: capabilities.filter((c) => typeof c === "string" && REMOTE_METHODS.has(c)) } as JsonObject);
     } finally {
       opening = false;
     }
@@ -158,8 +170,9 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
   const receive = async (calls: KernelComm, msg: KernelCommMessage): Promise<void> => {
     const data = msg.content.data;
     if (!isRecord(data)) return;
+    // Replies come from the host as JSON (WebKit's reply is a plist value).
     const send = (reply: Record<string, unknown>) => {
-      if (comm === calls && !calls.isDisposed) calls.send(reply);
+      if (comm === calls && !calls.isDisposed) calls.send(reply as JsonObject);
     };
     if (typeof data.ping === "number") {
       send({ pong: data.ping });
