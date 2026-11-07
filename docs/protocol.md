@@ -240,7 +240,12 @@ posts to `webkit.messageHandlers.deviceRemote`.
   cell this page ran. Another client on the same kernel, such as a
   JupyterLab tab, never answers for it.
 - It asks the host for `hello` and opens the calls comm with it, cut to
-  the remote subset.
+  the remote subset. The cell that announced is waiting, so the open
+  waits for the comm's subshell (`subshellStarted`, up to 2 s) rather
+  than go on the main shell behind that cell, and the comm target
+  returns nothing, since `@jupyterlab/services` holds later kernel
+  messages, the subshell's reply among them, while a target's promise is
+  pending.
 - It answers `{ ping }` with `{ pong }` itself, and forwards each call
   and cancel. A call outside the remote subset fails `unavailable`
   without reaching the host. Each forwarded call gets a page-wide `id`,
