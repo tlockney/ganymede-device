@@ -103,8 +103,25 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// new page's ids start over, so none of them may be answered. Call it
     /// from the web view's navigation delegate.
     public func dropAll() {
-        dialogs.dropAll()
-        sounds.stopAll()
+        dialogs.drop { _ in true }
+        sounds.stop { _ in true }
+    }
+
+    /// Closes the kernel page's dialogs and stops its sounds, as `dropAll()`
+    /// does, and leaves the remote handler's (`registerRemote`) alone: the
+    /// kernel page navigated or its process ended, but the UI page that
+    /// answers server kernels is still there.
+    public func dropPage() {
+        dialogs.drop { $0 > 0 }
+        sounds.stop { $0 >= 0 }
+    }
+
+    /// Closes the remote handler's dialogs and stops its sounds, and leaves
+    /// the kernel page's alone: the UI page that answers server kernels
+    /// navigated or its process ended.
+    public func dropRemote() {
+        dialogs.drop { $0 < 0 }
+        sounds.stop { $0 < 0 }
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
