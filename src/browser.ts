@@ -75,6 +75,13 @@ class Failure extends Error {
   }
 }
 
+/** The person dismissed the prompt: `cancelled`, or the method's own answer for a cancel. */
+class Dismissed extends Failure {
+  constructor(message: string) {
+    super("cancelled", message);
+  }
+}
+
 /**
  * A Forward that answers with web APIs. `hello` lists what this browser
  * has; calls the browser lets a page make only after a click go through
@@ -93,18 +100,44 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
     sounds.delete(owner);
   };
 
-  const needClick = (method: string, label: string, signal: AbortSignal, run: () => Promise<unknown>): Promise<unknown> => {
+  // One prompt at a time, in the order the calls came, as the app's
+  // dialog queue shows one dialog at a time.
+  let prompts: Promise<unknown> = Promise.resolve();
+
+  const needClick = async (method: string, label: string, signal: AbortSignal, run: () => Promise<unknown>): Promise<unknown> => {
     if (!click) throw new Failure("unavailable", `${method} needs a click, and this page can't ask for one`);
+    const cancelled = () => new Failure("cancelled", `${method} was cancelled`);
     // Cancelled while an earlier step was pending: no prompt at all.
-    if (signal.aborted) throw new Failure("cancelled", `${method} was cancelled`);
-    let ran = false;
-    return click({ method, label, signal }, () => {
-      ran = true;
-      return run();
-    }).catch((err: unknown) => {
-      // Rejected before the click: the person dismissed the prompt.
-      throw ran ? err : new Failure("cancelled", `${method}: the prompt was dismissed`);
-    });
+    if (signal.aborted) throw cancelled();
+    const before = prompts;
+    let finished!: () => void;
+    prompts = new Promise<void>((resolve) => (finished = resolve));
+    try {
+      // Waits for the prompt before it, or a cancel, whichever comes first.
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(cancelled());
+        signal.addEventListener("abort", onAbort, { once: true });
+        void before.then(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        });
+      });
+      if (signal.aborted) throw cancelled();
+      let ran = false;
+      return await click({ method, label, signal }, () => {
+        ran = true;
+        return run();
+      }).catch((err: unknown) => {
+        // Rejected before the click: the kernel cancelled the call, or
+        // the person dismissed the prompt.
+        if (ran) throw err;
+        throw signal.aborted ? cancelled() : new Dismissed(`${method}: the prompt was dismissed`);
+      });
+    } finally {
+      // In order: a call cancelled while it waits lets the next one show
+      // only after the prompt ahead of it closes.
+      void before.then(finished);
+    }
   };
 
   const call = async (method: string, params: Params, signal: AbortSignal, owner: number): Promise<unknown> => {
@@ -113,7 +146,6 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
     switch (method) {
       case "info":
         return {
-          isPad: false,
           ...(env.screen ? { screen: { width: env.screen.width, height: env.screen.height, scale: env.devicePixelRatio ?? 1 } } : {}),
           darkMode: env.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
           ...(nav?.language ? { locale: nav.language } : {}),
@@ -167,7 +199,8 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
           await needClick(method, "Share", signal, () => nav!.share!(data));
           return true;
         } catch (err) {
-          // The person closed the share sheet.
+          // The person dismissed the prompt or closed the share sheet.
+          if (err instanceof Dismissed) return false;
           if ((err as { name?: unknown })?.name === "AbortError" && !signal.aborted) return false;
           throw err;
         }
@@ -179,7 +212,13 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         const accept = photos ? "image/*" : acceptOf(params.types);
         const multiple = photos ? limit !== 1 : params.multiple === true;
         const label = photos ? (multiple ? "Choose images" : "Choose an image") : multiple ? "Choose files" : "Choose a file";
-        const picked = (await needClick(method, label, signal, () => pickFiles(env, accept, multiple, signal))) as File[];
+        let picked: File[];
+        try {
+          picked = (await needClick(method, label, signal, () => pickFiles(env, accept, multiple, signal))) as File[];
+        } catch (err) {
+          if (err instanceof Dismissed) return [];
+          throw err;
+        }
         const files = limit ? picked.slice(0, limit) : picked;
         checkTotal(files.map((f) => f.size));
         return Promise.all(files.map(async (f) => ({ name: f.name, type: f.type, data: binary(new Uint8Array(await f.arrayBuffer())) })));
@@ -193,7 +232,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         try {
           await needClick(method, `Save ${name}`, signal, async () => download(env, name, bytes));
         } catch (err) {
-          if (err instanceof Failure && err.code === "cancelled" && !signal.aborted) return false;
+          if (err instanceof Dismissed) return false;
           throw err;
         }
         // The browser saves it or asks where; the page can't tell which.
@@ -202,11 +241,12 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
       case "sound.play": {
         const bytes = bytesOf(params.data, "data");
         const volume = typeof params.volume === "number" ? Math.min(1, Math.max(0, params.volume)) : 1;
+        const owned = sounds.get(owner) ?? new Set<() => void>();
+        if (owned.size >= MAX_PLAYING) throw new Failure("failed", `at most ${MAX_PLAYING} sounds play at once per kernel`);
+        sounds.set(owner, owned);
         const url = env.URL!.createObjectURL(new Blob([bytes as BlobPart]));
         const audio = new env.Audio!(url);
         audio.volume = volume;
-        const owned = sounds.get(owner) ?? new Set<() => void>();
-        sounds.set(owner, owned);
         let done = false;
         let released = false;
         const stop = () => {
@@ -370,8 +410,11 @@ function isPng(bytes: Uint8Array): boolean {
   return bytes.length >= 8 && magic.every((b, i) => bytes[i] === b);
 }
 
+/** Sounds one kernel may have playing at once, as on the device. */
+const MAX_PLAYING = 32;
+
 function plainName(name: string): boolean {
-  return name !== "" && name !== "." && name !== ".." && !/[/\\\0]/.test(name);
+  return name.trim() !== "" && name !== "." && name !== ".." && !/[/\\\0]/.test(name);
 }
 
 function need(params: Params, key: string): string {
