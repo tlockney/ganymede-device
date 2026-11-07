@@ -5,19 +5,36 @@
 #
 # On a pull request, actions/checkout checks out the merge commit, so
 # HEAD^1 is the base and `git diff HEAD^1 HEAD` is what the PR changes.
-# Docs and Markdown need neither; anything not listed needs both. Any
-# other event (a push to main) runs everything.
+# Docs and Markdown need neither; anything not listed needs both. A push
+# to main diffs against the commit main was at before it (BASE_SHA,
+# github.event.before; HEAD^1 without it) with the same rules (#49). Any
+# other event, and a push whose base can't be found or diffed, runs
+# everything.
 set -eu
 
-if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
+everything() {
   echo ts=true
   echo swift=true
   exit 0
-fi
+}
+
+case ${GITHUB_EVENT_NAME:-} in
+  pull_request) base=HEAD^1 ;;
+  push)
+    # Only a push to main is diffed; a tag push runs everything.
+    [ "${GITHUB_REF:-}" = refs/heads/main ] || everything
+    base=${BASE_SHA:-HEAD^1}
+    case $base in *[!0]*) ;; *) everything ;; esac
+    if ! git cat-file -e "$base^{commit}" 2> /dev/null; then
+      git fetch -q --no-tags --depth=1 origin "$base" 2> /dev/null || everything
+    fi
+    ;;
+  *) everything ;;
+esac
 
 ts=false
 swift=false
-files=$(git diff --name-only HEAD^1 HEAD)
+files=$(git diff --name-only "$base" HEAD) || everything
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   case $f in

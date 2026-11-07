@@ -10,7 +10,7 @@ jobs:
   # Markdown need none, Swift alone needs only swift, TypeScript alone
   # only test and browser. A job skipped by its `if` reports success, so
   # the required checks pass. If this job fails, its outputs are empty and
-  # every job runs. Pushes to main run everything.
+  # every job runs. A push to main is checked the same way (#49).
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -24,6 +24,9 @@ jobs:
           fetch-depth: 2
       - id: changes
         run: scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+        env:
+          # A push's base: main before the push (the script fetches it).
+          BASE_SHA: ${{ github.event.before }}
 
   test:
     needs: changes
