@@ -36,9 +36,9 @@ global. A kernel elsewhere, such as cdp-kernel on Node behind Ganymede,
 gets the remote subset (the methods that need no permission) with
 `connectDevice(jupyter.comm)`, answered by the notebook page in the app
 (docs/protocol.md, "Over a Jupyter comm") from the ganymede-ui release
-that carries tlockney/ganymede-ui#378. Browsers come next, so
-`src/support.ts` marks that column "planned". The package isn't
-published yet (#24).
+that carries tlockney/ganymede-ui#378. A notebook page in a browser
+can answer the same calls with web APIs (`/browser`); the dialogs
+(`ui.*`) there are still planned. The package isn't published yet (#24).
 
 ## Layout
 
@@ -53,6 +53,9 @@ published yet (#24).
 - `src/frontend.ts` (`/frontend`): `answerDevice(kernel)`, the app's
   side of that transport, which the notebook page runs for each kernel
   connection and which forwards to the bridge's `deviceRemote` handler.
+- `src/browser.ts` (`/browser`): `browserForward({ click })`, the
+  browser fallback: answers those calls with web APIs, running each that
+  needs user activation from a click on a prompt the page shows.
 - `src/support.ts`: which methods work on-device, remotely and in a
   browser, today and planned; the source for docs and tests.
   `npm run support-table` prints it as the Markdown that ganymede-ui's

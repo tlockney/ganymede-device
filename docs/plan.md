@@ -547,8 +547,13 @@ Done:
    notebook page, and the bridge's `deviceRemote` handler, limited to the
    remote subset (docs/protocol.md, "Over a Jupyter comm"). cdp-kernel
    0.8.0 reads comm messages while a cell runs (kernel subshells,
-   cdp-kernel#417).
-6. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
+   cdp-kernel#417). ganymede-ui answers for its server kernels in the
+   app (ganymede-ui#378).
+6. **The browser fallback's web side**: `browserForward({ click })` in
+   `/browser` answers the remote subset with web APIs, through a
+   click-through prompt the page draws (docs/protocol.md, "In a
+   browser"). Not yet: the `ui.*` dialogs, and a page that uses it.
+7. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
    that an HTML output can't reach the bridge.
 
 Next:
@@ -556,7 +561,7 @@ Next:
 1. Try Phase 1's calls in the Mac and iPad apps, including that an
    interrupt closes a dialog or picker (#21).
 2. Publish the TS package and tag the Swift package (#24).
-3. Phase R in the app (#26): ganymede-ui runs `answerDevice` for its
-   server kernels and registers `deviceRemote`; then the browser
-   fallbacks.
+3. Phase R in a browser (#26): ganymede-ui runs `answerDevice` with
+   `browserForward` outside the app and draws the click-through prompt;
+   then the `ui.*` dialogs in the browser.
 4. `device.shortcuts.run` (#40), then Phases 2 to 4 (#27).
