@@ -275,3 +275,45 @@ renders outputs too, so the handler differs from `device`:
   or release from one page never touches the other's calls. Dialogs from
   both share one queue: one dialog at a time.
 
+### In a browser
+
+A notebook page in a browser has no Swift bridge, so it passes
+`answerDevice` a `forward` that answers with web APIs:
+`browserForward({ click })` from `src/browser.ts`
+(`@tlockney/ganymede-device/browser`). Its `hello` says
+`platform: "browser"` and lists what the browser has, within the remote
+subset (the browser column of `src/support.ts`; a test checks the two
+agree).
+
+Most of these APIs work only right after a click (user activation), and
+a kernel message isn't one. For those, the forward calls the page's
+`click({ method, label, signal }, run)`: the page shows a prompt with a
+button ("Copy to clipboard", "Choose a file"), calls `run()` from inside
+that button's click handler, and resolves with what `run()` resolves to.
+
+- A prompt the person dismisses, or one taken down because the kernel
+  sent a cancel (`signal` aborts), fails the call `cancelled`. The
+  browser refusing after the click (`NotAllowedError`) fails it
+  `denied`.
+- Without `click`, the methods that need one (`browserClick` in
+  `src/support.ts`) are left out of `hello`.
+- `info` has the screen, appearance and locale; no model or battery.
+- Clipboard reads and writes, `openURL` (a new tab, `noopener`; `inApp`
+  is ignored), `share` (Web Share; files only where `canShare` allows),
+  and the file and photo pickers (a file input; type identifiers such
+  as `public.json` can't be said in `accept`, so with one any file is
+  allowed) go through a click. Clipboard images are PNG only.
+- `files.export` downloads the file after a click, as the app shows a
+  save panel first, and answers `true` then, since a page can't tell
+  whether it was saved; a dismissed prompt answers `false`.
+- A dismissed file picker answers `[]` through the input's `cancel`
+  event (Chrome 113, Safari 16.4, Firefox 91); in an older browser the
+  call waits until the kernel cancels it. A file input can't limit how
+  many files are picked, so `photos.pick` keeps the first `limit`.
+- A release, or the owner's next `hello`, stops the sounds that owner
+  started.
+- `sound.play` plays at once when the page may autoplay, and otherwise
+  asks for a click.
+- The `ui.*` dialogs aren't answered yet: the page would draw them, and
+  no page does so far.
+
