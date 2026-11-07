@@ -77,6 +77,8 @@ function bus() {
   const comms: BusComm[] = [];
   const frontends: { clientId: string; targets: Map<string, Target> }[] = [];
   const state = { cellSession: "app" };
+  /** Targets of the comms frontends opened, in order. */
+  const opened: string[] = [];
   const api: CommApiLike = {
     open(target, data = {}) {
       const comm = new BusComm(target);
@@ -92,7 +94,8 @@ function bus() {
       kernelTargets.set(target, handler);
     },
   };
-  function frontend(clientId: string): KernelConnectionLike & { status(s: string): void } {
+  /** `subshell`, when given, makes the kernel offer subshells and gives each created comm's `subshellStarted`. */
+  function frontend(clientId: string, subshell?: () => Promise<void>): KernelConnectionLike & { status(s: string): void } {
     const targets = new Map<string, Target>();
     frontends.push({ clientId, targets });
     const slots = new Set<(sender: unknown, status: string) => void>();
@@ -103,19 +106,22 @@ function bus() {
       createComm(target) {
         const comm = new BusComm(target);
         comms.push(comm);
+        if (subshell) Object.assign(comm.frontend, { subshellStarted: subshell() });
         comm.frontend.open = (data = {}) => {
+          opened.push(target);
           const handler = kernelTargets.get(target);
           queueMicrotask(() => (handler ? handler(comm.kernel, { data }) : (comm.closed = true)));
         };
         return comm.frontend;
       },
+      supportsSubshells: subshell !== undefined,
       statusChanged: { connect: (s) => slots.add(s), disconnect: (s) => slots.delete(s) },
       status(s) {
         for (const slot of slots) slot(this, s);
       },
     };
   }
-  return { api, comms, frontend, state };
+  return { api, comms, frontend, state, opened };
 }
 
 const HELLO = {
@@ -273,5 +279,31 @@ test("a ping is answered while a call waits on the host, as the kernel's message
   assert.deepEqual(calls.fromFrontend.at(-1), { pong: 1 });
   h.held.get(h.sent.find((m) => m.method === "ui.alert")!.id as number)!({ result: null });
   assert.equal(await alert, undefined);
+});
+
+test("the calls comm opens only once its subshell is up", async () => {
+  const b = bus();
+  let start!: () => void;
+  answerDevice(b.frontend("app", () => new Promise<void>((resolve) => (start = resolve))), { forward: host().forward });
+  const connecting = connectDevice(b.api);
+  await tick(20);
+  assert.deepEqual(b.opened, [], "not on the main shell before the subshell");
+  start();
+  const device = await connecting;
+  assert.deepEqual(b.opened, [CALLS_TARGET]);
+  assert.equal(await device.clipboard.readText(), "from the iPad");
+});
+
+test("with no subshell in time the page gives up, and answers the next announce", async () => {
+  const b = bus();
+  let subshell: () => Promise<void> = () => new Promise<void>(() => {});
+  answerDevice(b.frontend("app", () => subshell()), { forward: host().forward });
+  const none = await connectDevice(b.api, { timeoutMs: 3500 });
+  assert.equal(none.has("clipboard.readText"), false);
+  assert.deepEqual(b.opened, [], "the comm is dropped, never opened on the main shell");
+  assert.equal(b.comms.find((c) => c.target === CALLS_TARGET)?.closed, true);
+  subshell = () => Promise.resolve();
+  const device = await connectDevice(b.api);
+  assert.equal(await device.clipboard.readText(), "from the iPad");
 });
 
