@@ -37,6 +37,12 @@ export type CommCallback = { bivarianceHack(msg: KernelCommMessage): void | Prom
 /** The part of a `@jupyterlab/services` `IComm` this uses. */
 export interface KernelComm {
   readonly isDisposed: boolean;
+  /**
+   * Resolves once the comm's subshell is up (`@jupyterlab/services` sends
+   * a comm's messages on a subshell of its own when the kernel has them).
+   * Never resolves when the kernel has none.
+   */
+  readonly subshellStarted?: Promise<void>;
   onMsg: CommCallback | undefined;
   onClose: CommCallback | undefined;
   open(data?: JsonObject): unknown;
@@ -51,6 +57,8 @@ export interface KernelConnectionLike {
   registerCommTarget(target: string, callback: (comm: KernelComm, msg: KernelCommMessage) => void | PromiseLike<void>): void;
   removeCommTarget(target: string, callback: (comm: KernelComm, msg: KernelCommMessage) => void | PromiseLike<void>): void;
   createComm(target: string): KernelComm;
+  /** Whether the kernel offers subshells (JEP 91), once its kernel_info_reply is in. */
+  readonly supportsSubshells?: boolean;
   /** The kernel's status, to drop the link on a restart. */
   readonly statusChanged?: {
     connect(slot: (sender: unknown, status: string) => void): unknown;
@@ -138,7 +146,12 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
     if (calls && !calls.isDisposed) calls.close();
   };
 
-  const onAnnounce = async (_announce: KernelComm, msg: KernelCommMessage): Promise<void> => {
+  // Returns nothing: `@jupyterlab/services` holds every later kernel
+  // message until a comm target's promise settles, the subshell reply
+  // this waits for among them.
+  const onAnnounce = (_announce: KernelComm, msg: KernelCommMessage): void => void announced(msg);
+
+  const announced = async (msg: KernelCommMessage): Promise<void> => {
     // The announce stays open: the kernel closes it once answered.
     if (disposed || opening) return;
     if (msg.parent_header?.session !== kernel.clientId) return;
@@ -155,6 +168,12 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
       // in flight is moot.
       drop();
       comm = calls;
+      // The cell that announced is still running and waits for this open,
+      // so it must go on the comm's subshell: one sent before the subshell
+      // is up goes on the main shell, behind that cell.
+      // Bounded, so a subshell that never comes up doesn't block later announces.
+      if (kernel.supportsSubshells && calls.subshellStarted) await within(calls.subshellStarted, 2000);
+      if (comm !== calls) return;
       calls.onMsg = (m) => receive(calls, m);
       calls.onClose = () => {
         if (comm !== calls) return;
@@ -224,6 +243,15 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
       void post({ owner, release: true });
     },
   };
+}
+
+/** Waits for `promise`, or `ms` at most. */
+function within(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([promise, new Promise((resolve) => (timer = setTimeout(resolve, ms)))]).then(
+    () => clearTimeout(timer),
+    () => clearTimeout(timer),
+  );
 }
 
 /** The reply's `result` or `error`, nothing else from the host. */

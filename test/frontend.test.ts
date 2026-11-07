@@ -241,3 +241,18 @@ test("a restart drops the link and cancels its calls; muting turns announces awa
   muted = false;
   assert.equal(b2.comms.filter((c) => c.target === ANNOUNCE_TARGET).length, 1);
 });
+
+test("the announce handler returns nothing, so @jupyterlab/services doesn't hold later messages for it", () => {
+  let target: ((comm: KernelComm, msg: KernelCommMessage) => unknown) | undefined;
+  const kernel: KernelConnectionLike = {
+    clientId: "app",
+    registerCommTarget: (_t, cb) => void (target = cb),
+    removeCommTarget: () => {},
+    createComm: () => {
+      throw new Error("not reached");
+    },
+  };
+  answerDevice(kernel, { forward: () => new Promise(() => {}) });
+  const returned = target!({} as KernelComm, { parent_header: { session: "app" }, content: { data: {} } });
+  assert.equal(returned, undefined);
+});
