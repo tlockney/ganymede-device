@@ -177,7 +177,8 @@ export const SUPPORT = {
     onDevice: "yes",
     remote: "yes",
     browser: "yes",
-    note: "The save panel on the Mac, the document picker on iPad and iPhone. A browser downloads the file and answers `true`, since it can't tell.",
+    browserClick: true,
+    note: "The save panel on the Mac, the document picker on iPad and iPhone. A browser downloads it after a click, and answers `true` then, since it can't tell whether it was saved.",
   },
   "sound.play": {
     call: "sound.play(data, { volume })",
@@ -203,7 +204,7 @@ export const SUPPORT = {
     remote: "yes",
     browser: "yes",
     browserClick: true,
-    note: "The system photo picker, which needs no photo library permission. A browser shows a file picker for images.",
+    note: "The system photo picker, which needs no photo library permission. A browser shows a file picker for images, and keeps the first `limit` picked.",
   },
 } as const satisfies Record<string, SupportRow>;
 

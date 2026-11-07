@@ -14,6 +14,7 @@
 import { decodeBase64, encodeBase64, MAX_BINARY_BYTES } from "./binary.ts";
 import type { Forward } from "./frontend.ts";
 import { REMOTE_METHODS } from "./comm.ts";
+import { SUPPORT, type SupportRow } from "./support.ts";
 
 /** What the page is asked to show: a prompt with one button. */
 export interface ClickRequest {
@@ -58,7 +59,7 @@ export interface BrowserEnv {
   devicePixelRatio?: number;
   matchMedia?(query: string): { matches: boolean };
   open?(url: string, target?: string, features?: string): unknown;
-  Audio?: new (src?: string) => { volume: number; play(): Promise<void>; addEventListener(type: string, fn: () => void): void };
+  Audio?: new (src?: string) => { volume: number; play(): Promise<void>; pause(): void; addEventListener(type: string, fn: () => void): void };
   ClipboardItem?: new (items: Record<string, Blob>) => unknown;
   URL?: { createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void };
 }
@@ -84,9 +85,18 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
   const click = options.click;
   const inFlight = new Map<number, AbortController>();
   const capabilities = browserCapabilities(env, click !== undefined);
+  // Sounds each owner started, until they end: a release (or the owner's
+  // next hello, a restarted kernel) stops them, as on the device.
+  const sounds = new Map<number, Set<() => void>>();
+  const stopSounds = (owner: number) => {
+    for (const stop of sounds.get(owner) ?? []) stop();
+    sounds.delete(owner);
+  };
 
   const needClick = (method: string, label: string, signal: AbortSignal, run: () => Promise<unknown>): Promise<unknown> => {
     if (!click) throw new Failure("unavailable", `${method} needs a click, and this page can't ask for one`);
+    // Cancelled while an earlier step was pending: no prompt at all.
+    if (signal.aborted) throw new Failure("cancelled", `${method} was cancelled`);
     let ran = false;
     return click({ method, label, signal }, () => {
       ran = true;
@@ -97,7 +107,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
     });
   };
 
-  const call = async (method: string, params: Params, signal: AbortSignal): Promise<unknown> => {
+  const call = async (method: string, params: Params, signal: AbortSignal, owner: number): Promise<unknown> => {
     if (!capabilities.includes(method)) throw new Failure("unavailable", `${method} isn't available in this browser`);
     const nav = env.navigator;
     switch (method) {
@@ -178,8 +188,15 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         const name = need(params, "name");
         if (!plainName(name)) throw new Failure("failed", "a file name must be plain: no slash, backslash or NUL, and not . or ..");
         const bytes = bytesOf(params.data, "data");
-        download(env, name, bytes);
-        // A download has no answer: the browser saves it or asks where.
+        // Behind a click, as the app shows a save panel: a kernel saves
+        // nothing on this machine unasked.
+        try {
+          await needClick(method, `Save ${name}`, signal, async () => download(env, name, bytes));
+        } catch (err) {
+          if (err instanceof Failure && err.code === "cancelled" && !signal.aborted) return false;
+          throw err;
+        }
+        // The browser saves it or asks where; the page can't tell which.
         return true;
       }
       case "sound.play": {
@@ -188,13 +205,40 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         const url = env.URL!.createObjectURL(new Blob([bytes as BlobPart]));
         const audio = new env.Audio!(url);
         audio.volume = volume;
-        audio.addEventListener("ended", () => env.URL!.revokeObjectURL(url));
+        const owned = sounds.get(owner) ?? new Set<() => void>();
+        sounds.set(owner, owned);
+        let done = false;
+        let released = false;
+        const stop = () => {
+          if (done) return;
+          done = true;
+          audio.pause();
+          env.URL!.revokeObjectURL(url);
+          owned.delete(release);
+        };
+        const release = () => {
+          released = true;
+          stop();
+        };
+        owned.add(release);
+        audio.addEventListener("ended", stop);
+        audio.addEventListener("error", stop);
         try {
-          await audio.play();
+          try {
+            await audio.play();
+          } catch (err) {
+            // Autoplay needs a click on the page first.
+            if ((err as { name?: unknown })?.name !== "NotAllowedError") throw err;
+            await needClick(method, "Play sound", signal, () => audio.play());
+          }
+          // Cancelled or released while it started: it doesn't play on.
+          if (signal.aborted || released) {
+            stop();
+            throw new Failure("cancelled", `${method} was cancelled`);
+          }
         } catch (err) {
-          // Autoplay needs a click on the page first.
-          if ((err as { name?: unknown })?.name !== "NotAllowedError") throw err;
-          await needClick(method, "Play sound", signal, () => audio.play());
+          stop();
+          throw err;
         }
         return null;
       }
@@ -207,16 +251,23 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
       if (typeof message.id === "number") inFlight.get(message.id)?.abort();
       return { result: null };
     }
-    if (message.release === true) return { result: null };
+    const owner = typeof message.owner === "number" ? message.owner : 0;
+    if (message.release === true) {
+      stopSounds(owner);
+      return { result: null };
+    }
     const method = message.method;
-    if (method === "hello") return { result: { platform: "browser", appVersion: "", capabilities } };
+    if (method === "hello") {
+      stopSounds(owner);
+      return { result: { platform: "browser", appVersion: "", capabilities } };
+    }
     if (typeof method !== "string") return error("failed", "a device call needs a method");
     const params = isRecord(message.params) ? message.params : {};
     const id = typeof message.id === "number" ? message.id : undefined;
     const controller = new AbortController();
     if (id !== undefined) inFlight.set(id, controller);
     try {
-      return { result: await call(method, params, controller.signal) } satisfies Reply;
+      return { result: await call(method, params, controller.signal, owner) } satisfies Reply;
     } catch (err) {
       if (controller.signal.aborted) return error("cancelled", `${method} was cancelled`);
       if (err instanceof Failure) return error(err.code, err.message);
@@ -236,23 +287,24 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
 export function browserCapabilities(env: BrowserEnv = globalThis as unknown as BrowserEnv, canClick = true): string[] {
   const clip = env.navigator?.clipboard;
   const doc = env.document !== undefined;
-  const has: Record<string, [boolean, boolean]> = {
-    // method: [the browser has it, it needs a click]
-    info: [true, false],
-    "clipboard.readText": [typeof clip?.readText === "function", true],
-    "clipboard.writeText": [typeof clip?.writeText === "function", true],
-    "clipboard.readImage": [typeof clip?.read === "function", true],
-    "clipboard.writeImage": [typeof clip?.write === "function" && typeof env.ClipboardItem === "function", true],
-    openURL: [typeof env.open === "function", true],
-    share: [typeof env.navigator?.share === "function", true],
-    "files.pick": [doc, true],
-    "photos.pick": [doc, true],
-    "files.export": [doc && env.URL !== undefined, false],
-    // It plays without a click once the page has had one.
-    "sound.play": [typeof env.Audio === "function" && env.URL !== undefined, true],
+  // Whether the browser has each method; which need a click is
+  // `browserClick` in the support table.
+  const has: Record<string, boolean> = {
+    info: true,
+    "clipboard.readText": typeof clip?.readText === "function",
+    "clipboard.writeText": typeof clip?.writeText === "function",
+    "clipboard.readImage": typeof clip?.read === "function",
+    "clipboard.writeImage": typeof clip?.write === "function" && typeof env.ClipboardItem === "function",
+    openURL: typeof env.open === "function",
+    share: typeof env.navigator?.share === "function",
+    "files.pick": doc,
+    "photos.pick": doc,
+    "files.export": doc && env.URL !== undefined,
+    "sound.play": typeof env.Audio === "function" && env.URL !== undefined,
   };
+  const rows: Record<string, SupportRow> = SUPPORT;
   return Object.entries(has)
-    .filter(([method, [present, clicks]]) => REMOTE_METHODS.has(method) && present && (canClick || !clicks))
+    .filter(([method, present]) => REMOTE_METHODS.has(method) && present && (canClick || rows[method]?.browserClick !== true))
     .map(([method]) => method);
 }
 

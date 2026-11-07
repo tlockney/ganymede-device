@@ -38,6 +38,7 @@ class FakeElement {
 
 /** A browser with every API this uses, recording what each was given. */
 function fakeBrowser() {
+  let urls = 0;
   const log = {
     clipboardText: "",
     clipboardItems: [] as unknown[],
@@ -45,8 +46,10 @@ function fakeBrowser() {
     shared: [] as unknown[],
     elements: [] as FakeElement[],
     played: 0,
+    sounds: [] as { src: string; playing: boolean }[],
+    revoked: [] as string[],
   };
-  const state = { autoplay: true, canShareFiles: true, shareAbort: false, pick: (el: FakeElement) => el.fire("cancel") };
+  const state = { autoplay: true, gate: null as Promise<void> | null, canShareFiles: true, shareAbort: false, pick: (el: FakeElement) => el.fire("cancel") };
   const env: BrowserEnv = {
     navigator: {
       language: "en-GB",
@@ -77,9 +80,19 @@ function fakeBrowser() {
     open: (...args) => void log.opened.push(args),
     Audio: class {
       volume = 1;
+      record: { src: string; playing: boolean };
+      constructor(src = "") {
+        this.record = { src, playing: false };
+        log.sounds.push(this.record);
+      }
       async play() {
+        if (state.gate) await state.gate;
         if (!state.autoplay) throw Object.assign(new Error("no gesture"), { name: "NotAllowedError" });
         log.played++;
+        this.record.playing = true;
+      }
+      pause() {
+        this.record.playing = false;
       }
       addEventListener() {}
     },
@@ -89,7 +102,10 @@ function fakeBrowser() {
         this.items = items;
       }
     },
-    URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
+    URL: {
+      createObjectURL: () => `blob:${++urls}`,
+      revokeObjectURL: (url: string) => void log.revoked.push(url),
+    },
   };
   return { env, log, state };
 }
@@ -124,7 +140,7 @@ test("hello lists what the browser has, in the remote subset", async () => {
   ]);
   assert.ok(hello.result.capabilities.every((m) => REMOTE_METHODS.has(m)));
   // Without a way to ask for a click, only what needs none.
-  assert.deepEqual(browserCapabilities(env, false), ["info", "files.export"]);
+  assert.deepEqual(browserCapabilities(env, false), ["info"]);
   // A browser without the async clipboard or Web Share.
   assert.deepEqual(browserCapabilities({ ...env, navigator: { language: "en" } }), ["info", "openURL", "files.pick", "photos.pick", "files.export", "sound.play"]);
 });
@@ -259,15 +275,20 @@ test("files.pick and photos.pick use a file input", async () => {
   assert.deepEqual(await forward({ id: 4, owner: 1, method: "files.pick", params: {} }), { result: [] });
 });
 
-test("files.export downloads the file, with no click", async () => {
+test("files.export downloads the file after a click, and answers false when dismissed", async () => {
   const { env, log } = fakeBrowser();
-  const forward = browserForward({ env });
+  const { asked, click } = clicker();
+  const forward = browserForward({ env, click });
   assert.deepEqual(await forward({ id: 1, owner: 1, method: "files.export", params: { name: "out.csv", data: b64(PNG) } }), { result: true });
   const link = log.elements[0];
   assert.equal(link.download, "out.csv");
   assert.equal(link.removed, true);
+  assert.deepEqual(asked.map((r) => r.label), ["Save out.csv"]);
   const bad = (await forward({ id: 2, owner: 1, method: "files.export", params: { name: "../x", data: b64(PNG) } })) as { error: { code: string } };
   assert.equal(bad.error.code, "failed");
+  const dismissed = browserForward({ env, click: () => Promise.reject(new Error("closed")) });
+  assert.deepEqual(await dismissed({ id: 3, owner: 1, method: "files.export", params: { name: "out.csv", data: b64(PNG) } }), { result: false });
+  assert.equal(log.elements.length, 1, "nothing downloaded");
 });
 
 test("sound.play asks for a click only when autoplay is blocked", async () => {
@@ -297,4 +318,52 @@ test("the support table's browser column matches what the fallback answers", () 
   for (const [method, row] of Object.entries(SUPPORT)) {
     if (row.browser !== "no") assert.ok(REMOTE_METHODS.has(method), `${method}: a browser reaches only the remote subset`);
   }
+});
+
+test("a cancel while autoplay is checked asks for no click", async () => {
+  const { env, log, state } = fakeBrowser();
+  const { asked, click } = clicker();
+  const forward = browserForward({ env, click });
+  let open!: () => void;
+  state.gate = new Promise((resolve) => (open = resolve));
+  state.autoplay = false;
+  const pending = forward({ id: 1, owner: 1, method: "sound.play", params: { data: b64(PNG) } });
+  await forward({ id: 1, cancel: true });
+  open();
+  assert.equal(((await pending) as { error: { code: string } }).error.code, "cancelled");
+  assert.equal(asked.length, 0, "no prompt for a cancelled call");
+  assert.deepEqual(log.revoked, [log.sounds[0].src], "its URL is revoked");
+});
+
+test("a release, or the owner's next hello, stops that owner's sounds", async () => {
+  const { env, log } = fakeBrowser();
+  const forward = browserForward({ env, click: clicker().click });
+  await forward({ id: 1, owner: 1, method: "sound.play", params: { data: b64(PNG) } });
+  await forward({ id: 2, owner: 2, method: "sound.play", params: { data: b64(PNG) } });
+  await forward({ id: 3, owner: 2, method: "sound.play", params: { data: b64(PNG) } });
+  assert.deepEqual(log.sounds.map((s) => s.playing), [true, true, true]);
+  assert.deepEqual(await forward({ owner: 1, release: true }), { result: null });
+  assert.deepEqual(log.sounds.map((s) => s.playing), [false, true, true], "only owner 1's");
+  assert.deepEqual(log.revoked, [log.sounds[0].src]);
+  await forward({ owner: 2, method: "hello", params: {} });
+  assert.deepEqual(log.sounds.map((s) => s.playing), [false, false, false]);
+  assert.equal(log.revoked.length, 3);
+});
+
+test("a dismissed sound prompt revokes its URL", async () => {
+  const { env, log, state } = fakeBrowser();
+  state.autoplay = false;
+  const forward = browserForward({ env, click: () => Promise.reject(new Error("closed")) });
+  const reply = (await forward({ id: 1, owner: 1, method: "sound.play", params: { data: b64(PNG) } })) as { error: { code: string } };
+  assert.equal(reply.error.code, "cancelled");
+  assert.deepEqual(log.revoked, [log.sounds[0].src]);
+});
+
+test("which methods need a click comes from the support table", () => {
+  const { env } = fakeBrowser();
+  const noClick = Object.entries(SUPPORT)
+    .filter(([, row]) => row.browser === "yes" && !("browserClick" in row && row.browserClick))
+    .map(([method]) => method)
+    .sort();
+  assert.deepEqual(browserCapabilities(env, false).sort(), noClick);
 });

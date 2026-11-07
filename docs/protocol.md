@@ -295,15 +295,23 @@ that button's click handler, and resolves with what `run()` resolves to.
   sent a cancel (`signal` aborts), fails the call `cancelled`. The
   browser refusing after the click (`NotAllowedError`) fails it
   `denied`.
-- Without `click`, the methods that need one are left out of `hello`.
+- Without `click`, the methods that need one (`browserClick` in
+  `src/support.ts`) are left out of `hello`.
 - `info` has the screen, appearance and locale; no model or battery.
 - Clipboard reads and writes, `openURL` (a new tab, `noopener`; `inApp`
   is ignored), `share` (Web Share; files only where `canShare` allows),
   and the file and photo pickers (a file input; type identifiers such
   as `public.json` can't be said in `accept`, so with one any file is
   allowed) go through a click. Clipboard images are PNG only.
-- `files.export` downloads the file with no click, and answers `true`,
-  since a page can't tell whether it was saved.
+- `files.export` downloads the file after a click, as the app shows a
+  save panel first, and answers `true` then, since a page can't tell
+  whether it was saved; a dismissed prompt answers `false`.
+- A dismissed file picker answers `[]` through the input's `cancel`
+  event (Chrome 113, Safari 16.4, Firefox 91); in an older browser the
+  call waits until the kernel cancels it. A file input can't limit how
+  many files are picked, so `photos.pick` keeps the first `limit`.
+- A release, or the owner's next `hello`, stops the sounds that owner
+  started.
 - `sound.play` plays at once when the page may autoplay, and otherwise
   asks for a click.
 - The `ui.*` dialogs aren't answered yet: the page would draw them, and

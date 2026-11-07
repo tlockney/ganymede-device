@@ -55,7 +55,8 @@ can answer the same calls with web APIs (`/browser`); the dialogs
   connection and which forwards to the bridge's `deviceRemote` handler.
 - `src/browser.ts` (`/browser`): `browserForward({ click })`, the
   browser fallback: answers those calls with web APIs, running each that
-  needs user activation from a click on a prompt the page shows.
+  needs user activation, or would save a file, from a click on a prompt
+  the page shows.
 - `src/support.ts`: which methods work on-device, remotely and in a
   browser, today and planned; the source for docs and tests.
   `npm run support-table` prints it as the Markdown that ganymede-ui's
