@@ -194,7 +194,7 @@ closes one whose target it doesn't know, for everyone. Instead:
 3. The kernel takes the first such comm, closes the announce, and turns
    away any other with `comm_close` `{ error: "taken" }` (`"not waiting"`
    for one that comes after the announce timed out). With no answer
-   in 2 s, every call rejects `unavailable`.
+   in 5 s, every call rejects `unavailable`.
 
 Over the calls comm, the kernel sends `{ id, method, params }` and
 `{ id, cancel: true }`, and the app replies `{ id, result }` or
@@ -218,7 +218,8 @@ frontend sends on a kernel subshell (JEP 91). `@jupyterlab/services`
 does that by default once the kernel lists `kernel subshells`
 (`commsOverSubshells`, per comm target). On an older kernel, or a
 frontend that sends comms on the main shell, `connectDevice` awaited in
-a cell rejects `unavailable` after `timeoutMs`
+a cell resolves after `timeoutMs` to a device whose calls reject
+`unavailable`
 (tlockney/cdp-kernel#417). An interrupt doesn't cancel a call by itself;
 pass `{ signal: jupyter.signal }` (cdp-kernel 0.8.0), which an interrupt
 aborts, or a signal of your own.
@@ -241,11 +242,12 @@ posts to `webkit.messageHandlers.deviceRemote`.
   JupyterLab tab, never answers for it.
 - It asks the host for `hello` and opens the calls comm with it, cut to
   the remote subset. The cell that announced is waiting, so the open
-  waits for the comm's subshell (`subshellStarted`, up to 2 s) rather
-  than go on the main shell behind that cell, and the comm target
-  returns nothing, since `@jupyterlab/services` holds later kernel
-  messages, the subshell's reply among them, while a target's promise is
-  pending.
+  waits for the comm's subshell (`subshellStarted`, up to 3 s, under
+  the kernel's 5 s timeout) rather than go on the main shell behind that
+  cell; with no subshell by then it gives up. The comm target and the
+  calls comm's `onMsg` return nothing, since `@jupyterlab/services`
+  holds later kernel messages (the subshell's reply, pings, cancels)
+  while either's promise is pending.
 - It answers `{ ping }` with `{ pong }` itself, and forwards each call
   and cancel. A call outside the remote subset fails `unavailable`
   without reaching the host. Each forwarded call gets a page-wide `id`,

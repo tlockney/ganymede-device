@@ -20,11 +20,12 @@ extension DeviceBridge {
     ]
 
     /// Adds the remote handler to `controller`, in the page's content world.
-    /// Only main-frame messages for which `allow` is true reach the bridge:
-    /// check the page's origin there.
+    /// Only main-frame messages for which `allow` is true reach the bridge.
+    /// `allow` has no default: handlers outlive navigation, so the app must
+    /// check that the message comes from its own page (origin, web view).
     public func registerRemote(
         in controller: WKUserContentController,
-        allow: @escaping @MainActor (WKScriptMessage) -> Bool = { _ in true }
+        allow: @escaping @MainActor (WKScriptMessage) -> Bool
     ) {
         controller.addScriptMessageHandler(
             RemoteHandler(bridge: self, allow: allow), contentWorld: .page, name: Self.remoteHandlerName)
@@ -40,14 +41,17 @@ extension DeviceBridge {
             reply(Self.error("failed", "a device message must be an object"))
             return
         }
-        for key in ["id", "owner"] where call[key] != nil {
+        let cancel = call["cancel"] as? Bool == true
+        // Every message but a cancel names its owner, so none falls into the
+        // kernel page's owner-less bucket (owner 0).
+        for key in ["id", "owner"] where call[key] != nil || (key == "owner" && !cancel) {
             guard let n = Self.callID(call[key]), n > 0 else {
-                reply(Self.error("failed", "a remote call's \(key) must be a positive integer"))
+                reply(Self.error("failed", "a remote message's \(key) must be a positive integer"))
                 return
             }
             call[key] = -n
         }
-        if call["cancel"] as? Bool == true || call["release"] as? Bool == true {
+        if cancel || call["release"] as? Bool == true {
             reply(handle(call))
             return
         }

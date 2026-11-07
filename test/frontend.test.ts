@@ -22,6 +22,7 @@ class BusComm {
   frontend: KernelComm;
   kernel: CommLike;
   target: string;
+  chain: Promise<unknown> = Promise.resolve();
 
   constructor(target: string) {
     this.target = target;
@@ -33,7 +34,9 @@ class BusComm {
       send(data = {}) {
         if (self.closed) throw new Error("send on a closed comm");
         self.fromKernel.push(data);
-        queueMicrotask(() => void self.frontend.onMsg?.({ content: { data } }));
+        // In order, each after the last handler settles, as
+        // @jupyterlab/services' message chain does.
+        self.chain = self.chain.then(() => self.frontend.onMsg?.({ content: { data } }));
       },
       close() {
         if (self.closed) return;
@@ -256,3 +259,19 @@ test("the announce handler returns nothing, so @jupyterlab/services doesn't hold
   const returned = target!({} as KernelComm, { parent_header: { session: "app" }, content: { data: {} } });
   assert.equal(returned, undefined);
 });
+
+test("a ping is answered while a call waits on the host, as the kernel's messages aren't held", async () => {
+  const b = bus();
+  const h = host({ hold: "ui.alert" });
+  answerDevice(b.frontend("app"), { forward: h.forward });
+  const device = await connectDevice(b.api);
+  const calls = b.comms.find((c) => c.target === CALLS_TARGET)!;
+  const alert = device.ui.alert("open");
+  await tick();
+  calls.kernel.send({ ping: 1 });
+  await tick();
+  assert.deepEqual(calls.fromFrontend.at(-1), { pong: 1 });
+  h.held.get(h.sent.find((m) => m.method === "ui.alert")!.id as number)!({ result: null });
+  assert.equal(await alert, undefined);
+});
+

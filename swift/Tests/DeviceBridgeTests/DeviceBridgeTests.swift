@@ -766,6 +766,10 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "ids are the page's, from 1")
         bridge.respondRemote(to: ["id": 3, "owner": 1, "method": "ui.unknown"], reply: replies.reply)
         XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
+        bridge.respondRemote(to: ["id": 4, "method": "info"], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "a remote call names its owner")
+        bridge.respondRemote(to: ["release": true], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "so does a release")
     }
 
     func testRemoteAndKernelPageIdsDontCollide() {

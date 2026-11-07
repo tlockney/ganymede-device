@@ -149,7 +149,10 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
   // Returns nothing: `@jupyterlab/services` holds every later kernel
   // message until a comm target's promise settles, the subshell reply
   // this waits for among them.
-  const onAnnounce = (_announce: KernelComm, msg: KernelCommMessage): void => void announced(msg);
+  const onAnnounce = (_announce: KernelComm, msg: KernelCommMessage): void => {
+    // Disposed mid-announce, createComm or open throws: nothing to answer.
+    announced(msg).catch(() => {});
+  };
 
   const announced = async (msg: KernelCommMessage): Promise<void> => {
     // The announce stays open: the kernel closes it once answered.
@@ -171,10 +174,18 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
       // The cell that announced is still running and waits for this open,
       // so it must go on the comm's subshell: one sent before the subshell
       // is up goes on the main shell, behind that cell.
-      // Bounded, so a subshell that never comes up doesn't block later announces.
-      if (kernel.supportsSubshells && calls.subshellStarted) await within(calls.subshellStarted, 2000);
+      // An open sent on the main shell would wait behind the cell, so with
+      // no subshell in time, give up: the kernel's announce times out.
+      if (kernel.supportsSubshells && calls.subshellStarted && !(await within(calls.subshellStarted, SUBSHELL_WAIT_MS))) {
+        if (comm === calls) drop();
+        return;
+      }
       if (comm !== calls) return;
-      calls.onMsg = (m) => receive(calls, m);
+      // Returns nothing, as the target does: a promise here would hold the
+      // kernel's later messages (pings, cancels) until the host answers.
+      calls.onMsg = (m) => {
+        receive(calls, m).catch(() => {});
+      };
       calls.onClose = () => {
         if (comm !== calls) return;
         comm = null;
@@ -245,12 +256,19 @@ export function answerDevice(kernel: KernelConnectionLike, options: AnswerOption
   };
 }
 
-/** Waits for `promise`, or `ms` at most. */
-function within(promise: Promise<unknown>, ms: number): Promise<void> {
+/**
+ * How long the page waits for the calls comm's subshell: well under the
+ * kernel's announce timeout (5 s), which started before the announce
+ * reached the page.
+ */
+const SUBSHELL_WAIT_MS = 3000;
+
+/** True once `promise` resolves; false when it rejects or `ms` pass first. */
+function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([promise, new Promise((resolve) => (timer = setTimeout(resolve, ms)))]).then(
-    () => clearTimeout(timer),
-    () => clearTimeout(timer),
+  return Promise.race([promise.then(() => true), new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms)))]).then(
+    (ok) => (clearTimeout(timer), ok),
+    () => (clearTimeout(timer), false),
   );
 }
 

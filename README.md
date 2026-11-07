@@ -35,7 +35,8 @@ cdp-kernel running in the app's kernel web view gets `device` as a
 global. A kernel elsewhere, such as cdp-kernel on Node behind Ganymede,
 gets the remote subset (the methods that need no permission) with
 `connectDevice(jupyter.comm)`, answered by the notebook page in the app
-(docs/protocol.md, "Over a Jupyter comm"). Browsers come next, so
+(docs/protocol.md, "Over a Jupyter comm") from the ganymede-ui release
+that carries tlockney/ganymede-ui#378. Browsers come next, so
 `src/support.ts` marks that column "planned". The package isn't
 published yet (#24).
 

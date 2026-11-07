@@ -109,7 +109,7 @@ ganymede-ui in the app ── device-bridge plugin ── Swift DeviceBridge
 ```
 
 How the kernel side finds it: if the host installed a transport, use it.
-Otherwise announce on a comm; if the app answers within ~2 s, use the
+Otherwise announce on a comm; if the app answers within ~5 s, use the
 comm transport, else every call rejects `unavailable`. Same message
 format as the on-device transports, carried in comm data. The kernel
 only announces; the app opens the comm the calls go over, since
