@@ -31,6 +31,10 @@
       "types": "./dist/comm.d.ts",
       "default": "./dist/remote.js"
     },
+    "./frontend": {
+      "types": "./dist/frontend.d.ts",
+      "default": "./dist/frontend.js"
+    },
     "./globals": {
       "types": "./dist/globals.d.ts"
     }

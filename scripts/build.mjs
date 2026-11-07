@@ -1,6 +1,7 @@
 // Builds what the package exports: dist/preload.js (for cdp-kernel's
 // `preload` option, imported by the Worker), dist/webkit.js (the page's
-// host handler) and dist/mod.js, all ES modules, plus a .d.ts for each
+// host handler), dist/remote.js and dist/frontend.js (the two ends of the
+// remote transport) and dist/mod.js, all ES modules, plus a .d.ts for each
 // source module. `prepare` runs it, so a git dependency gets dist/ too.
 //
 //   node scripts/build.mjs [outdir]
@@ -13,7 +14,7 @@ import { build } from "esbuild";
 
 const outdir = process.argv[2] ?? "dist";
 await build({
-  entryPoints: { preload: "src/preload.ts", webkit: "src/webkit.ts", mod: "src/mod.ts", remote: "src/comm.ts" },
+  entryPoints: { preload: "src/preload.ts", webkit: "src/webkit.ts", mod: "src/mod.ts", remote: "src/comm.ts", frontend: "src/frontend.ts" },
   outdir,
   bundle: true,
   format: "esm",
@@ -30,4 +31,4 @@ for (const file of readdirSync(outdir).filter(f => f.endsWith(".d.ts"))) {
   const path = join(outdir, file);
   writeFileSync(path, readFileSync(path, "utf8").replace(/(from\s+"\.\/[\w-]+)\.ts"/g, '$1.js"'));
 }
-console.log(`built ${outdir}/preload.js, webkit.js, mod.js, remote.js and their .d.ts`);
+console.log(`built ${outdir}/preload.js, webkit.js, mod.js, remote.js, frontend.js and their .d.ts`);

@@ -52,7 +52,7 @@ export const REMOTE_METHODS: ReadonlySet<string> = new Set(
 );
 
 export interface ConnectOptions {
-  /** How long to wait for the app to answer an announce; 2000 ms by default. */
+  /** How long to wait for the app to answer an announce; 5000 ms by default. */
   timeoutMs?: number;
   /**
    * While calls are in flight, how often the kernel pings the app; 5000 ms
@@ -83,7 +83,7 @@ function remoteHello(hello: DeviceInfo): DeviceInfo {
  */
 class CommLink {
   #api: CommApiLike;
-  timeoutMs = 2000;
+  timeoutMs = 5000;
   pingMs = 5000;
   retryMs = 10000;
   #comm: CommLike | null = null;

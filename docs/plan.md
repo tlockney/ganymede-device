@@ -109,7 +109,7 @@ ganymede-ui in the app ── device-bridge plugin ── Swift DeviceBridge
 ```
 
 How the kernel side finds it: if the host installed a transport, use it.
-Otherwise announce on a comm; if the app answers within ~2 s, use the
+Otherwise announce on a comm; if the app answers within ~5 s, use the
 comm transport, else every call rejects `unavailable`. Same message
 format as the on-device transports, carried in comm data. The kernel
 only announces; the app opens the comm the calls go over, since
@@ -513,7 +513,7 @@ Settled by 2026-11-01: the package lives in its own repo,
 Swift `DeviceBridge` beside it; and `device` is a global, installed by
 cdp-kernel's `preload` hook (cdp-kernel#384).
 
-## Where things stand (2026-11-05)
+## Where things stand (2026-11-07)
 
 The device API lives in its own repo, `tlockney/ganymede-device`: not
 Ganymede (the Rust core never sees a device call) and not cdp-kernel (a
@@ -541,9 +541,12 @@ Done:
    git, embeds the support table in its `docs/device.md`, and drops a
    page's open handles when the kernel page navigates. The Mac app
    isn't sandboxed, so its file panels need no entitlement.
-5. **Phase R's kernel side**: `connectDevice(jupyter.comm)` in
-   `/remote` (docs/protocol.md, "Over a Jupyter comm"). Nothing answers
-   it yet.
+5. **Phase R's two ends**: `connectDevice(jupyter.comm)` in `/remote`
+   for the kernel, `answerDevice(kernel)` in `/frontend` for the
+   notebook page, and the bridge's `deviceRemote` handler, limited to the
+   remote subset (docs/protocol.md, "Over a Jupyter comm"). cdp-kernel
+   0.8.0 reads comm messages while a cell runs (kernel subshells,
+   cdp-kernel#417).
 6. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
    that an HTML output can't reach the bridge.
 
@@ -552,6 +555,7 @@ Next:
 1. Try Phase 1's calls in the Mac and iPad apps, including that an
    interrupt closes a dialog or picker (#21).
 2. Publish the TS package and tag the Swift package (#24).
-3. Phase R's app side (#26): the ganymede-ui plugin that answers the
-   comm, then the browser fallbacks.
+3. Phase R in the app (#26): ganymede-ui runs `answerDevice` for its
+   server kernels and registers `deviceRemote`; then the browser
+   fallbacks.
 4. `device.shortcuts.run` (#40), then Phases 2 to 4 (#27).

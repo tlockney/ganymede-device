@@ -31,9 +31,13 @@ bridge. The Swift `DeviceBridge` answers the same methods; the Mac and
 iPad apps in [tlockney/ganymede-ui](https://github.com/tlockney/ganymede-ui)
 register it on their hidden kernel web view.
 
-Only cdp-kernel running in the app's kernel web view gets `device`.
-Process and remote kernels (Phase R) and browsers come next, so
-`src/support.ts` marks those columns "planned". The package isn't
+cdp-kernel running in the app's kernel web view gets `device` as a
+global. A kernel elsewhere, such as cdp-kernel on Node behind Ganymede,
+gets the remote subset (the methods that need no permission) with
+`connectDevice(jupyter.comm)`, answered by the notebook page in the app
+(docs/protocol.md, "Over a Jupyter comm") from the ganymede-ui release
+that carries tlockney/ganymede-ui#378. Browsers come next, so
+`src/support.ts` marks that column "planned". The package isn't
 published yet (#24).
 
 ## Layout
@@ -45,15 +49,18 @@ published yet (#24).
   `webkit.messageHandlers.device`.
 - `src/comm.ts` (`/remote`): `connectDevice(jupyter.comm)`, the kernel
   side of the remote transport over Jupyter comms, for kernels that
-  aren't in the app (docs/protocol.md, "Over a Jupyter comm"). The app
-  side isn't built yet.
+  aren't in the app (docs/protocol.md, "Over a Jupyter comm").
+- `src/frontend.ts` (`/frontend`): `answerDevice(kernel)`, the app's
+  side of that transport, which the notebook page runs for each kernel
+  connection and which forwards to the bridge's `deviceRemote` handler.
 - `src/support.ts`: which methods work on-device, remotely and in a
   browser, today and planned; the source for docs and tests.
   `npm run support-table` prints it as the Markdown that ganymede-ui's
   `docs/device.md` embeds.
 - `src/globals.ts`: ambient types for cells.
 - `Package.swift`, `swift/Sources/DeviceBridge/`: the Swift side, a
-  `WKScriptMessageHandlerWithReply` named `device`.
+  `WKScriptMessageHandlerWithReply` named `device`, and a second one,
+  `deviceRemote`, limited to the remote subset (`Remote.swift`).
 
 ## Using it in a page
 

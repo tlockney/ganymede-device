@@ -166,9 +166,11 @@ view controller.
 
 ## Over a Jupyter comm (remote kernels)
 
-> Kernel side only so far (#26): `connectDevice` in `src/comm.ts`,
-> exported as `@tlockney/ganymede-device/remote`. The app side, a
-> ganymede-ui plugin that answers it, is next.
+Both ends are in this package: the kernel's, `connectDevice` in
+`src/comm.ts` (`@tlockney/ganymede-device/remote`), and the app's,
+`answerDevice` in `src/frontend.ts` (`@tlockney/ganymede-device/frontend`),
+which the notebook page runs for each kernel connection and which posts
+to the bridge's remote handler (below).
 
 A kernel that isn't in the app, such as cdp-kernel on Node behind
 Ganymede, reaches the app through the notebook page that shows it:
@@ -192,7 +194,7 @@ closes one whose target it doesn't know, for everyone. Instead:
 3. The kernel takes the first such comm, closes the announce, and turns
    away any other with `comm_close` `{ error: "taken" }` (`"not waiting"`
    for one that comes after the announce timed out). With no answer
-   in 2 s, every call rejects `unavailable`.
+   in 5 s, every call rejects `unavailable`.
 
 Over the calls comm, the kernel sends `{ id, method, params }` and
 `{ id, cancel: true }`, and the app replies `{ id, result }` or
@@ -210,18 +212,63 @@ answers `{ pong: n }`. A comm that has sent nothing for two pings is
 dropped as if closed. A kernel connects once per `jupyter.comm`:
 `connectDevice` from a later cell reuses the link and its target.
 
-The kernel can't read a comm message while a cell runs unless it handles
-comms off the shell queue (kernel subshells, JEP 91, which JupyterLab
-uses for comms when the kernel offers them). cdp-kernel doesn't yet, so
-`connectDevice` awaited in a cell rejects `unavailable` after
-`timeoutMs`, and a call on an open link has no timeout of its own: it
-ends `disconnected` about two pings later, when the ping check drops the
-comm (pongs can't be read during the cell either), which also starts
-the 10 s window in which calls fail at once; see
-tlockney/cdp-kernel#417. An interrupt doesn't cancel a
-call either: pass a `signal`.
+A cell awaits the app's answer, so the kernel must read comm messages
+while a cell runs: cdp-kernel 0.8.0 and later do, for comm messages a
+frontend sends on a kernel subshell (JEP 91). `@jupyterlab/services`
+does that by default once the kernel lists `kernel subshells`
+(`commsOverSubshells`, per comm target). On an older kernel, or a
+frontend that sends comms on the main shell, `connectDevice` awaited in
+a cell resolves after `timeoutMs` to a device whose calls reject
+`unavailable`
+(tlockney/cdp-kernel#417). An interrupt doesn't cancel a call by itself;
+pass `{ signal: jupyter.signal }` (cdp-kernel 0.8.0), which an interrupt
+aborts, or a signal of your own.
 
 The kernel offers only the remote subset: methods whose `remote` column
 in `src/support.ts` isn't `no`, whatever the app's `hello` lists. The
 app enforces the same subset on its side.
+
+### The app's side
+
+`answerDevice(kernel, { forward })` takes a `@jupyterlab/services`
+kernel connection (`clientId`, `registerCommTarget`, `createComm`,
+`statusChanged`) and a `forward` function that sends one message to the
+native host and resolves with its reply. The default, `webkitForward()`,
+posts to `webkit.messageHandlers.deviceRemote`.
+
+- It registers `ganymede.device.v1` and answers an announce only when the
+  announce's parent header `session` is the connection's `clientId`: a
+  cell this page ran. Another client on the same kernel, such as a
+  JupyterLab tab, never answers for it.
+- It asks the host for `hello` and opens the calls comm with it, cut to
+  the remote subset. The cell that announced is waiting, so the open
+  waits for the comm's subshell (`subshellStarted`, up to 3 s, under
+  the kernel's 5 s timeout) rather than go on the main shell behind that
+  cell; with no subshell by then it gives up. The comm target and the
+  calls comm's `onMsg` return nothing, since `@jupyterlab/services`
+  holds later kernel messages (the subshell's reply, pings, cancels)
+  while either's promise is pending.
+- It answers `{ ping }` with `{ pong }` itself, and forwards each call
+  and cancel. A call outside the remote subset fails `unavailable`
+  without reaching the host. Each forwarded call gets a page-wide `id`,
+  and each `answerDevice` an `owner`, as `webkitHost()` does.
+- When the calls comm closes, the kernel restarts (`statusChanged`
+  `restarting`, `autorestarting` or `dead`) or the page calls
+  `dispose()`, it cancels what it forwarded; `dispose()` also releases
+  its owner.
+- `accept()`, when given, is asked on each announce; false turns the
+  kernel away, for a per-server mute.
+
+The Swift side is `DeviceBridge.registerRemote(in:allow:)`, a second
+handler named `deviceRemote` on the notebook page's web view. That page
+renders outputs too, so the handler differs from `device`:
+
+- It takes main-frame messages only, and only those `allow` passes (the
+  app checks the page's origin).
+- It answers only `DeviceBridge.remoteMethods`, the rows of
+  `src/support.ts` whose remote column isn't `no` (a test checks the two
+  lists agree), and its `hello` lists only those.
+- Its ids and owners are kept apart from the kernel page's, so a cancel
+  or release from one page never touches the other's calls. Dialogs from
+  both share one queue: one dialog at a time.
 
