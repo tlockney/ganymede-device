@@ -34,7 +34,7 @@ esac
 
 ts=false
 swift=false
-files=$(git diff --name-only "$base" HEAD) || everything
+files=$(git diff --no-renames --name-only "$base" HEAD) || everything
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   case $f in
