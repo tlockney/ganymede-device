@@ -181,7 +181,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// A call's `id`: the page sends a number, which WebKit hands over as
     /// an NSNumber.
-    private static func callID(_ value: Any?) -> Int? {
+    static func callID(_ value: Any?) -> Int? {
         if let n = value as? Int { return n }
         if let n = value as? Double { return Int(exactly: n) }
         return nil

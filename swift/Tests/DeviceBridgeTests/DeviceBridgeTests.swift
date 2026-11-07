@@ -738,4 +738,64 @@ final class DeviceBridgeTests: XCTestCase {
         bridge.respond(to: ["id": 2, "method": "ui.unknown"], reply: replies.reply)
         XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
     }
+
+    // MARK: Remote handler
+
+    func testRemoteHelloListsOnlyTheRemoteSubset() {
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), appVersion: "1")
+        let replies = Replies()
+        bridge.respondRemote(to: ["owner": 1, "method": "hello", "params": [:]], reply: replies.reply)
+        let capabilities = (replies.last?["result"] as? [String: Any])?["capabilities"] as? [String] ?? []
+        XCTAssertTrue(capabilities.contains("clipboard.readText"))
+        XCTAssertTrue(capabilities.contains("ui.alert"))
+        XCTAssertFalse(capabilities.contains("sound.player"))
+        XCTAssertFalse(capabilities.contains("sound.control"))
+        XCTAssertTrue(capabilities.allSatisfy { DeviceBridge.remoteMethods.contains($0) })
+    }
+
+    func testRemoteCallsOutsideTheSubsetAreRefused() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let replies = Replies()
+        bridge.respondRemote(to: ["id": 1, "owner": 1, "method": "sound.player", "params": ["data": ["base64": "AQI="]]], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
+        XCTAssertTrue(loader.loaded.isEmpty)
+        bridge.respondRemote(to: ["id": 2, "owner": 1, "method": "clipboard.writeText", "params": ["text": "x"]], reply: replies.reply)
+        XCTAssertTrue(replies.last?["result"] is NSNull)
+        bridge.respondRemote(to: ["id": -3, "owner": 1, "method": "info"], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "failed", "ids are the page's, from 1")
+        bridge.respondRemote(to: ["id": 3, "owner": 1, "method": "ui.unknown"], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last ?? [:]), "unavailable")
+    }
+
+    func testRemoteAndKernelPageIdsDontCollide() {
+        let presenter = FakePresenter()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, appVersion: "")
+        let kernelPage = Replies()
+        let remote = Replies()
+        bridge.respond(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "kernel"]], reply: kernelPage.reply)
+        bridge.respondRemote(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "remote"]], reply: remote.reply)
+        XCTAssertEqual(presenter.shown.count, 1, "one dialog at a time, across both handlers")
+
+        bridge.respondRemote(to: ["id": 1, "cancel": true], reply: { _ in })
+        XCTAssertEqual(errorCode(remote.last ?? [:]), "cancelled", "the remote cancel took its own call off the queue")
+        XCTAssertTrue(kernelPage.all.isEmpty, "and left the kernel page's dialog open")
+        XCTAssertEqual(presenter.closed, 0)
+
+        _ = bridge.handle(["id": 1, "cancel": true])
+        XCTAssertEqual(errorCode(kernelPage.last ?? [:]), "cancelled")
+    }
+
+    func testRemoteReleaseStopsOnlyItsOwnSounds() {
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: FakePresenter(), sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        _ = bridge.handle(["owner": 1, "method": "sound.play", "params": ["data": audio]])
+        let kernelSound = loader.loaded.last
+        bridge.respondRemote(to: ["id": 1, "owner": 1, "method": "sound.play", "params": ["data": audio]], reply: { _ in })
+        let remoteSound = loader.loaded.last
+        bridge.respondRemote(to: ["owner": 1, "release": true], reply: { _ in })
+        XCTAssertEqual(remoteSound?.isPlaying, false)
+        XCTAssertEqual(kernelSound?.isPlaying, true)
+    }
 }
