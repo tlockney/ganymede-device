@@ -36,9 +36,12 @@ A page reload or a restarted web content process sends no cancels, and
 the new page's ids start over. So when the kernel web view navigates or
 its content process terminates, Swift drops every call it still has
 open (dismissing what it showed) before taking calls from the new page.
-Only dialogs and sounds stay open; the app calls `DeviceBridge.dropAll()`
-from the web view's navigation delegate, which closes the dialogs and
-answers each `cancelled`, and stops every sound and closes every player.
+Only dialogs and sounds stay open; the app calls `DeviceBridge.dropPage()`
+from the kernel web view's navigation delegate, which closes that page's
+dialogs and answers each `cancelled`, and stops its sounds and closes its
+players. The remote handler's calls (below) are the UI page's, so they
+stay; the app calls `dropRemote()` when the UI page navigates or its
+process ends, and `dropAll()` drops both.
 A kernel restart or shutdown closes that kernel's players and stops its
 sounds, and no other kernel's. A restart starts a new Worker, whose
 preload calls `hello`; a `hello` from an owner closes what that owner

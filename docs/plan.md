@@ -259,7 +259,8 @@ Design patterns worth copying from Juno:
   players are context managers. Ours: handles implement
   `Symbol.asyncDispose` so `await using conn = await p.connect()` works,
   and the Swift side closes everything when the kernel page reloads or
-  navigates (`dropAll()`), and closes a kernel's players and sounds when
+  navigates (`dropPage()`; `dropRemote()` for the page that answers
+  server kernels), and closes a kernel's players and sounds when
   that kernel restarts or shuts down (each call names its kernel as
   `owner`; docs/protocol.md).
 - **Plain records**: dataclasses with every field optional on input

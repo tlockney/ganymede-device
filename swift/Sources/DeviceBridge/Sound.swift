@@ -5,7 +5,8 @@ import Foundation
 // opens a handle a cell controls with `sound.control` and closes with
 // `sound.close` (docs/protocol.md). Each sound belongs to the kernel that
 // started it (the call's `owner`), and ends when that kernel's Worker
-// restarts or its handler is released; `dropAll()` stops them all.
+// restarts or its handler is released; `dropAll()` stops them all, and
+// `dropPage()` and `dropRemote()` those of one handler.
 
 /// One sound loaded and ready, behind a protocol so tests needn't play any.
 @MainActor
@@ -214,13 +215,15 @@ final class Sounds {
         }
     }
 
-    /// Stops every sound and closes every player.
-    func stopAll() {
-        for entry in playing.values { entry.sound.pause() }
-        for entry in players.values { entry.sound.pause() }
-        playing = [:]
-        players = [:]
-        openedBy = [:]
+    /// Stops the sounds and closes the players of each owner that `matches`.
+    func stop(_ matches: (Int) -> Bool) {
+        for (key, entry) in playing where matches(entry.owner) {
+            entry.sound.pause()
+            playing[key] = nil
+        }
+        for (id, entry) in players where matches(entry.owner) {
+            close(id)
+        }
     }
 
     private func close(_ id: Int) {

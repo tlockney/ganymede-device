@@ -802,4 +802,54 @@ final class DeviceBridgeTests: XCTestCase {
         XCTAssertEqual(remoteSound?.isPlaying, false)
         XCTAssertEqual(kernelSound?.isPlaying, true)
     }
+    func testDropPageLeavesTheRemoteHandlersCalls() {
+        let presenter = FakePresenter()
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        let kernelPage = Replies()
+        let remote = Replies()
+        bridge.respond(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "kernel"]], reply: kernelPage.reply)
+        bridge.respondRemote(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "remote"]], reply: remote.reply)
+        _ = bridge.handle(["owner": 1, "method": "sound.play", "params": ["data": audio]])
+        let kernelSound = loader.loaded.last
+        bridge.respondRemote(to: ["id": 2, "owner": 1, "method": "sound.play", "params": ["data": audio]], reply: { _ in })
+        let remoteSound = loader.loaded.last
+
+        bridge.dropPage()
+        XCTAssertEqual(errorCode(kernelPage.last ?? [:]), "cancelled")
+        XCTAssertEqual(presenter.closed, 1, "the kernel page's dialog closed")
+        XCTAssertTrue(remote.all.isEmpty, "the remote dialog still waits")
+        XCTAssertEqual(kernelSound?.isPlaying, false)
+        XCTAssertEqual(remoteSound?.isPlaying, true)
+
+        presenter.finishClosing()
+        XCTAssertEqual(presenter.shown.last, .alert(title: nil, message: "remote"))
+        presenter.answer(.ok)
+        XCTAssertNotNil(remote.last?["result"], "and is answered")
+    }
+
+    func testDropRemoteLeavesTheKernelPagesCalls() {
+        let presenter = FakePresenter()
+        let loader = FakeSoundLoader()
+        let bridge = DeviceBridge(clipboard: FakeClipboard(), presenter: presenter, sounds: loader, appVersion: "")
+        let audio: [String: Any] = ["base64": "AQI="]
+        let kernelPage = Replies()
+        let remote = Replies()
+        bridge.respondRemote(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "remote"]], reply: remote.reply)
+        bridge.respond(to: ["id": 1, "owner": 1, "method": "ui.alert", "params": ["message": "kernel"]], reply: kernelPage.reply)
+        _ = bridge.handle(["method": "sound.play", "params": ["data": audio]])
+        let kernelSound = loader.loaded.last
+        bridge.respondRemote(to: ["id": 2, "owner": 1, "method": "sound.play", "params": ["data": audio]], reply: { _ in })
+        let remoteSound = loader.loaded.last
+
+        bridge.dropRemote()
+        XCTAssertEqual(errorCode(remote.last ?? [:]), "cancelled")
+        XCTAssertTrue(kernelPage.all.isEmpty, "the kernel page's dialog still waits")
+        XCTAssertEqual(remoteSound?.isPlaying, false)
+        XCTAssertEqual(kernelSound?.isPlaying, true, "an owner-less sound is the kernel page's")
+
+        presenter.finishClosing()
+        XCTAssertEqual(presenter.shown.last, .alert(title: nil, message: "kernel"))
+    }
 }

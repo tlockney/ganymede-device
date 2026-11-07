@@ -369,10 +369,11 @@ final class DialogQueue {
         }
     }
 
-    func dropAll() {
-        let dropped = waiting
-        waiting = []
-        if let current = showing, !current.ended {
+    /// Cancels the calls whose id `matches`, showing or waiting.
+    func drop(_ matches: (Int) -> Bool) {
+        let dropped = waiting.filter { matches($0.id) }
+        waiting.removeAll { matches($0.id) }
+        if let current = showing, !current.ended, matches(current.id) {
             end(current)
         }
         for call in dropped {
