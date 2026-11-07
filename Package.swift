@@ -5,7 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "GanymedeDevice",
-    platforms: [.macOS(.v13), .iOS(.v16)],
+    // The apps require macOS 26 and iOS 26 (#47). The string form keeps
+    // tools 5.9; `.v26` needs 6.2, which also turns on Swift 6 mode.
+    platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "DeviceBridge", targets: ["DeviceBridge"]),
     ],
