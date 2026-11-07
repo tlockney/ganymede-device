@@ -155,7 +155,7 @@ test("a method the browser lacks fails unavailable", async () => {
 test("info reads the screen, appearance and locale", async () => {
   const { env } = fakeBrowser();
   const reply = await browserForward({ env })({ id: 1, owner: 1, method: "info", params: {} });
-  assert.deepEqual(reply, { result: { isPad: false, screen: { width: 1440, height: 900, scale: 2 }, darkMode: true, locale: "en-GB" } });
+  assert.deepEqual(reply, { result: { screen: { width: 1440, height: 900, scale: 2 }, darkMode: true, locale: "en-GB" } });
 });
 
 test("the clipboard goes through a click", async () => {
@@ -213,7 +213,7 @@ test("a cancel takes the prompt down and answers cancelled", async () => {
     });
   const forward = browserForward({ env, click });
   const pending = forward({ id: 7, owner: 1, method: "clipboard.writeText", params: { text: "x" } });
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(seen?.signal.aborted, false);
   assert.deepEqual(await forward({ id: 7, cancel: true }), { result: null });
   assert.equal(seen?.signal.aborted, true);
@@ -366,4 +366,54 @@ test("which methods need a click comes from the support table", () => {
     .map(([method]) => method)
     .sort();
   assert.deepEqual(browserCapabilities(env, false).sort(), noClick);
+});
+
+test("a dismissed picker or share prompt answers as a cancel does on the device", async () => {
+  const { env } = fakeBrowser();
+  const forward = browserForward({ env, click: () => Promise.reject(new Error("closed")) });
+  assert.deepEqual(await forward({ id: 1, owner: 1, method: "files.pick", params: {} }), { result: [] });
+  assert.deepEqual(await forward({ id: 2, owner: 1, method: "photos.pick", params: {} }), { result: [] });
+  assert.deepEqual(await forward({ id: 3, owner: 1, method: "share", params: { text: "t" } }), { result: false });
+});
+
+test("one prompt at a time, and a cancelled call waiting its turn shows none", async () => {
+  const { env } = fakeBrowser();
+  const shown: { label: string; click: () => void }[] = [];
+  const click: Click = (request, run) =>
+    new Promise((resolve, reject) => {
+      shown.push({ label: request.method, click: () => run().then(resolve, reject) });
+      request.signal.addEventListener("abort", () => reject(new Error("taken down")));
+    });
+  const forward = browserForward({ env, click });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const first = forward({ id: 1, owner: 1, method: "clipboard.writeText", params: { text: "a" } });
+  const second = forward({ id: 2, owner: 1, method: "clipboard.readText", params: {} });
+  const third = forward({ id: 3, owner: 1, method: "clipboard.readText", params: {} });
+  await tick();
+  assert.deepEqual(shown.map((p) => p.label), ["clipboard.writeText"], "only the first prompt shows");
+  await forward({ id: 2, cancel: true });
+  assert.equal(((await second) as { error: { code: string } }).error.code, "cancelled");
+  shown[0].click();
+  assert.deepEqual(await first, { result: null });
+  await tick();
+  assert.deepEqual(shown.map((p) => p.label), ["clipboard.writeText", "clipboard.readText"], "then the third; the cancelled one never showed");
+  shown[1].click();
+  assert.deepEqual(await third, { result: "a" });
+});
+
+test("at most 32 sounds play at once per owner", async () => {
+  const { env } = fakeBrowser();
+  const forward = browserForward({ env, click: clicker().click });
+  for (let n = 0; n < 32; n++) await forward({ id: n + 1, owner: 1, method: "sound.play", params: { data: b64(PNG) } });
+  const over = (await forward({ id: 99, owner: 1, method: "sound.play", params: { data: b64(PNG) } })) as { error: { code: string } };
+  assert.equal(over.error.code, "failed");
+  assert.deepEqual(await forward({ id: 100, owner: 2, method: "sound.play", params: { data: b64(PNG) } }), { result: null }, "another owner's count is its own");
+});
+
+test("an export name of only spaces is refused, as on the device", async () => {
+  const { env } = fakeBrowser();
+  const reply = (await browserForward({ env, click: clicker().click })({ id: 1, owner: 1, method: "files.export", params: { name: "  ", data: b64(PNG) } })) as {
+    error: { code: string };
+  };
+  assert.equal(reply.error.code, "failed");
 });

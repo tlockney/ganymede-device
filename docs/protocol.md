@@ -291,13 +291,17 @@ a kernel message isn't one. For those, the forward calls the page's
 button ("Copy to clipboard", "Choose a file"), calls `run()` from inside
 that button's click handler, and resolves with what `run()` resolves to.
 
-- A prompt the person dismisses, or one taken down because the kernel
-  sent a cancel (`signal` aborts), fails the call `cancelled`. The
-  browser refusing after the click (`NotAllowedError`) fails it
-  `denied`.
+- One prompt shows at a time, in the order the calls came, as the
+  app's dialog queue does; a call cancelled while it waits shows none.
+- A prompt the person dismisses answers as a cancel does on the device:
+  `[]` for the pickers, `false` for `share` and `files.export`, and
+  `cancelled` for the rest. A prompt taken down because the kernel sent
+  a cancel (`signal` aborts) fails the call `cancelled`. The browser
+  refusing after the click (`NotAllowedError`) fails it `denied`.
 - Without `click`, the methods that need one (`browserClick` in
   `src/support.ts`) are left out of `hello`.
-- `info` has the screen, appearance and locale; no model or battery.
+- `info` has the screen, appearance and locale; no model, battery or
+  `isPad` (a browser on an iPad can't tell).
 - Clipboard reads and writes, `openURL` (a new tab, `noopener`; `inApp`
   is ignored), `share` (Web Share; files only where `canShare` allows),
   and the file and photo pickers (a file input; type identifiers such
@@ -311,7 +315,7 @@ that button's click handler, and resolves with what `run()` resolves to.
   call waits until the kernel cancels it. A file input can't limit how
   many files are picked, so `photos.pick` keeps the first `limit`.
 - A release, or the owner's next `hello`, stops the sounds that owner
-  started.
+  started. At most 32 play at once per owner.
 - `sound.play` plays at once when the page may autoplay, and otherwise
   asks for a click.
 - The `ui.*` dialogs aren't answered yet: the page would draw them, and

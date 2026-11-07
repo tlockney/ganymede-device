@@ -193,7 +193,7 @@ activation run directly.
 | clipboard write / read | yes, via click | Clipboard API (`writeText`, `write`, `read`) |
 | share | yes, via click, where supported | Web Share API (`navigator.share`, `canShare` for files) |
 | files pick | yes, via click | `<input type=file>`; File System Access where present |
-| files export | yes | Blob download link |
+| files export | yes, via click | Blob download link |
 | openURL | yes, via click | `window.open`; `inApp` ignored |
 | `ui.alert`, `confirm`, `prompt`, `actionSheet`, `pickDate` | yes | rendered inline in the output, not `window.alert` |
 | `sound.play` | yes, via click on first use | `HTMLAudioElement` |
