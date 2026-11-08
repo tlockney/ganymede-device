@@ -22,6 +22,12 @@ export interface ClickRequest {
   method: string;
   /** The button's label, such as "Copy to clipboard". */
   label: string;
+  /**
+   * What the call carries, for the prompt to preview: the text
+   * `clipboard.writeText` copies, or the text or URL `share` shares.
+   * Whole; the page truncates it for display.
+   */
+  detail?: string;
   /** Aborted when the kernel cancels the call: take the prompt down. */
   signal: AbortSignal;
 }
@@ -104,7 +110,13 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
   // dialog queue shows one dialog at a time.
   let prompts: Promise<unknown> = Promise.resolve();
 
-  const needClick = async (method: string, label: string, signal: AbortSignal, run: () => Promise<unknown>): Promise<unknown> => {
+  const needClick = async (
+    method: string,
+    label: string,
+    signal: AbortSignal,
+    run: () => Promise<unknown>,
+    detail?: string,
+  ): Promise<unknown> => {
     if (!click) throw new Failure("unavailable", `${method} needs a click, and this page can't ask for one`);
     const cancelled = () => new Failure("cancelled", `${method} was cancelled`);
     // Cancelled while an earlier step was pending: no prompt at all.
@@ -124,7 +136,8 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
       });
       if (signal.aborted) throw cancelled();
       let ran = false;
-      return await click({ method, label, signal }, () => {
+      const request: ClickRequest = detail === undefined ? { method, label, signal } : { method, label, signal, detail };
+      return await click(request, () => {
         ran = true;
         return run();
       }).catch((err: unknown) => {
@@ -156,7 +169,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
       }
       case "clipboard.writeText": {
         const text = need(params, "text");
-        await needClick(method, "Copy to clipboard", signal, () => nav!.clipboard!.writeText!(text));
+        await needClick(method, "Copy to clipboard", signal, () => nav!.clipboard!.writeText!(text), text);
         return null;
       }
       case "clipboard.readImage": {
@@ -196,7 +209,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         }
         if (!data.text && !data.url && !data.files) throw new Failure("failed", "share needs text, a url or files");
         try {
-          await needClick(method, "Share", signal, () => nav!.share!(data));
+          await needClick(method, "Share", signal, () => nav!.share!(data), data.text ?? data.url);
           return true;
         } catch (err) {
           // The person dismissed the prompt or closed the share sheet.
