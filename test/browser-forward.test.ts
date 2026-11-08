@@ -253,10 +253,13 @@ test("share previews its text, or its URL without text", async () => {
   const forward = browserForward({ env, click });
   await forward({ id: 1, owner: 1, method: "share", params: { text: "note", url: "https://example.com" } });
   await forward({ id: 2, owner: 1, method: "share", params: { url: "https://example.com" } });
+  await forward({ id: 3, owner: 1, method: "share", params: { text: "", url: "https://example.com" } });
+  await forward({ id: 4, owner: 1, method: "share", params: { files: [{ name: "a.txt", data: b64(new Uint8Array([65])) }] } });
   assert.deepEqual(
     asked.map((r) => r.detail),
-    ["note", "https://example.com"],
+    ["note", "https://example.com", "https://example.com", undefined],
   );
+  assert.ok(!("detail" in asked[3]), "no detail key without anything to preview");
 });
 
 test("files.pick and photos.pick use a file input", async () => {

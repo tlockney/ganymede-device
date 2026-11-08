@@ -136,7 +136,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
       });
       if (signal.aborted) throw cancelled();
       let ran = false;
-      const request: ClickRequest = detail === undefined ? { method, label, signal } : { method, label, signal, detail };
+      const request: ClickRequest = { method, label, signal, ...(detail !== undefined && { detail }) };
       return await click(request, () => {
         ran = true;
         return run();
@@ -209,7 +209,7 @@ export function browserForward(options: BrowserForwardOptions = {}): Forward {
         }
         if (!data.text && !data.url && !data.files) throw new Failure("failed", "share needs text, a url or files");
         try {
-          await needClick(method, "Share", signal, () => nav!.share!(data), data.text ?? data.url);
+          await needClick(method, "Share", signal, () => nav!.share!(data), data.text || data.url);
           return true;
         } catch (err) {
           // The person dismissed the prompt or closed the share sheet.
