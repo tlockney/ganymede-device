@@ -287,9 +287,12 @@ agree).
 
 Most of these APIs work only right after a click (user activation), and
 a kernel message isn't one. For those, the forward calls the page's
-`click({ method, label, signal }, run)`: the page shows a prompt with a
-button ("Copy to clipboard", "Choose a file"), calls `run()` from inside
-that button's click handler, and resolves with what `run()` resolves to.
+`click({ method, label, signal, detail }, run)`: the page shows a prompt
+with a button ("Copy to clipboard", "Choose a file"), calls `run()` from
+inside that button's click handler, and resolves with what `run()`
+resolves to. `detail`, when set, is what the call carries, for the
+prompt to preview: the text `clipboard.writeText` copies, or the text
+(else the URL) `share` shares. It comes whole; the page truncates it.
 
 - One prompt shows at a time, in the order the calls came, as the
   app's dialog queue does; a call cancelled while it waits shows none.

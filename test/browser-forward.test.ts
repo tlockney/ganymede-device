@@ -177,6 +177,8 @@ test("the clipboard goes through a click", async () => {
       ["clipboard.readImage", "Paste image from clipboard"],
     ],
   );
+  assert.equal(asked[0].detail, "hi", "the prompt can preview what it copies");
+  assert.equal(asked[1].detail, undefined, "nothing to preview for a read");
 });
 
 test("writeImage takes PNG only", async () => {
@@ -243,6 +245,21 @@ test("share answers true when sent and false when dismissed", async () => {
   state.canShareFiles = false;
   const files = (await forward({ id: 3, owner: 1, method: "share", params: { files: [{ name: "a", data: b64(PNG) }] } })) as { error: { code: string } };
   assert.equal(files.error.code, "unavailable");
+});
+
+test("share previews its text, or its URL without text", async () => {
+  const { env } = fakeBrowser();
+  const { asked, click } = clicker();
+  const forward = browserForward({ env, click });
+  await forward({ id: 1, owner: 1, method: "share", params: { text: "note", url: "https://example.com" } });
+  await forward({ id: 2, owner: 1, method: "share", params: { url: "https://example.com" } });
+  await forward({ id: 3, owner: 1, method: "share", params: { text: "", url: "https://example.com" } });
+  await forward({ id: 4, owner: 1, method: "share", params: { files: [{ name: "a.txt", data: b64(new Uint8Array([65])) }] } });
+  assert.deepEqual(
+    asked.map((r) => r.detail),
+    ["note", "https://example.com", "https://example.com", undefined],
+  );
+  assert.ok(!("detail" in asked[3]), "no detail key without anything to preview");
 });
 
 test("files.pick and photos.pick use a file input", async () => {
