@@ -224,7 +224,10 @@ the wire.
 - Answers: once (this call), always, deny. "Always" and "deny" are kept,
   keyed by (notebook path, capability), in UserDefaults by default
   (`LedgerStore`). A kept "deny" rejects `denied` without the system
-  prompt; so does a dismissed prompt, which keeps nothing.
+  prompt; so does a dismissed prompt, which keeps nothing. Ledgers on
+  one store read it on each use, so an app with a bridge per window and
+  a Settings screen with a ledger of its own share one set of answers;
+  owners (`setNotebook`) stay per ledger.
   `requestAuthorization()` answers `denied` when the ledger refuses, and
   `authorizationStatus()` reads `denied` for a kernel with no notebook or
   a kept deny. When the system status is already `denied` or

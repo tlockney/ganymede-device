@@ -83,15 +83,18 @@ public protocol LedgerPrompter: AnyObject {
 @MainActor
 public final class PermissionLedger {
     private let store: LedgerStore
-    private var kept: [LedgerGrant]
     /// The notebook path each kernel (`owner`) runs, as the host said.
     private var notebooks: [Int: String] = [:]
 
+    /// Ledgers on one store share their kept answers: each read goes to
+    /// the store, so an app with a bridge per window, and a Settings
+    /// screen with a ledger of its own, see one set of answers. Owners are
+    /// per ledger, as they are per page.
     public init(store: LedgerStore? = nil) {
-        let store = store ?? UserDefaultsLedgerStore()
-        self.store = store
-        kept = store.load()
+        self.store = store ?? UserDefaultsLedgerStore()
     }
+
+    private var kept: [LedgerGrant] { store.load() }
 
     /// The kept answers, for a Settings screen.
     public var grants: [LedgerGrant] { kept }
@@ -104,17 +107,19 @@ public final class PermissionLedger {
     /// Keeps `always` or `deny`; `once` keeps nothing.
     public func record(_ answer: LedgerAnswer, notebook: String, capability: String) {
         guard answer != .once else { return }
-        kept.removeAll { $0.notebook == notebook && $0.capability == capability }
-        kept.append(LedgerGrant(notebook: notebook, capability: capability, answer: answer))
-        store.save(kept)
+        var rows = kept
+        rows.removeAll { $0.notebook == notebook && $0.capability == capability }
+        rows.append(LedgerGrant(notebook: notebook, capability: capability, answer: answer))
+        store.save(rows)
     }
 
     /// Forgets the answer for (`notebook`, `capability`), or every
     /// capability's for `notebook` when `capability` is nil. The next call
     /// asks again.
     public func revoke(notebook: String, capability: String? = nil) {
-        kept.removeAll { $0.notebook == notebook && (capability == nil || $0.capability == capability) }
-        store.save(kept)
+        var rows = kept
+        rows.removeAll { $0.notebook == notebook && (capability == nil || $0.capability == capability) }
+        store.save(rows)
     }
 
     /// Kernel `owner` runs `notebook` (a path), or none.
@@ -133,11 +138,12 @@ public final class PermissionLedger {
         for (owner, path) in notebooks where path == old {
             notebooks[owner] = new
         }
-        let moving = Set(kept.filter { $0.notebook == old }.map(\.capability))
+        var rows = kept
+        let moving = Set(rows.filter { $0.notebook == old }.map(\.capability))
         guard !moving.isEmpty else { return }
-        kept.removeAll { $0.notebook == new && moving.contains($0.capability) }
-        kept = kept.map { $0.notebook == old ? LedgerGrant(notebook: new, capability: $0.capability, answer: $0.answer) : $0 }
-        store.save(kept)
+        rows.removeAll { $0.notebook == new && moving.contains($0.capability) }
+        rows = rows.map { $0.notebook == old ? LedgerGrant(notebook: new, capability: $0.capability, answer: $0.answer) : $0 }
+        store.save(rows)
     }
 
     /// Of `declared` (a notebook's `metadata.ganymede.device` list), the
