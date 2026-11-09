@@ -5,6 +5,7 @@
 
 import { type Bytes, MAX_BINARY_BYTES, toBytes } from "./binary.ts";
 import { DeviceError } from "./errors.ts";
+import { type DeviceStream, openStream } from "./stream.ts";
 
 /**
  * Every method takes these. Aborting `signal`, or interrupting the kernel,
@@ -347,7 +348,16 @@ export function helloInfo(info: unknown): DeviceInfo {
   };
 }
 
-export function createDevice(transport: DeviceTransport, info: DeviceInfo): Device {
+export interface CreateDeviceOptions {
+  /**
+   * The running cell's interrupt signal (cdp-kernel's `jupyter.signal`),
+   * read when a stream opens, so an interrupt stops the stream even while
+   * the cell isn't waiting on it.
+   */
+  cellSignal?: () => AbortSignal | undefined;
+}
+
+export function createDevice(transport: DeviceTransport, info: DeviceInfo, deviceOptions: CreateDeviceOptions = {}): Device {
   const capabilities = new Set(info.capabilities);
   function requireMethod(method: string): void {
     if (!capabilities.has(method)) throw new DeviceError("unavailable", `${method} isn't available on ${info.platform}`);
@@ -358,6 +368,18 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo): Devi
       return await transport.call(method, params, options);
     } catch (err) {
       throw DeviceError.from(err);
+    }
+  }
+  /** A streaming method's values (src/stream.ts), for the namespaces that stream. */
+  function stream<T>(method: string, params: Record<string, unknown>, options: CallOptions, read: (value: unknown) => T): DeviceStream<T> {
+    requireMethod(method);
+    return openStream(transport, method, params, { ...options, cellSignal: readCellSignal() }, read);
+  }
+  function readCellSignal(): AbortSignal | undefined {
+    try {
+      return deviceOptions.cellSignal?.();
+    } catch {
+      return undefined;
     }
   }
   function soundPlayer(id: number, duration: number): SoundPlayer {

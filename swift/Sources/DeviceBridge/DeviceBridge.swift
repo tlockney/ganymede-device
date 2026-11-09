@@ -24,6 +24,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let state: DeviceState
     private let dialogs: DialogQueue
     private let sounds: Sounds
+    private let streams = Streams()
     private let appVersion: String
 
     public init(
@@ -44,6 +45,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.dialogs = DialogQueue(presenter: presenter ?? SystemDialogPresenter())
         self.sounds = Sounds(loader: sounds ?? SystemSoundLoader())
         self.appVersion = appVersion
+    }
+
+    /// Adds a streaming method (docs/protocol.md, "Streams"): `hello` lists
+    /// it, a call to it runs `start` and answers `{ stream }`, and the page
+    /// reads the values with `stream.next`. The queue keeps the newest
+    /// `capacity` values and counts the ones it drops.
+    public func addStream(_ method: String, capacity: Int = 64, start: @escaping StreamStarter) {
+        streams.add(method, capacity: capacity, start: start)
     }
 
     /// Adds the bridge to `controller`, in the page's content world.
@@ -69,6 +78,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// it. `reply` is called once. A dialog shows on `host`'s window, the
     /// notebook whose page asked, or on the key window without one.
     public func respond(to body: Any, from host: DialogHost? = nil, reply: @escaping ([String: Any]) -> Void) {
+        if let call = body as? [String: Any], call["method"] as? String == "stream.next" {
+            streams.next(call["params"] as? [String: Any] ?? [:], call: Self.callID(call["id"]), reply: reply)
+            return
+        }
         guard let call = body as? [String: Any], let method = call["method"] as? String,
               Self.dialogMethods.contains(method)
         else {
@@ -105,6 +118,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropAll() {
         dialogs.drop { _ in true }
         sounds.stop { _ in true }
+        streams.stop { _ in true }
     }
 
     /// Closes the kernel page's dialogs and stops its sounds, as `dropAll()`
@@ -114,6 +128,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropPage() {
         dialogs.drop { $0 > 0 }
         sounds.stop { $0 >= 0 }
+        streams.stop { $0 >= 0 }
     }
 
     /// Closes the remote handler's dialogs and stops its sounds, and leaves
@@ -122,6 +137,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropRemote() {
         dialogs.drop { $0 < 0 }
         sounds.stop { $0 < 0 }
+        streams.stop { $0 < 0 }
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
@@ -135,6 +151,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         if call["release"] as? Bool == true {
             // The kernel behind this handler shut down.
             sounds.release(owner)
+            streams.stop { $0 == owner }
             return ["result": NSNull()]
         }
         if call["cancel"] as? Bool == true {
@@ -143,6 +160,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let id = Self.callID(call["id"]) {
                 dialogs.cancel(id)
                 sounds.cancel(id)
+                streams.cancel(id)
             }
             return ["result": NSNull()]
         }
@@ -154,7 +172,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "hello":
             // Each Worker says hello once, when it starts: anything an
             // earlier Worker of this kernel opened has no handle left.
-            if owner != 0 { sounds.release(owner) }
+            if owner != 0 {
+                sounds.release(owner)
+                streams.stop { $0 == owner }
+            }
             return ["result": hello()]
         case "clipboard.readText":
             return ["result": clipboard.readText() ?? NSNull()]
@@ -189,6 +210,12 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return haptic(method, params)
         case "sound.play", "sound.player", "sound.control", "sound.close":
             return sounds.handle(method, params, call: Self.callID(call["id"]), owner: owner)
+        case "stream.next":
+            return Self.error("failed", "stream.next answers later; send it through respond(to:reply:)")
+        case "stream.close":
+            return streams.close(params)
+        case _ where streams.methods[method] != nil:
+            return streams.start(method, params, call: Self.callID(call["id"]), owner: owner)
         case _ where Self.dialogMethods.contains(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         default:
@@ -221,6 +248,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
         Self.capabilities + (haptics.isAvailable ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
+            + streams.methods.keys.sorted()
     }
 
     private func hello() -> [String: Any] {

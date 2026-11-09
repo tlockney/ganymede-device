@@ -56,7 +56,8 @@ with no `owner` (a page from before owners) counts as owner 0, whose
 | --- | --- | --- |
 | `{ id, owner, method, params }` | A call from kernel `owner`. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
 | `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the player a `sound.player` call opened (the page drops its answer, so it has no id to close). | Anything; ignored |
-| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds and close its players. | Anything; ignored |
+| `{ id, cancel: true }` (continued) | For a stream (below): a cancel of its opening call, or of the `stream.next` waiting on it, stops its source. | |
+| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds, close its players and stop its streams. | Anything; ignored |
 
 Rules for the Swift handler:
 
@@ -129,6 +130,41 @@ as `unavailable` itself.
 Support for each method across on-device, remote and browser kernels is
 in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
 `supportTable()` renders the table in ganymede-ui's `docs/device.md`.
+
+## Streams
+
+A streaming method yields many values, such as a location watch. In a
+cell it is an async iterator with a `dropped` count (`DeviceStream`,
+src/stream.ts):
+
+```ts
+for await (const fix of device.location.watch({ signal })) { … }
+```
+
+On the wire every message is an ordinary call, so cancel, interrupt and
+the Worker's host channel need nothing new: the page pulls values, and
+nothing pushes into the Worker.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| the streaming method, such as `location.watch` | its own | `{ stream }`, an id: the call's own `id`. A refusal (`denied`, `unavailable`) is the call's error |
+| `stream.next` | `{ stream }` | `{ values: [...], dropped, end? }`, answered as soon as a value is queued; `end: true` when the source finished, after which the stream is gone. A source's error is the reply's error, once the values before it were read |
+| `stream.close` | `{ stream }` | `null`; stops the source. A `stream.next` waiting on it gets `end` |
+
+- Swift keeps each stream's values in a queue that holds the newest
+  `capacity` (set per method with `DeviceBridge.addStream`) and drops the
+  oldest, counting them in `dropped`, so a slow cell costs a count, not
+  memory. One `stream.next` waits at a time.
+- The cell's iterator stops the source when the loop ends (`break`,
+  `return`, a throw) with `stream.close`; when its signal aborts or the
+  kernel interrupts during a `stream.next`, by the cancel of that call;
+  and when the kernel interrupts between reads, by `stream.close` from the
+  cell's `jupyter.signal`. A new `hello` from the same owner, `release`,
+  `dropPage()`, `dropRemote()` and `dropAll()` stop the owner's streams.
+- At most 16 streams are open per kernel.
+- Streaming methods are on-device only: none is in the remote subset, and
+  `stream.next` and `stream.close` aren't either, so over a comm they
+  fail `unavailable`.
 
 ## Dialogs
 
