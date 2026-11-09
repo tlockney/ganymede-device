@@ -138,6 +138,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `contacts.all` | `{}` | every contact the app may see, in the person's sort order |
 | `contacts.add` | `{ contact }`: a contact without `id`, with a name, organization, email or phone | the new contact's id |
 | `contacts.delete` | `{ id }` | `true`, or `false` when there was none |
+| `camera.capture` | `{}` | the photo as JPEG bytes (`{ base64 }`, at most 16 MiB), or `null` when the person cancels. A dialog ("Dialogs" below) that needs the camera permission first; iPad and iPhone only |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -330,7 +331,7 @@ the wire.
 
 ## Dialogs
 
-`ui.*`, `share`, `preview`, `files.*` and `photos.pick` calls wait on a person, so Swift answers
+`ui.*`, `share`, `preview`, `files.*`, `photos.pick` and `camera.capture` calls wait on a person, so Swift answers
 them when the dialog closes, not when the message arrives (`DeviceBridge.respond(to:reply:)`).
 Each shows on the window of the web view that sent the call, the notebook
 whose cell asked, or on the key window when that isn't known. The Mac
@@ -360,6 +361,14 @@ view controller.
   open and save panels need the app's
   `com.apple.security.files.user-selected.read-write` entitlement; the
   photo picker shows on the window's content view controller.
+- `camera.capture` is there once the app calls
+  `DeviceBridge.addCameraCapture()`. It asks for the camera permission
+  (the app's ledger, then the system) before it queues, and is refused
+  `denied` without a grant. It then shows the system camera screen
+  (`UIImagePickerController`) over the window's top view controller.
+  The photo comes back as JPEG. The app needs `NSCameraUsageDescription`;
+  without it the request answers the status as it is, rather than the
+  system ending the app.
 - The Mac's share menu can't be closed from code: a cancel answers
   `cancelled` at once and the menu stays until the person closes it.
 - A kernel interrupt closes the dialog: cdp-kernel 0.7.2 or later

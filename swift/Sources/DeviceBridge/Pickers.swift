@@ -130,7 +130,7 @@ private var retainedKey: UInt8 = 0
 
 /// Keeps `object` alive as long as `owner`: pickers hold their delegates
 /// weakly.
-private func retain(_ object: AnyObject, by owner: AnyObject) {
+func retain(_ object: AnyObject, by owner: AnyObject) {
     objc_setAssociatedObject(owner, &retainedKey, object, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 }
 

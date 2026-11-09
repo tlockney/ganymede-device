@@ -351,6 +351,16 @@ export const SUPPORT = {
     browser: "no",
     permission: "contacts",
   },
+  "camera.capture": {
+    call: "camera.capture()",
+    returns: "JPEG bytes, or `null` when cancelled",
+    onDevice: "yes",
+    devices: "iPad, iPhone",
+    remote: "no",
+    browser: "no",
+    permission: "camera",
+    note: "The system camera screen. A Mac has none in the app; a browser would need its own camera view.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

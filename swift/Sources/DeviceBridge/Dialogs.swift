@@ -49,6 +49,8 @@ public enum Dialog: Equatable, Sendable {
     case exportFile(NamedFile)
     /// `photos.pick`: `limit` 0 for no limit.
     case pickPhotos(limit: Int)
+    /// `camera.capture`: the system camera, for one photo.
+    case capturePhoto
 
     /// Why a dialog call's params were refused. Its description is the
     /// reply's message.
@@ -145,6 +147,8 @@ public enum Dialog: Equatable, Sendable {
                 throw ParamsError(description: "photos.pick: limit must be a whole number, 0 for no limit")
             }
             self = .pickPhotos(limit: limit)
+        case "camera.capture":
+            self = .capturePhoto
         default:
             throw ParamsError(description: "\(method) isn't a dialog")
         }
@@ -176,6 +180,8 @@ public enum Dialog: Equatable, Sendable {
             return true
         case (.exportFile, _):
             return false
+        case let (.capturePhoto, .photo(jpeg)):
+            return ["base64": jpeg.base64EncodedString()]
         default:
             return NSNull()
         }
@@ -281,6 +287,8 @@ public enum DialogResult: Equatable, Sendable {
     case files([PickedFile])
     /// The save panel's file was written.
     case saved
+    /// The camera's photo, as JPEG within the binary limit.
+    case photo(Data)
     /// The person answered, but the answer couldn't be handed over, such
     /// as picked files over the binary limit. The call fails `failed`.
     case failed(String)
@@ -464,6 +472,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             return FilePanels.save(file, window: window, done: done)
         case let .pickPhotos(limit):
             return try PhotoPicker.present(limit: limit, window: window, done: done)
+        case .capturePhoto:
+            throw DialogUnavailable(description: "camera.capture shows the camera on iPad and iPhone only")
         default:
             break
         }
@@ -471,7 +481,7 @@ public struct SystemDialogPresenter: DialogPresenter {
         let first = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         let answer: (NSApplication.ModalResponse) -> DialogResult
         switch dialog {
-        case .share, .preview, .pickFiles, .exportFile, .pickPhotos:
+        case .share, .preview, .pickFiles, .exportFile, .pickPhotos, .capturePhoto:
             preconditionFailure("shown above")
         case let .alert(title, message):
             Self.text(alert, title: title, message: message)
@@ -614,6 +624,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             controller = try FilePicker.export(file, done: done)
         case let .pickPhotos(limit):
             controller = PhotoPicker.controller(limit: limit, done: done)
+        case .capturePhoto:
+            controller = try CameraPicker.controller(done: done)
         }
         let state = Presentation()
         let show = {
@@ -632,6 +644,12 @@ public struct SystemDialogPresenter: DialogPresenter {
         return { [weak controller] gone in
             state.closed = true
             if state.presented, let controller, controller.presentingViewController != nil {
+                // Already going away (the person answered): wait for that
+                // transition instead of dismissing a second time.
+                if controller.isBeingDismissed, let coordinator = controller.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in gone() }
+                    return
+                }
                 controller.dismiss(animated: true, completion: gone)
             } else {
                 gone()

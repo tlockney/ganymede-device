@@ -772,6 +772,24 @@ export interface Contacts extends Authorization {
   delete(id: string, options?: CallOptions): Promise<boolean>;
 }
 
+/** The camera, through the system camera screen. */
+export interface Camera extends Authorization {
+  /**
+   * Shows the system camera and waits for the person to take a photo.
+   * Needs the camera permission; the first call asks for it.
+   *
+   * @param options The call's `signal`, which closes the camera and rejects `cancelled`. An interrupt does the same.
+   * @returns The photo as JPEG bytes, or `null` when the person cancels.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use the camera; `failed` when the photo can't be read or is over 16 MiB.
+   * @example
+   * ```ts
+   * const jpeg = await device.camera.capture();
+   * if (jpeg) await device.preview([{ name: "photo.jpg", data: jpeg }]);
+   * ```
+   */
+  capture(options?: CallOptions): Promise<Uint8Array | null>;
+}
+
 /** Options for `device.sound.play`. */
 export interface PlaySoundOptions extends CallOptions {
   /** From 0 to 1; 1 by default. */
@@ -1097,6 +1115,8 @@ export interface Device {
   readonly motion: DeviceMotion;
   /** The person's contacts: see `Contacts`. */
   readonly contacts: Contacts;
+  /** The system camera: see `Camera`. */
+  readonly camera: Camera;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1440,6 +1460,16 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         const deleted = await call("contacts.delete", { id }, options);
         if (typeof deleted !== "boolean") throw new DeviceError("failed", "the host's contacts.delete reply is malformed");
         return deleted;
+      },
+    },
+    camera: {
+      ...permission("camera"),
+      async capture(options = {}) {
+        const photo = await call("camera.capture", {}, options);
+        if (photo instanceof Uint8Array) return photo;
+        if (photo instanceof ArrayBuffer) return new Uint8Array(photo);
+        if (photo === null) return null;
+        throw new DeviceError("failed", "the host's camera.capture reply is malformed");
       },
     },
   };

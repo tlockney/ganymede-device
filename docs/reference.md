@@ -86,6 +86,10 @@ such API.
 | [`device.contacts.all(options?)`](#device-contacts-all-options) | Every contact the app may see, in the person's sort order. |
 | [`device.contacts.add(contact, options?)`](#device-contacts-add-contact-options) | Adds a contact to the default account. |
 | [`device.contacts.delete(id, options?)`](#device-contacts-delete-id-options) | Deletes a contact. |
+| [`device.camera.authorizationStatus(options?)`](#device-camera-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.camera.isAuthorized(options?)`](#device-camera-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.camera.requestAuthorization(options?)`](#device-camera-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.camera.capture(options?)`](#device-camera-capture-options) | Shows the system camera and waits for the person to take a photo. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -251,6 +255,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `location` | `DeviceLocation` | Where the device is, and geocoding: see `DeviceLocation`. |
 | `motion` | `DeviceMotion` | The motion sensors, on iPad and iPhone: see `DeviceMotion`. |
 | `contacts` | `Contacts` | The person's contacts: see `Contacts`. |
+| `camera` | `Camera` | The system camera: see `Camera`. |
 
 ## `device.clipboard`
 
@@ -1615,6 +1620,102 @@ Deletes a contact.
 ```ts
 const id = await device.contacts.add({ givenName: "Test" });
 console.log(await device.contacts.delete(id)); // true
+```
+
+## `device.camera`
+
+The camera, through the system camera screen.
+
+The system camera screen, on iPad and iPhone. `capture` needs the camera permission. The permission methods work where the rest of the namespace does.
+
+### `device.camera.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.camera.authorizationStatus());
+```
+
+### `device.camera.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.camera.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.camera.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.camera.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.camera.capture(options?)`
+
+```ts
+capture(options?: CallOptions): Promise<Uint8Array | null>;
+```
+
+Shows the system camera and waits for the person to take a photo.
+Needs the camera permission; the first call asks for it.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`, which closes the camera and rejects `cancelled`. An interrupt does the same. |
+
+**Returns** `Promise<Uint8Array | null>`: The photo as JPEG bytes, or `null` when the person cancels.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use the camera; `failed` when the photo can't be read or is over 16 MiB.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| iPad, iPhone | camera | no | no |
+
+The system camera screen. A Mac has none in the app; a browser would need its own camera view.
+
+```ts
+const jpeg = await device.camera.capture();
+if (jpeg) await device.preview([{ name: "photo.jpg", data: jpeg }]);
 ```
 
 ## `SoundPlayer`
