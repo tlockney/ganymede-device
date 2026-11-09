@@ -1248,8 +1248,9 @@ export interface WriteOptions extends CallOptions {
  * `NativeHandle`. Close it to disconnect, or hold it with `await using`.
  * The app closes a kernel's peripherals when that kernel restarts or
  * shuts down; a kernel has at most 8 connected. When the peripheral goes
- * away, waiting calls reject `disconnected`, `notify` streams end with
- * it, and the handle closes. Services and characteristics are UUIDs:
+ * away, waiting calls and the next call reject `disconnected`, `notify`
+ * streams end with it, and the handle closes (`closed` reads true once a
+ * call has seen it). Services and characteristics are UUIDs:
  * "180D", or the full form.
  */
 export interface Peripheral extends NativeHandle {
@@ -1613,7 +1614,7 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
     // Not through `call`: `hello` doesn't list `handle.close`, which every
     // host with a handle answers.
     closeCall: () => Promise<unknown> = () => transport.call("handle.close", { handle: id }).catch((err: unknown) => Promise.reject(DeviceError.from(err))),
-  ): { handle: NativeHandle; check(): void } {
+  ): { handle: NativeHandle; check(): void; closedByHost(): void } {
     let closed = false;
     async function close(): Promise<void> {
       if (closed) return;
@@ -1631,6 +1632,10 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       },
       check() {
         if (closed) throw new DeviceError("failed", `this ${what} is closed`);
+      },
+      /** The host closed it (the peer went away): `closed` reads true. */
+      closedByHost() {
+        closed = true;
       },
     };
   }
@@ -1673,7 +1678,16 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
   }
   /** A connected peripheral (`bluetooth.connect`): a handle its calls name. */
   function peripheral(handleID: number, id: string, name: string | null): Peripheral {
-    const { handle, check } = nativeHandle("peripheral", handleID);
+    const { handle, check, closedByHost } = nativeHandle("peripheral", handleID);
+    /** A handle call; `disconnected` means the host closed the handle. */
+    async function handleCall(method: string, params: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
+      try {
+        return await call(method, params, options);
+      } catch (err) {
+        if (err instanceof DeviceError && err.code === "disconnected") closedByHost();
+        throw err;
+      }
+    }
     function where(method: string, service: unknown, characteristic: unknown): Record<string, unknown> {
       check();
       checkBluetoothUUID(method, service);
@@ -1690,11 +1704,11 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       name,
       async services(options) {
         check();
-        return bluetoothServices(await call("bluetooth.services", { peripheral: handleID }, options));
+        return bluetoothServices(await handleCall("bluetooth.services", { peripheral: handleID }, options));
       },
       async read(service, characteristic, options) {
         const params = where("bluetooth.read", service, characteristic);
-        return replyBytes("bluetooth.read", await call("bluetooth.read", params, options));
+        return replyBytes("bluetooth.read", await handleCall("bluetooth.read", params, options));
       },
       async write(service, characteristic, data, options = {}) {
         const { withResponse, ...rest } = options;
@@ -1702,7 +1716,7 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         if (withResponse !== undefined && typeof withResponse !== "boolean") {
           throw new DeviceError("failed", "bluetooth.write: withResponse must be true or false");
         }
-        await call("bluetooth.write", { ...params, data: await toBytes(data), ...defined({ withResponse }) }, rest);
+        await handleCall("bluetooth.write", { ...params, data: await toBytes(data), ...defined({ withResponse }) }, rest);
       },
       notify(service, characteristic, options = {}) {
         const params = where("bluetooth.notify", service, characteristic);
@@ -1710,7 +1724,7 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       },
       async rssi(options) {
         check();
-        const value = await call("bluetooth.rssi", { peripheral: handleID }, options);
+        const value = await handleCall("bluetooth.rssi", { peripheral: handleID }, options);
         if (typeof value !== "number") throw new DeviceError("failed", "the host's bluetooth.rssi reply is malformed");
         return value;
       },

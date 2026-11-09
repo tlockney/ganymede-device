@@ -349,10 +349,15 @@ app turns it on with `DeviceBridge.addBluetooth()`, which needs
   peripheral doesn't answer in time.
 - A handle's calls need no permission, only the handle; another kernel's
   answers as for none.
-- When the peripheral goes away, its waiting calls fail `disconnected`,
-  its `notify` streams end with `disconnected`, and its handle closes.
-  `handle.close` disconnects it: waiting calls fail `failed`, `notify`
-  streams end.
+- When the peripheral goes away (or the Bluetooth system resets), its
+  waiting calls fail `disconnected`, its `notify` streams end with
+  `disconnected`, and its handle closes; later calls on the handle fail
+  `disconnected` too. `handle.close` disconnects it: waiting calls fail
+  `failed`, `notify` streams end. A cancel of `bluetooth.connect` closes
+  the handle it opened, even after the answer went out.
+- A write without a response waits for room in Core Bluetooth's queue,
+  in order, rather than being dropped; a cancelled write with a response
+  never takes another write's confirmation.
 - One `CBCentralManager` per bridge. Its open scans share one system
   scan, the union of their filters, and each filters its own. Ids are
   the `CBPeripheral` identifiers, which differ from device to device.

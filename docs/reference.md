@@ -2343,8 +2343,9 @@ A connected Bluetooth LE peripheral, from `device.bluetooth.connect`: a
 `NativeHandle`. Close it to disconnect, or hold it with `await using`.
 The app closes a kernel's peripherals when that kernel restarts or
 shuts down; a kernel has at most 8 connected. When the peripheral goes
-away, waiting calls reject `disconnected`, `notify` streams end with
-it, and the handle closes. Services and characteristics are UUIDs:
+away, waiting calls and the next call reject `disconnected`, `notify`
+streams end with it, and the handle closes (`closed` reads true once a
+call has seen it). Services and characteristics are UUIDs:
 "180D", or the full form.
 
 Its methods work wherever [`device.bluetooth.connect`](#device-bluetooth-connect-id-options) does.

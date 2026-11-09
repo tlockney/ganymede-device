@@ -386,6 +386,20 @@ final class BluetoothTests: XCTestCase {
         XCTAssertFalse(bridge.handles.isOpen(handle, owner: 1, kind: BluetoothHub.kind))
         // Dropped, so closing it doesn't disconnect again.
         XCTAssertEqual(fake.disconnects, 0)
+        // A later call says why, to its kernel only.
+        XCTAssertEqual(errorCode(call(bridge, "bluetooth.rssi", ["peripheral": handle])), "disconnected")
+        XCTAssertEqual(errorCode(call(bridge, "bluetooth.rssi", ["peripheral": handle], owner: 2)), "failed")
+    }
+
+    func testCancelCrossingTheReplyClosesTheHandle() throws {
+        let central = central()
+        let bridge = bridge(central)
+        let reply = try XCTUnwrap(call(bridge, "bluetooth.connect", ["id": heart.uuidString], id: 60)?["result"] as? [String: Any])
+        let handle = try XCTUnwrap(reply["peripheral"] as? Int)
+        // The page cancelled before the answer reached it.
+        _ = bridge.handle(["id": 60, "owner": 1, "cancel": true])
+        XCTAssertFalse(bridge.handles.isOpen(handle, owner: 1, kind: BluetoothHub.kind))
+        XCTAssertEqual(central.peripherals[heart]?.disconnects, 1)
     }
 
     func testCancelDuringConnectStopsIt() {

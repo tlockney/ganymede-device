@@ -128,6 +128,10 @@ final class BluetoothHub {
     let central: BluetoothCentral
     private let handles: Handles
     private var peripherals: [Int: BluetoothPeripheral] = [:]
+    /// Handles whose peripheral went away, newest last, so a later call on
+    /// one fails `disconnected` rather than as an unknown handle.
+    private var dropped: [(handle: Int, owner: Int)] = []
+    private static let maxDropped = 64
 
     init(central: BluetoothCentral, handles: Handles) {
         self.central = central
@@ -179,7 +183,7 @@ final class BluetoothHub {
         return { cancelled = true }
     }
 
-    func connect(_ params: [String: Any], owner: Int, reply: @escaping MethodReply) -> (() -> Void)? {
+    func connect(_ params: [String: Any], owner: Int, call: Int?, reply: @escaping MethodReply) -> (() -> Void)? {
         guard let text = params["id"] as? String, let id = UUID(uuidString: text) else {
             reply(.failure(DeviceCallError("failed", "bluetooth.connect needs a peripheral id (a UUID from scan or known)")))
             return nil
@@ -207,7 +211,7 @@ final class BluetoothHub {
                 case let .failure(error):
                     reply(.failure(error))
                 case let .success(peripheral):
-                    self.opened(peripheral, owner: owner, reply: reply)
+                    self.opened(peripheral, owner: owner, call: call, reply: reply)
                 }
             }
         }
@@ -217,8 +221,10 @@ final class BluetoothHub {
         }
     }
 
-    private func opened(_ peripheral: BluetoothPeripheral, owner: Int, reply: MethodReply) {
-        let opened = handles.open(owner: owner, kind: Self.kind, limit: Self.maxPeripherals, call: nil) { [weak self] id in
+    /// `call` is the connect's id: a cancel that crosses the reply closes
+    /// the handle the page never got.
+    private func opened(_ peripheral: BluetoothPeripheral, owner: Int, call: Int?, reply: MethodReply) {
+        let opened = handles.open(owner: owner, kind: Self.kind, limit: Self.maxPeripherals, call: call) { [weak self] id in
             self?.peripherals.removeValue(forKey: id)?.disconnect()
         }
         guard let handle = opened else {
@@ -228,21 +234,41 @@ final class BluetoothHub {
         }
         peripherals[handle] = peripheral
         peripheral.onDisconnect = { [weak self] _ in
+            guard let self else { return }
             // Already dropped: closing only forgets it.
-            self?.peripherals[handle] = nil
-            self?.handles.close(handle, owner: owner, kind: Self.kind)
+            self.peripherals[handle] = nil
+            self.handles.close(handle, owner: owner, kind: Self.kind)
+            // Later calls on it say why it's gone.
+            self.dropped.append((handle, owner))
+            if self.dropped.count > Self.maxDropped { self.dropped.removeFirst() }
         }
         reply(.success(["peripheral": handle, "id": peripheral.id.uuidString, "name": peripheral.name ?? NSNull()] as [String: Any]))
     }
 
     /// The peripheral a call names, when its kernel has it open.
     func peripheral(_ method: String, _ params: [String: Any], owner: Int) throws -> BluetoothPeripheral {
-        guard let id = Self.number(params["peripheral"]).flatMap({ Int(exactly: $0) }),
-              handles.isOpen(id, owner: owner, kind: Self.kind), let peripheral = peripherals[id]
-        else {
-            throw DeviceCallError("failed", "\(method): no open peripheral with that id (it was closed or disconnected)")
+        let id = Self.number(params["peripheral"]).flatMap { Int(exactly: $0) }
+        guard let id, handles.isOpen(id, owner: owner, kind: Self.kind), let peripheral = peripherals[id] else {
+            if let id, dropped.contains(where: { $0.handle == id && $0.owner == owner }) {
+                throw DeviceCallError("disconnected", "\(method): the peripheral disconnected")
+            }
+            throw DeviceCallError("failed", "\(method): no open peripheral with that id (it was closed)")
         }
         return peripheral
+    }
+
+    /// Runs one of a handle's calls: finds the peripheral, and turns a
+    /// thrown error into the call's reply.
+    func onPeripheral(
+        _ method: String, _ params: [String: Any], _ context: CallContext, reply: @escaping MethodReply,
+        _ body: (BluetoothPeripheral) throws -> () -> Void
+    ) -> (() -> Void)? {
+        do {
+            return try body(peripheral(method, params, owner: context.owner))
+        } catch {
+            reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "\(method): \(error)")))
+            return nil
+        }
     }
 
     /// The `service` and `characteristic` UUIDs a call names.
@@ -357,34 +383,25 @@ extension DeviceBridge {
             hub.known(params, reply: reply)
         }
         addMethod("bluetooth.connect", permission: "bluetooth") { params, context, reply in
-            hub.connect(params, owner: context.owner, reply: reply)
+            hub.connect(params, owner: context.owner, call: context.call, reply: reply)
         }
         addMethod("bluetooth.services") { params, context, reply in
-            do {
-                let peripheral = try hub.peripheral("bluetooth.services", params, owner: context.owner)
-                return peripheral.services { reply($0.map { BluetoothHub.servicesReply($0) as Any }) }
-            } catch {
-                reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "\(error)")))
-                return nil
+            hub.onPeripheral("bluetooth.services", params, context, reply: reply) { peripheral in
+                peripheral.services { reply($0.map { BluetoothHub.servicesReply($0) as Any }) }
             }
         }
         addMethod("bluetooth.read") { params, context, reply in
-            do {
-                let peripheral = try hub.peripheral("bluetooth.read", params, owner: context.owner)
+            hub.onPeripheral("bluetooth.read", params, context, reply: reply) { peripheral in
                 let (service, characteristic) = try BluetoothHub.characteristic("bluetooth.read", params)
                 return peripheral.read(service: service, characteristic: characteristic) { result in
                     reply(result.flatMap { data in
                         Result { try DeviceBridge.binary(data) as Any }.mapError { DeviceCallError("failed", "\($0)") }
                     })
                 }
-            } catch {
-                reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "\(error)")))
-                return nil
             }
         }
         addMethod("bluetooth.write") { params, context, reply in
-            do {
-                let peripheral = try hub.peripheral("bluetooth.write", params, owner: context.owner)
+            hub.onPeripheral("bluetooth.write", params, context, reply: reply) { peripheral in
                 let (service, characteristic) = try BluetoothHub.characteristic("bluetooth.write", params)
                 let data: Data
                 do {
@@ -401,18 +418,11 @@ extension DeviceBridge {
                 return peripheral.write(service: service, characteristic: characteristic, data: data, withResponse: withResponse) {
                     reply($0.map { NSNull() as Any })
                 }
-            } catch {
-                reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "\(error)")))
-                return nil
             }
         }
         addMethod("bluetooth.rssi") { params, context, reply in
-            do {
-                let peripheral = try hub.peripheral("bluetooth.rssi", params, owner: context.owner)
-                return peripheral.rssi { reply($0.map { $0 as Any }) }
-            } catch {
-                reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "\(error)")))
-                return nil
+            hub.onPeripheral("bluetooth.rssi", params, context, reply: reply) { peripheral in
+                peripheral.rssi { reply($0.map { $0 as Any }) }
             }
         }
         addStream("bluetooth.notify", capacity: 256, ownedStart: { params, owner, sink in
@@ -442,6 +452,9 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
     private var seen: [UUID: CBPeripheral] = [:]
     private var connecting: [UUID: Connecting] = [:]
     private var connected: [UUID: SystemBluetoothPeripheral] = [:]
+    /// Links `disconnect()` let go of whose disconnect callback hasn't come:
+    /// it is theirs, not a reconnect's under the same id.
+    private var releasing: Set<UUID> = []
 
     private struct Connecting {
         let peripheral: CBPeripheral
@@ -544,7 +557,13 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
             for done in waiting { done(status) }
         }
         let state = manager.state
-        if state == .unknown || state == .resetting { return }
+        if state == .unknown { return }
+        if state == .resetting {
+            // The system drops every connection without a disconnect
+            // callback; scans resume when the radio is back.
+            dropLinks(DeviceCallError("disconnected", "bluetooth: the Bluetooth system reset"))
+            return
+        }
         let waiting = readiness
         readiness = []
         let error = Self.problem(state)
@@ -559,10 +578,17 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
         let ended = scans
         scans = []
         for scan in ended { scan.failed(error2) }
-        for id in Array(connecting.keys) { connectFailed(id, error2) }
+        dropLinks(DeviceCallError("disconnected", "bluetooth: \(error2.message)"), connecting: error2)
+    }
+
+    /// Ends every connect in flight (with `connecting`, or `error`) and
+    /// every connection (with `error`).
+    private func dropLinks(_ error: DeviceCallError, connecting connectError: DeviceCallError? = nil) {
+        for id in Array(connecting.keys) { connectFailed(id, connectError ?? error) }
         let dropped = connected
         connected = [:]
-        for peripheral in dropped.values { peripheral.dropped(DeviceCallError("disconnected", "bluetooth: \(error2.message)")) }
+        releasing = []
+        for peripheral in dropped.values { peripheral.dropped(error) }
     }
 
     public func scan(
@@ -579,6 +605,9 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
     fileprivate func remove(_ scan: Scan) {
         scans.removeAll { $0 === scan }
         updateScan()
+        // Keep only what a connect needs; `retrievePeripherals` finds the
+        // rest again.
+        if scans.isEmpty { seen = seen.filter { connected[$0.key] != nil || connecting[$0.key] != nil } }
     }
 
     /// One system scan for every open one: the union of their filters,
@@ -687,6 +716,9 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
     nonisolated public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
             let id = peripheral.identifier
+            // The callback of a link `disconnect()` let go of: a connect
+            // made since is a new link.
+            if releasing.remove(id) != nil { return }
             connectFailed(id, DeviceCallError("disconnected", "bluetooth.connect: \(id.uuidString) disconnected"))
             let reason = error.map { ": \($0.localizedDescription)" } ?? ""
             connected.removeValue(forKey: id)?.dropped(DeviceCallError("disconnected", "bluetooth: \(id.uuidString) disconnected\(reason)"))
@@ -697,6 +729,7 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
     fileprivate func release(_ peripheral: SystemBluetoothPeripheral) {
         guard connected[peripheral.id] === peripheral else { return }
         connected[peripheral.id] = nil
+        releasing.insert(peripheral.id)
         manager?.cancelPeripheralConnection(peripheral.peripheral)
     }
 }
@@ -718,7 +751,16 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
     private var serviceWaiters: [Int: @MainActor (Result<Void, DeviceCallError>) -> Void] = [:]
     /// Waiting reads and writes by characteristic, oldest first.
     private var reads: [ObjectIdentifier: [(key: Int, done: @MainActor (Result<Data, DeviceCallError>) -> Void)]] = [:]
-    private var writes: [ObjectIdentifier: [(key: Int, done: @MainActor (Result<Void, DeviceCallError>) -> Void)]] = [:]
+    /// Writes with a response sent and not yet confirmed. A cancelled one
+    /// stays with no `done`, so its confirmation answers nobody rather
+    /// than the next write.
+    private var writes: [ObjectIdentifier: [(key: Int, done: (@MainActor (Result<Void, DeviceCallError>) -> Void)?)]] = [:]
+    /// Writes without a response waiting for room in Core Bluetooth's
+    /// queue, in order.
+    private var unsent: [(key: Int, characteristic: CBCharacteristic, data: Data, done: @MainActor (Result<Void, DeviceCallError>) -> Void)] = []
+    /// Characteristics this peripheral asked to notify: `isNotifying`
+    /// changes only once the peripheral answers.
+    private var subscribed: Set<ObjectIdentifier> = []
     private var rssiWaiters: [Int: @MainActor (Result<Int, DeviceCallError>) -> Void] = [:]
     private var notifies: [ObjectIdentifier: [Notify]] = [:]
     private var nextKey = 0
@@ -906,16 +948,35 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
                 done(.failure(DeviceCallError("failed", "bluetooth.write: at most \(limit) bytes at once; this is \(data.count)")))
                 return {}
             }
-            self.peripheral.writeValue(data, for: found, type: type)
-            guard withResponse else {
-                done(.success(()))
-                return {}
-            }
             let key = self.key()
+            guard withResponse else {
+                // Core Bluetooth drops a write without a response when its
+                // queue is full: wait for room, in order.
+                self.unsent.append((key, found, data, done))
+                self.sendUnsent()
+                return { [weak self] in self?.unsent.removeAll { $0.key == key } }
+            }
+            self.peripheral.writeValue(data, for: found, type: type)
             let slot = ObjectIdentifier(found)
             self.writes[slot, default: []].append((key, done))
-            return { [weak self] in self?.writes[slot]?.removeAll { $0.key == key } }
+            return { [weak self] in
+                guard let self, let i = self.writes[slot]?.firstIndex(where: { $0.key == key }) else { return }
+                self.writes[slot]?[i].done = nil
+            }
         }
+    }
+
+    /// Sends the waiting writes without a response while there is room.
+    private func sendUnsent() {
+        while !ended, let next = unsent.first, peripheral.canSendWriteWithoutResponse {
+            unsent.removeFirst()
+            peripheral.writeValue(next.data, for: next.characteristic, type: .withoutResponse)
+            next.done(.success(()))
+        }
+    }
+
+    nonisolated func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        MainActor.assumeIsolated { sendUnsent() }
     }
 
     func notify(
@@ -932,7 +993,7 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
             }
             notify.characteristic = found
             self.notifies[ObjectIdentifier(found), default: []].append(notify)
-            if !found.isNotifying { self.peripheral.setNotifyValue(true, for: found) }
+            if self.subscribed.insert(ObjectIdentifier(found)).inserted { self.peripheral.setNotifyValue(true, for: found) }
             return {}
         }
         return notify
@@ -944,7 +1005,7 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
         notifies[slot]?.removeAll { $0 === notify }
         if notifies[slot]?.isEmpty ?? true {
             notifies[slot] = nil
-            if !ended, found.isNotifying { peripheral.setNotifyValue(false, for: found) }
+            if subscribed.remove(slot) != nil, !ended { peripheral.setNotifyValue(false, for: found) }
         }
     }
 
@@ -971,7 +1032,7 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
                     read.done(.success(value))
                 }
             }
-            guard error == nil, characteristic.isNotifying else { return }
+            guard error == nil, subscribed.contains(slot) else { return }
             for notify in notifies[slot] ?? [] { notify.update(value) }
         }
     }
@@ -980,19 +1041,27 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
         MainActor.assumeIsolated {
             let slot = ObjectIdentifier(characteristic)
             guard var waiting = writes[slot], !waiting.isEmpty else { return }
+            // Confirmations come in the order the writes went out.
             let first = waiting.removeFirst()
-            writes[slot] = waiting
+            writes[slot] = waiting.isEmpty ? nil : waiting
             if let error {
-                first.done(.failure(DeviceCallError("failed", "bluetooth.write: \(error.localizedDescription)")))
+                first.done?(.failure(DeviceCallError("failed", "bluetooth.write: \(error.localizedDescription)")))
             } else {
-                first.done(.success(()))
+                first.done?(.success(()))
             }
         }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
+        // The GATT table changed: discover again on the next call.
+        MainActor.assumeIsolated { if !discovering { discovered = nil } }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         MainActor.assumeIsolated {
             guard let error else { return }
+            // A failed unsubscribe leaves nobody to tell.
+            guard subscribed.remove(ObjectIdentifier(characteristic)) != nil else { return }
             let failed = notifies.removeValue(forKey: ObjectIdentifier(characteristic)) ?? []
             for notify in failed { notify.end(DeviceCallError("failed", "bluetooth.notify: \(error.localizedDescription)")) }
         }
@@ -1033,17 +1102,19 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
         ended = true
         let services = serviceWaiters.values
         let reads = self.reads.values.flatMap { $0 }
-        let writes = self.writes.values.flatMap { $0 }
+        let writes = self.writes.values.flatMap { $0 }.compactMap { $0.done } + unsent.map { $0.done }
         let rssis = rssiWaiters.values
         let notifies = self.notifies.values.flatMap { $0 }
         serviceWaiters = [:]
         self.reads = [:]
         self.writes = [:]
+        unsent = []
+        subscribed = []
         rssiWaiters = [:]
         self.notifies = [:]
         for done in services { done(.failure(error)) }
         for read in reads { read.done(.failure(error)) }
-        for write in writes { write.done(.failure(error)) }
+        for done in writes { done(.failure(error)) }
         for done in rssis { done(.failure(error)) }
         for notify in notifies { notify.end(notifyError) }
     }

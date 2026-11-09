@@ -617,7 +617,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private func run(_ handler: ContextMethodHandler, _ params: [String: Any], call token: PendingCall, owner: Int) {
         guard pending.isWaiting(token) else { return }
-        let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner))
+        let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner), call: token.id)
         let cancel = handler(params, context) { [weak self] result in
             switch result {
             case let .success(value):

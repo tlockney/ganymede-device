@@ -132,6 +132,16 @@ test("a connected peripheral's calls name its handle until it closes", async () 
   assert.throws(() => peripheral.notify("180D", "2A37"), failed);
 });
 
+test("a disconnected call marks the peripheral closed", async () => {
+  const host = new BluetoothHost();
+  const peripheral = await device(host).bluetooth.connect(STRAP);
+  const call = host.call.bind(host);
+  host.call = (method, params) => (method === "bluetooth.rssi" ? Promise.reject(new DeviceError("disconnected", "gone")) : call(method, params));
+  await assert.rejects(peripheral.rssi(), (err) => err instanceof DeviceError && err.code === "disconnected");
+  assert.equal(peripheral.closed, true);
+  await assert.rejects(peripheral.read("180D", "2A37"), failed);
+});
+
 test("malformed replies fail", async () => {
   const host = new BluetoothHost();
   host.call = (method) => Promise.resolve(method === "bluetooth.connect" ? { peripheral: "4" } : null);
