@@ -136,8 +136,8 @@ DeviceBridge().register(in: kernelWebView.configuration.userContentController)
 npm ci
 npm run check   # type check
 npm test        # unit tests; the browser test skips without CDPK_DIR
-# The browser test, as CI runs it, against cdp-kernel v0.7.2:
-git clone --branch v0.7.2 https://github.com/tlockney/cdp-kernel ../cdp-kernel
+# The browser test, as CI runs it, against cdp-kernel v0.9.0:
+git clone --branch v0.9.0 https://github.com/tlockney/cdp-kernel ../cdp-kernel
 (cd ../cdp-kernel && npm ci)
 npm i --no-save playwright@1.64.1 && npx playwright install --with-deps chromium
 CDPK_DIR=../cdp-kernel node --test test/browser.test.ts

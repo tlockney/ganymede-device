@@ -1,0 +1,22 @@
+# Weekly version bumps, minor and patch grouped into one pull request per
+# ecosystem; each npm major gets its own. Security updates come as soon
+# as an advisory is published. Actions are pinned by commit SHA with the
+# version in a comment; Dependabot updates both. cdp-kernel's ref in
+# ci.yml's browser job is bumped by hand, with the release it targets.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+        update-types: [minor, patch]
