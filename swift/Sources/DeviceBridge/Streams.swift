@@ -38,22 +38,28 @@ public struct DeviceCallError: Error, CustomStringConvertible {
 public final class StreamSink {
     private weak var streams: Streams?
     private let id: Int
+    /// The stream this sink feeds. Ids start over when the page reloads,
+    /// so the id alone could reach a newer stream; this can't.
+    private weak var stream: Streams.Open?
 
-    fileprivate init(streams: Streams, id: Int) {
+    fileprivate init(streams: Streams, id: Int, stream: Streams.Open) {
         self.streams = streams
         self.id = id
+        self.stream = stream
     }
 
     /// Queues `value`, dropping the oldest when the queue is full.
     /// Ignored once the stream has ended.
     public func send(_ value: Any) {
-        streams?.send(value, to: id)
+        guard let stream else { return }
+        streams?.send(value, to: id, stream)
     }
 
     /// Ends the stream: the cell reads what is queued, then the loop ends,
     /// or, with `error`, throws it. Ignored once the stream has ended.
     public func finish(_ error: DeviceCallError? = nil) {
-        streams?.finish(id, error)
+        guard let stream else { return }
+        streams?.finish(id, stream, error)
     }
 }
 
@@ -73,7 +79,7 @@ final class Streams {
         let start: StreamStarter
     }
 
-    private final class Open {
+    fileprivate final class Open {
         let owner: Int
         let capacity: Int
         var source: StreamSource?
@@ -115,7 +121,7 @@ final class Streams {
         // In place before the source starts, so a value it sends at once is kept.
         open[call] = stream
         do {
-            let source = try starter.start(params, StreamSink(streams: self, id: call))
+            let source = try starter.start(params, StreamSink(streams: self, id: call, stream: stream))
             if stream.ended == nil, open[call] === stream {
                 stream.source = source
             }
@@ -178,8 +184,8 @@ final class Streams {
         }
     }
 
-    fileprivate func send(_ value: Any, to id: Int) {
-        guard let stream = open[id], stream.ended == nil else { return }
+    fileprivate func send(_ value: Any, to id: Int, _ stream: Open) {
+        guard open[id] === stream, stream.ended == nil else { return }
         if stream.queue.count >= stream.capacity {
             stream.queue.removeFirst()
             stream.dropped += 1
@@ -188,8 +194,8 @@ final class Streams {
         answerWaiting(id, stream)
     }
 
-    fileprivate func finish(_ id: Int, _ error: DeviceCallError?) {
-        guard let stream = open[id], stream.ended == nil else { return }
+    fileprivate func finish(_ id: Int, _ stream: Open, _ error: DeviceCallError?) {
+        guard open[id] === stream, stream.ended == nil else { return }
         stream.source = nil
         stream.ended = error.map { DeviceBridge.error($0.code, $0.message) } ?? ["result": ["end": true]]
         answerWaiting(id, stream)

@@ -65,6 +65,22 @@ final class StreamsTests: XCTestCase {
         XCTAssertFalse(DeviceBridge.remoteMethods.contains("test.ticks"))
     }
 
+    func testAStoppedSourcesSinkCantReachANewStreamWithTheSameID() throws {
+        let bridge = bridge()
+        XCTAssertEqual(open(bridge, id: 1), 1)
+        let old = sources[0].sink
+        // The page reloads: ids start over.
+        bridge.dropAll()
+        XCTAssertEqual(open(bridge, id: 1), 1)
+        old.send(99)
+        old.finish(DeviceCallError("failed", "late"))
+        sources[1].sink.send(1)
+        let replies = Collected()
+        next(bridge, stream: 1, id: 2, into: replies)
+        XCTAssertEqual(values(replies.last), [1])
+        XCTAssertNil(field(replies.last, "end"))
+    }
+
     func testValuesArriveInOrderAndAWaitingReadIsAnswered() throws {
         let bridge = bridge()
         let stream = try XCTUnwrap(open(bridge))

@@ -162,8 +162,10 @@ nothing pushes into the Worker.
   cell's `jupyter.signal`. A new `hello` from the same owner, `release`,
   `dropPage()`, `dropRemote()` and `dropAll()` stop the owner's streams.
 - At most 16 streams are open per kernel. `stream.next` and
-  `stream.close` reach only the calling kernel's (`owner`) streams;
-  another kernel's id answers as no such stream.
+  `stream.close` reach only the calling kernel's (`owner`) streams:
+  `stream.next` on another kernel's id fails `failed` as no such stream,
+  and `stream.close` answers `null` and leaves it running, as it does for
+  an id that has ended or never was.
 - Streaming methods are on-device only: none is in the remote subset, and
   `stream.next` and `stream.close` aren't either, so over a comm they
   fail `unavailable`.
