@@ -91,7 +91,9 @@ final class CameraTests: XCTestCase {
 
     func testTheFirstCaptureAsksThenShowsTheCamera() {
         let camera = FakeCamera(.notDetermined)
-        let reply = capture(bridge(camera))
+        // Kept: the bridge answers a dialog only while it is alive.
+        let bridge = bridge(camera)
+        let reply = capture(bridge)
         XCTAssertEqual(prompter.asked, 1)
         XCTAssertEqual(camera.prompts, 1)
         XCTAssertEqual(screen.shown, [.capturePhoto])
@@ -101,7 +103,8 @@ final class CameraTests: XCTestCase {
     }
 
     func testACancelledCameraIsNull() {
-        let reply = capture(bridge(FakeCamera(.authorized)))
+        let bridge = bridge(FakeCamera(.authorized))
+        let reply = capture(bridge)
         screen.answer(.dismissed)
         XCTAssertTrue(reply()?["result"] is NSNull)
     }
