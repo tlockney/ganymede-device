@@ -567,8 +567,7 @@ Done:
    that an HTML output can't reach the bridge.
 8. **Phase 2's bounded streams** (#58): `openStream` over `call`, and
    `DeviceBridge.addStream` with a drop-oldest queue per stream
-   (docs/protocol.md, "Streams"). No method streams yet; location and
-   motion will.
+   (docs/protocol.md, "Streams"). `location.watch` streams; motion will.
 9. **Phase 2's permission core** (#59): the trio (`authorization()` in
    src/permission.ts), and in Swift `addPermission`, `addMethod` and
    `addStream(permission:)`, which ask lazily and reject `denied`
@@ -576,6 +575,9 @@ Done:
 10. **Phase 2's ledger, Swift side** (#60): `DeviceBridge.ledger`, the
    notebook per kernel, `ledgerPrompter`, declarations (docs/protocol.md,
    "The ledger"). The app's prompt and Settings pane are ganymede-ui#383.
+11. **Phase 2's location** (#62): `device.location.current`, `watch` (a
+   stream), `geocode` and `reverseGeocode` over Core Location, when in
+   use only (docs/protocol.md, "Methods").
 
 Next:
 

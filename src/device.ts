@@ -375,6 +375,81 @@ export interface Notifications extends Authorization {
   cancelAll(options?: CallOptions): Promise<void>;
 }
 
+/** How close a fix must be: within metres ("best"), a city block, or a city. */
+export type LocationAccuracy = "best" | "block" | "city";
+
+export interface LocationOptions extends CallOptions {
+  /** How close a fix must be; "best" by default. Coarser fixes come sooner and use less power. */
+  accuracy?: LocationAccuracy;
+}
+
+/** Where the device is, as Core Location reports it. */
+export interface LocationFix {
+  /** Degrees north of the equator. */
+  latitude: number;
+  /** Degrees east of Greenwich. */
+  longitude: number;
+  /** The fix is within this many metres of the true position. */
+  accuracy: number;
+  /** Metres above sea level, when known. */
+  altitude?: number;
+  /** The altitude is within this many metres, when known. */
+  altitudeAccuracy?: number;
+  /** Metres per second, when moving and known. */
+  speed?: number;
+  /** Degrees clockwise from true north, when moving and known. */
+  course?: number;
+  /** When the fix was taken, in milliseconds since 1970, as `Date.now()`. */
+  timestamp: number;
+}
+
+/** A place a geocode found. Every part is there only when known. */
+export interface Place {
+  /** The place's name, such as a landmark or the street address. */
+  name?: string;
+  street?: string;
+  city?: string;
+  /** State, province or the like. */
+  region?: string;
+  postalCode?: string;
+  country?: string;
+  /** ISO 3166-1 alpha-2, such as "US". */
+  countryCode?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+/**
+ * Where the device is, over Core Location, and addresses to places and
+ * back. While in use only: the app asks for location when in use, never
+ * always, so nothing runs once the app quits.
+ *
+ * `current()` and `watch()` need the location permission: the first call
+ * asks (the app's prompt for this notebook, then the system's) and a
+ * refusal rejects `denied`. With precise location turned off for the
+ * app, `authorizationStatus()` reads `reducedAccuracy` and fixes are
+ * within a few kilometres. Geocoding needs no permission but does need
+ * the network. On-device: Mac, iPad and iPhone. Remote kernels and the
+ * browser: no.
+ */
+export interface DeviceLocation extends Authorization {
+  /**
+   * One fix. Cancel stops the search and rejects `cancelled`; a fix that
+   * can't be had (no signal, Location Services off) rejects `failed`.
+   */
+  current(options?: LocationOptions): Promise<LocationFix>;
+  /**
+   * Fixes as the device moves, for `for await`, until the loop ends or
+   * the cell is interrupted. Keeps the newest 16 when the cell reads
+   * slower than they come (`dropped` counts the rest).
+   */
+  watch(options?: LocationOptions): DeviceStream<LocationFix>;
+  /** The places an address may be, best match first; `[]` when none. Cancel rejects `cancelled`. */
+  geocode(address: string, options?: CallOptions): Promise<Place[]>;
+  /** What is at a position, such as a fix from `current()`; `[]` when nothing. Cancel rejects `cancelled`. */
+  reverseGeocode(position: { latitude: number; longitude: number }, options?: CallOptions): Promise<Place[]>;
+}
+
 /** The photo library, through the system photo picker. */
 export interface Photos {
   /**
@@ -713,6 +788,7 @@ export interface Device {
   readonly sound: Sound;
   /** Local notifications after a delay: see `Notifications`. */
   readonly notifications: Notifications;
+  readonly location: DeviceLocation;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -980,6 +1056,30 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         await call("notifications.cancelAll", {}, options);
       },
     },
+    location: {
+      ...permission("location"),
+      async current(options = {}) {
+        const { signal, accuracy } = options;
+        checkAccuracy("location.current", accuracy);
+        return locationFix("location.current", await call("location.current", { ...defined({ accuracy }) }, { signal }));
+      },
+      watch(options = {}) {
+        const { accuracy, ...rest } = options;
+        checkAccuracy("location.watch", accuracy);
+        return stream("location.watch", { ...defined({ accuracy }) }, rest, (value) => locationFix("location.watch", value));
+      },
+      async geocode(address, options = {}) {
+        if (typeof address !== "string" || address.trim() === "") throw new DeviceError("failed", "location.geocode needs an address");
+        return places("location.geocode", await call("location.geocode", { address }, options));
+      },
+      async reverseGeocode(position, options = {}) {
+        const { latitude, longitude } = (position ?? {}) as { latitude?: unknown; longitude?: unknown };
+        if (!isLatitude(latitude) || !isLongitude(longitude)) {
+          throw new DeviceError("failed", "location.reverseGeocode needs a latitude (-90 to 90) and longitude (-180 to 180)");
+        }
+        return places("location.reverseGeocode", await call("location.reverseGeocode", { latitude, longitude }, options));
+      },
+    },
     photos: {
       async pick(options = {}) {
         const { signal, limit = 1 } = options;
@@ -988,6 +1088,57 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       },
     },
   };
+}
+
+const ACCURACIES: readonly string[] = ["best", "block", "city"] satisfies LocationAccuracy[];
+
+function checkAccuracy(method: string, accuracy: unknown): void {
+  if (accuracy !== undefined && !ACCURACIES.includes(accuracy as string)) {
+    throw new DeviceError("failed", `${method}: accuracy must be "best", "block" or "city"`);
+  }
+}
+
+function isLatitude(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function isLongitude(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+/** A finite number from a reply, or undefined. */
+function finite(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** A host's fix, checked; the optional parts only when they are numbers. */
+function locationFix(method: string, value: unknown): LocationFix {
+  if (!isRecord(value) || !isLatitude(value.latitude) || !isLongitude(value.longitude) || finite(value.accuracy) === undefined || finite(value.timestamp) === undefined) {
+    throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  }
+  const fix: LocationFix = { latitude: value.latitude, longitude: value.longitude, accuracy: value.accuracy as number, timestamp: value.timestamp as number };
+  for (const key of ["altitude", "altitudeAccuracy", "speed", "course"] as const) {
+    const part = finite(value[key]);
+    if (part !== undefined) fix[key] = part;
+  }
+  return fix;
+}
+
+/** A host's places, checked; each part only when it has the right type. */
+function places(method: string, value: unknown): Place[] {
+  if (!Array.isArray(value)) throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  return value.map((item): Place => {
+    if (!isRecord(item)) throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+    const place: Place = {};
+    for (const key of ["name", "street", "city", "region", "postalCode", "country", "countryCode"] as const) {
+      if (typeof item[key] === "string" && item[key] !== "") place[key] = item[key] as string;
+    }
+    if (isLatitude(item.latitude) && isLongitude(item.longitude)) {
+      place.latitude = item.latitude;
+      place.longitude = item.longitude;
+    }
+    return place;
+  });
 }
 
 /** Each file as `{ name, data }` bytes, checked for a name and a total within the binary limit. */

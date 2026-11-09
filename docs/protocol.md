@@ -126,6 +126,10 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `notifications.pending` | `{}` | `[{ id, body, title?, date? }]`, the calling notebook's not yet delivered; `date` as ISO 8601 |
 | `notifications.cancel` | `{ id }` | `null`; an id that's gone or another notebook's changes nothing |
 | `notifications.cancelAll` | `{}` | `null`; the calling notebook's only |
+| `location.current` | `{ accuracy? }`: `best` (default), `block` (about 100 m) or `city` (a few km) | `{ latitude, longitude, accuracy, timestamp, altitude?, altitudeAccuracy?, speed?, course? }`: degrees, metres, milliseconds since 1970, metres per second, degrees from true north; parts Core Location doesn't know are left out. Needs the location permission |
+| `location.watch` | `{ accuracy? }` | a stream ("Streams" below) of fixes as `location.current` answers them; the queue keeps 16. Needs the location permission |
+| `location.geocode` | `{ address }` | `[{ name?, street?, city?, region?, postalCode?, country?, countryCode?, latitude?, longitude? }]`, best match first, `[]` when none |
+| `location.reverseGeocode` | `{ latitude, longitude }` | places as `location.geocode` answers them |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -143,6 +147,18 @@ notifications still fire but no longer list or cancel from the new path.
 The app turns the namespace on with `DeviceBridge.addNotifications()`;
 while the app is in front, `SystemNotificationScheduler` shows them as
 banners when the app has no notification center delegate of its own.
+
+Location is when in use only: the app asks with
+`requestWhenInUseAuthorization`, and `location.authorizationStatus`
+reads `reducedAccuracy` when the person turned precise location off,
+which still lets calls through with coarser fixes. Each `current` and
+`watch` has a Core Location manager of its own; a cancel, `stream.close`
+or the kernel's release stops it. Geocoding (CLGeocoder) needs the
+network but no permission. The app turns the namespace on with
+`DeviceBridge.addLocation()`, and needs
+`NSLocationWhenInUseUsageDescription` in its Info.plist and, on a Mac
+with the hardened runtime, the `com.apple.security.personal-information.location`
+entitlement.
 
 ## Streams
 

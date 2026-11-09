@@ -140,6 +140,10 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.notifications.pending().catch(() => {});
   await device.notifications.cancel("x");
   await device.notifications.cancelAll();
+  await device.location.current().catch(() => {}); // null isn't a fix
+  await device.location.watch().next().catch(() => {}); // null isn't a stream
+  await device.location.geocode("Paris").catch(() => {});
+  await device.location.reverseGeocode({ latitude: 0, longitude: 0 }).catch(() => {});
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
