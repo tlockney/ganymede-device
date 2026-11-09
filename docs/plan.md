@@ -603,6 +603,10 @@ Done:
    one `events.watch` stream (appearance, foreground, background,
    battery, locale), which an interrupt leaves running (docs/protocol.md,
    "Host events").
+19. **Phase 3's Bluetooth** (#100): `device.bluetooth` scan, known and
+   connect, and a connected `Peripheral` handle with services, read,
+   write, notify and RSSI over Core Bluetooth, Mac, iPad and iPhone
+   (docs/protocol.md, "Bluetooth").
 
 Next:
 

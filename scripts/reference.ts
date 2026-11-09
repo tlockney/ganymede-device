@@ -88,10 +88,23 @@ const sections: Section[] = [
     intro: "Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "Bluetooth",
+    prefix: "device.bluetooth.",
+    heading: "device.bluetooth",
+    support: "bluetooth.",
+    intro: "A Bluetooth LE central over Core Bluetooth, on the Mac, iPad and iPhone. `scan`, `known` and `connect` need the bluetooth permission and reject `unavailable` while Bluetooth is off. A connected peripheral is a [`Peripheral`](#peripheral). The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
     intro: "Its methods work wherever [`device.sound.player`](#device-sound-player-data-options) does.",
+  },
+  {
+    iface: "Peripheral",
+    prefix: "peripheral.",
+    heading: "Peripheral",
+    intro: "Its methods work wherever [`device.bluetooth.connect`](#device-bluetooth-connect-id-options) does.",
   },
 ];
 
@@ -146,6 +159,13 @@ const types: { name: string; file: string }[] = [
   { name: "Reminder", file: DEVICE },
   { name: "NewReminder", file: DEVICE },
   { name: "ListRemindersOptions", file: DEVICE },
+  { name: "ScanOptions", file: DEVICE },
+  { name: "Advertisement", file: DEVICE },
+  { name: "KnownPeripheral", file: DEVICE },
+  { name: "ConnectOptions", file: DEVICE },
+  { name: "BluetoothService", file: DEVICE },
+  { name: "BluetoothCharacteristic", file: DEVICE },
+  { name: "WriteOptions", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 
@@ -161,7 +181,9 @@ or a browser.
 checks for it first (\`device?.clipboard.readText()\`, or
 \`if (device) …\`). The examples skip that check, and the
 [\`SoundPlayer\`](#soundplayer) examples use a \`player\` from
-[\`device.sound.player\`](#device-sound-player-data-options).
+[\`device.sound.player\`](#device-sound-player-data-options), and the
+[\`Peripheral\`](#peripheral) examples a \`peripheral\` from
+[\`device.bluetooth.connect\`](#device-bluetooth-connect-id-options).
 
 For editor types, add this line once to a cell or a project file:
 

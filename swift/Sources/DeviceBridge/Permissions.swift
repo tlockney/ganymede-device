@@ -53,10 +53,14 @@ public typealias MethodHandler = @MainActor (_ params: [String: Any], _ reply: @
 public struct CallContext: Sendable, Equatable {
     public let owner: Int
     public let notebook: String?
+    /// The call's id, so a handle it opens closes when the call is
+    /// cancelled (`Handles.open(call:)`).
+    public let call: Int?
 
-    public init(owner: Int, notebook: String?) {
+    public init(owner: Int, notebook: String?, call: Int? = nil) {
         self.owner = owner
         self.notebook = notebook
+        self.call = call
     }
 }
 

@@ -137,7 +137,7 @@ restart stops it.
 device.bluetooth.authorizationStatus() / isAuthorized() / requestAuthorization()
 device.bluetooth.scan({ services?, allowDuplicates?, signal }): DeviceStream<Advertisement>
 device.bluetooth.connect(id, { timeout?, signal }): Promise<Peripheral>   // NativeHandle
-device.bluetooth.known(ids): Promise<Advertisement[]>                     // reconnect by id
+device.bluetooth.known(ids): Promise<KnownPeripheral[]>                   // reconnect by id: { id, name }
 
 interface Advertisement { id: string; name: string | null; rssi: number;
   services: string[]; manufacturerData: Uint8Array | null; serviceData: Record<string, Uint8Array> }
@@ -153,9 +153,12 @@ interface Peripheral extends NativeHandle {
 ```
 
 - Permission `bluetooth` (`CBManager.authorization`); Info.plist
-  `NSBluetoothAlwaysUsageDescription`. Mac and iPad; `has()` is false
-  while the radio is unsupported, and calls fail `unavailable` while it
-  is powered off.
+  `NSBluetoothAlwaysUsageDescription`. Mac and iPad; calls fail
+  `unavailable` while the radio is unsupported or powered off. (As
+  built, #100: `has()` can't tell an unsupported radio, because reading
+  the radio's state makes the `CBCentralManager`, which shows the
+  permission prompt; and `known()` answers `{ id, name }`, since there
+  is no RSSI without a scan.)
 - `scan` is a bounded stream, capacity 128, drop-oldest (Juno's figure);
   `notify` capacity 256. Both stop on break, abort, interrupt.
 - `connect` returns a handle (part 1), at most 8 per kernel. When the

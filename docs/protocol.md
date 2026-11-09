@@ -290,6 +290,8 @@ and folders in Phase 3 (docs/phase-3.md). In a cell it is a
 - `sound.close { player }` is a player's `handle.close`, kept by name.
 - A cell's handle rejects `failed` after `close()`, without a round trip.
 - Handles are on-device only: `handle.close` isn't in the remote subset.
+- `hello` doesn't list `handle.close`: every host with a handle kind
+  answers it.
 
 ## Host events
 
@@ -320,6 +322,46 @@ last one's removal closes; the app turns it on with
   sends events.
 - No permission. On-device only: `events.watch` isn't in the remote
   subset.
+
+## Bluetooth
+
+`device.bluetooth` is a Bluetooth LE central over Core Bluetooth. The
+app turns it on with `DeviceBridge.addBluetooth()`, which needs
+`NSBluetoothAlwaysUsageDescription` in its Info.plist.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `bluetooth.scan` | `{ services?, allowDuplicates? }` | a stream ("Streams" above) of `{ id, name, rssi, services, manufacturerData, serviceData }`, capacity 128. `manufacturerData` is bytes or `null`; `serviceData` maps service UUIDs to bytes |
+| `bluetooth.known` | `{ ids }`: at most 64 peripheral ids | `[{ id, name }]`, the ones the system knows |
+| `bluetooth.connect` | `{ id, timeout? }`: seconds, 1 to 120, 15 by default | `{ peripheral, id, name }`: `peripheral` is a handle ("Handles" above) of kind `bluetooth.peripheral`, at most 8 per kernel |
+| `bluetooth.services` | `{ peripheral }` | `[{ uuid, characteristics: [{ uuid, properties }] }]`, discovered once; `properties` from `read`, `write`, `writeWithoutResponse`, `notify`, `indicate` |
+| `bluetooth.read` | `{ peripheral, service, characteristic }` | the value's bytes |
+| `bluetooth.write` | `{ peripheral, service, characteristic, data, withResponse? }`: `withResponse` true by default | `null`, once confirmed; at once without a response |
+| `bluetooth.notify` | `{ peripheral, service, characteristic }` | a stream of the value's bytes, capacity 256 |
+| `bluetooth.rssi` | `{ peripheral }` | dBm |
+
+- UUIDs are 16-bit ("180D"), 32-bit or 128-bit; Swift checks them before
+  Core Bluetooth sees them, and answers them upper-cased.
+- `scan`, `known` and `connect` need the `bluetooth` permission
+  (`CBManager.authorization`); the system asks when the bridge first
+  makes its `CBCentralManager`. They fail `unavailable` while the radio
+  is off or unsupported, and `connect` fails `timeout` when the
+  peripheral doesn't answer in time.
+- A handle's calls need no permission, only the handle; another kernel's
+  answers as for none.
+- When the peripheral goes away (or the Bluetooth system resets), its
+  waiting calls fail `disconnected`, its `notify` streams end with
+  `disconnected`, and its handle closes; later calls on the handle fail
+  `disconnected` too. `handle.close` disconnects it: waiting calls fail
+  `failed`, `notify` streams end. A cancel of `bluetooth.connect` closes
+  the handle it opened, even after the answer went out.
+- A write without a response waits for room in Core Bluetooth's queue,
+  in order, rather than being dropped; a cancelled write with a response
+  never takes another write's confirmation.
+- One `CBCentralManager` per bridge. Its open scans share one system
+  scan, the union of their filters, and each filters its own. Ids are
+  the `CBPeripheral` identifiers, which differ from device to device.
+- On-device only: none of these is in the remote subset.
 
 ## Permissions
 

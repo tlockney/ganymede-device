@@ -114,6 +114,16 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         checks[method] = check
     }
 
+    /// `addStream` for a source that needs to know which kernel opened
+    /// it, such as one on a handle that kernel holds.
+    func addStream(
+        _ method: String, capacity: Int, permission: String? = nil,
+        ownedStart: @escaping @MainActor (_ params: [String: Any], _ owner: Int, _ sink: StreamSink) throws -> StreamSource
+    ) {
+        streams.add(method, capacity: capacity, ownedStart: ownedStart)
+        streamPermissions[method] = permission
+    }
+
     /// Adds `namespace`'s system permission: `hello` lists
     /// `<namespace>.authorizationStatus` and
     /// `<namespace>.requestAuthorization`, and methods added with
@@ -607,7 +617,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private func run(_ handler: ContextMethodHandler, _ params: [String: Any], call token: PendingCall, owner: Int) {
         guard pending.isWaiting(token) else { return }
-        let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner))
+        let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner), call: token.id)
         let cancel = handler(params, context) { [weak self] result in
             switch result {
             case let .success(value):
