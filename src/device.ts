@@ -845,10 +845,8 @@ export interface ListRemindersOptions extends CallOptions {
 /**
  * The person's reminders, over EventKit. Every method needs the
  * reminders permission: the first call asks (the app's prompt for this
- * notebook, then the system's), and a refusal rejects `denied`. With
- * write-only access (`authorizationStatus()` reads `writeOnly`), `add`
- * works and the methods that read reject `denied`. No recurrence, alarms
- * or subtasks.
+ * notebook, then the system's), and a refusal rejects `denied`. No
+ * recurrence, alarms or subtasks.
  */
 export interface Reminders extends Authorization {
   /**
@@ -1639,6 +1637,7 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       },
       async add(reminder, options = {}) {
         if (!isRecord(reminder)) throw new DeviceError("failed", "reminders.add needs a reminder object");
+        if (reminder.due instanceof Date && Number.isNaN(reminder.due.getTime())) throw new DeviceError("failed", "reminders.add: due is an invalid Date");
         const due = reminder.due instanceof Date ? reminder.due.toISOString() : reminder.due;
         const id = await call("reminders.add", { reminder: { ...reminder, ...defined({ due }) } }, options);
         if (typeof id !== "string") throw new DeviceError("failed", "the host's reminders.add reply is malformed");

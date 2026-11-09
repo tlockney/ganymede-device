@@ -384,7 +384,7 @@ export const SUPPORT = {
     remote: "no",
     browser: "no",
     permission: "reminders",
-    note: "Write-only access is enough; the other methods need full access. No recurrence or alarms.",
+    note: "No recurrence or alarms.",
   },
   "reminders.complete": {
     call: "reminders.complete(id)",

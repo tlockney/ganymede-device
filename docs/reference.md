@@ -1732,12 +1732,10 @@ if (jpeg) await device.preview([{ name: "photo.jpg", data: jpeg }]);
 
 The person's reminders, over EventKit. Every method needs the
 reminders permission: the first call asks (the app's prompt for this
-notebook, then the system's), and a refusal rejects `denied`. With
-write-only access (`authorizationStatus()` reads `writeOnly`), `add`
-works and the methods that read reject `denied`. No recurrence, alarms
-or subtasks.
+notebook, then the system's), and a refusal rejects `denied`. No
+recurrence, alarms or subtasks.
 
-Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission; with write-only access only `add` works. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.
+Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.
 
 ### `device.reminders.authorizationStatus(options?)`
 
@@ -1875,7 +1873,7 @@ Adds a reminder.
 | --- | --- | --- | --- |
 | yes | reminders | no | no |
 
-Write-only access is enough; the other methods need full access. No recurrence or alarms.
+No recurrence or alarms.
 
 ```ts
 const id = await device.reminders.add({ title: "Buy milk", due: "2026-11-10", priority: 1 });

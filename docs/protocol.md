@@ -141,7 +141,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `camera.capture` | `{}` | the photo as JPEG bytes (`{ base64 }`, at most 16 MiB), or `null` when the person cancels. A dialog ("Dialogs" below) that needs the camera permission first; iPad and iPhone only |
 | `reminders.calendars` | `{}` | `[{ id, title, isDefault }]`, the reminder lists. Needs the reminders permission (full access) |
 | `reminders.list` | `{ calendar?, completed? }` | reminders (below) in that list, or every list; only completed or only incomplete ones when `completed` is set |
-| `reminders.add` | `{ reminder }`: `{ title, notes?, due?, priority?, calendar? }` | the new reminder's id. Write-only access is enough |
+| `reminders.add` | `{ reminder }`: `{ title, notes?, due?, priority?, calendar? }` | the new reminder's id |
 | `reminders.complete`, `reminders.uncomplete` | `{ id }` | `true`, or `false` when there was none |
 | `reminders.delete` | `{ id }` | `true`, or `false` when there was none |
 
@@ -221,10 +221,9 @@ A reminder is a plain record: `{ id, title, calendar, completed, notes?,
 due?, priority?, completedAt? }`. `calendar` is the list's id. `due` is
 `YYYY-MM-DD` for a due day, or ISO 8601 for a day and time (kept in the
 device's time zone); `priority` is 1 (high) to 9 (low), left out for
-none; `completedAt` is ISO 8601. With write-only access
-(`reminders.authorizationStatus` reads `writeOnly`), `add` works and the
-methods that read (`calendars`, `list`, and `complete`, `uncomplete` and
-`delete`, which find the reminder first) reject `denied`. Not wrapped:
+none; `completedAt` is ISO 8601. Dates are Gregorian whatever the
+device's calendar. EventKit grants reminders only full access, so there
+is no write-only mode here. Not wrapped:
 recurrence, alarms, subtasks, and making or renaming lists. A bad call
 fails `failed` before any prompt. The app turns the namespace on with
 `DeviceBridge.addReminders()`, and needs

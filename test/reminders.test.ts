@@ -58,6 +58,7 @@ test("bad arguments fail before asking the host", async () => {
   const { device, sent } = host({});
   await assert.rejects(device.reminders.list({ completed: "yes" as unknown as boolean }), isCode("failed"));
   await assert.rejects(device.reminders.list({ calendar: "" }), isCode("failed"));
+  await assert.rejects(device.reminders.add({ title: "a", due: new Date("x") }), isCode("failed"));
   await assert.rejects(device.reminders.add(null as unknown as { title: string }), isCode("failed"));
   await assert.rejects(device.reminders.complete(""), isCode("failed"));
   await assert.rejects(device.reminders.delete(1 as unknown as string), isCode("failed"));

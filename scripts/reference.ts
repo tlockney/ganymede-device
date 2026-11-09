@@ -85,7 +85,7 @@ const sections: Section[] = [
     prefix: "device.reminders.",
     heading: "device.reminders",
     support: "reminders.",
-    intro: "Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission; with write-only access only `add` works. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.",
+    intro: "Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.",
   },
   {
     iface: "SoundPlayer",

@@ -3,10 +3,9 @@ import Foundation
 
 // `device.reminders` (docs/protocol.md, "Reminders"): the person's
 // reminder lists, over EventKit. Every method needs the reminders
-// permission (and the ledger's grant). With write-only access, `add`
-// works and the methods that read (`calendars`, `list`, and `complete`,
-// `uncomplete` and `delete`, which find the reminder first) reject
-// `denied`. No recurrence, alarms or subtasks. The app turns the
+// permission (and the ledger's grant). EventKit has no write-only access
+// for reminders; should a store report it anyway, only `add` goes
+// through. No recurrence, alarms or subtasks. The app turns the
 // namespace on with `DeviceBridge.addReminders()`.
 
 /// A reminder list.
@@ -145,7 +144,11 @@ public final class SystemReminderStore: ReminderStore {
         let reminder = EKReminder(eventStore: store)
         reminder.title = record.title
         reminder.notes = record.notes
-        reminder.dueDateComponents = record.due
+        // Gregorian, whatever the device's calendar, so the year is the
+        // one the cell wrote.
+        var due = record.due
+        if due != nil, due?.calendar == nil { due?.calendar = Calendar(identifier: .gregorian) }
+        reminder.dueDateComponents = due
         reminder.priority = record.priority
         if let id = record.calendar {
             guard let calendar = store.calendar(withIdentifier: id), calendar.allowsContentModifications else {
@@ -215,7 +218,8 @@ extension DeviceBridge {
         // outside the main actor.
         let store = store ?? SystemReminderStore()
         addPermission("reminders", store)
-        /// Write-only access may add, not read.
+        /// Write-only access may add, not read. EventKit grants reminders
+        /// only full access, so this is a guard, not a documented mode.
         func reads(_ method: String, reply: MethodReply) -> Bool {
             guard store.status != .writeOnly else {
                 reply(.failure(DeviceCallError("denied", "\(method): the app may only add reminders (write-only access)")))
@@ -297,7 +301,7 @@ extension DeviceBridge {
             guard let text = value as? String else { throw fail("\(key) must be a string") }
             return text.isEmpty ? nil : text
         }
-        guard let title = try text("title"), !title.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard let title = try text("title"), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw fail("a reminder needs a title")
         }
         var reminder = ReminderRecord(title: title, notes: try text("notes"), calendar: try text("calendar"))
@@ -325,14 +329,18 @@ extension DeviceBridge {
             return day
         }
         guard let date = Dialog.parseDate(text) else { return nil }
-        return Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        // Gregorian: on a Japanese or Buddhist calendar, the current
+        // calendar's year isn't the one the cell means.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
     }
 
     /// `YYYY-MM-DD` for a day; ISO 8601 for a day and time.
     static func dueText(_ parts: DateComponents) -> String? {
         if parts.hour != nil {
-            var calendar = Calendar.current
-            if let zone = parts.timeZone { calendar.timeZone = zone }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = parts.timeZone ?? .current
             return calendar.date(from: parts).map(Dialog.formatDate)
         }
         return birthdayText(parts)

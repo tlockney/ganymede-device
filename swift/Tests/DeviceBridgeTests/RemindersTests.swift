@@ -162,6 +162,7 @@ final class RemindersTests: XCTestCase {
             ("reminders.add", [:]),
             ("reminders.add", ["reminder": ["notes": "no title"]]),
             ("reminders.add", ["reminder": ["title": " "]]),
+            ("reminders.add", ["reminder": ["title": "\n"]]),
             ("reminders.add", ["reminder": ["title": "a", "due": "tomorrow"]]),
             ("reminders.add", ["reminder": ["title": "a", "due": "2026-02-30"]]),
             ("reminders.add", ["reminder": ["title": "a", "priority": 10]]),
