@@ -127,16 +127,21 @@ public final class EngineDevice {
                 }
                 return reply(Self.text(answer))
             }
-            // What a call would meet: with no kept "always" the
-            // namespace's calls fail, so the status reads `denied`.
-            if method.hasSuffix(".authorizationStatus"),
-               !keptAlways(String(method.dropLast(".authorizationStatus".count)), bridge) {
-                let answer = bridge.handle(call)
-                return reply(Self.text(answer["error"] == nil ? ["result": PermissionStatus.denied.rawValue] : answer))
+            // What a call would meet: unless the notebook has a kept
+            // "always" and the system has granted it, the namespace's calls
+            // fail and nothing can ask, so the status reads `denied`.
+            if method.hasSuffix(".authorizationStatus") {
+                let namespace = String(method.dropLast(".authorizationStatus".count))
+                if !(keptAlways(namespace, bridge) && bridge.isAuthorized(namespace)) {
+                    let answer = bridge.handle(call)
+                    return reply(Self.text(answer["error"] == nil ? ["result": PermissionStatus.denied.rawValue] : answer))
+                }
             }
-            // A Safari view in the app needs a window to show it in.
-            if method == "openURL", (call["params"] as? [String: Any])?["inApp"] as? Bool == true {
-                return reply(Self.text(DeviceBridge.error("unavailable", "openURL with inApp isn't available in a headless run")))
+            // An in-app Safari view needs a window: hand the URL to the
+            // system's handler instead.
+            if method == "openURL", var params = call["params"] as? [String: Any], params["inApp"] != nil {
+                params["inApp"] = false
+                call["params"] = params
             }
             guard allows(method) else {
                 return reply(Self.text(DeviceBridge.error("unavailable", "\(method) isn't available in a headless run")))

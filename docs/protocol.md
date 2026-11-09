@@ -745,10 +745,11 @@ with no notebook then has no permissioned method at all.
 - A method that needs a permission only when the ledger has a kept
   "always" for the notebook and capability, and the system has granted
   the permission.
-- Not `openURL` with `inApp: true`, which needs a window.
 - Everything else, such as `authorizationStatus`, the clipboard and
   sounds. `authorizationStatus` reads `denied` unless the notebook has
-  a kept "always", since without one the namespace's calls fail.
+  a kept "always" and the system has granted the permission, since
+  otherwise the namespace's calls fail and nothing can ask. `openURL`
+  ignores `inApp` and hands the URL to the system.
 
 Its `hello` lists only those methods, so `device.has()` answers
 truthfully, and any other call fails `unavailable` without reaching the
@@ -762,4 +763,12 @@ Extensions read the app's kept answers from an App Group suite (named
 suite)))` in the app and in each extension, or a headless run sees no
 kept answers and no folders. Only the app writes. Both stores default
 to `.standard`, so an app moving to the suite copies its existing rows
-across once.
+across once. On the Mac a folder's bookmark is scoped to the app that
+made it, so an extension gets the list but can't open the folders; that
+is for the Mac extension to settle.
+
+A permission whose status the app learns asynchronously, such as
+notifications, reads `notDetermined` until it does, and a `hello`
+before then leaves its methods out for the run. An extension has to
+wait for it; an awaitable refresh comes with the extensions (parts 3
+to 5).

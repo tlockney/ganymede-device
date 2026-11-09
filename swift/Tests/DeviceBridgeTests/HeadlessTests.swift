@@ -71,12 +71,20 @@ final class HeadlessTests: XCTestCase {
         XCTAssertEqual(status(), "denied", "the system has granted it, but a call would fail")
         bridge.ledger.record(.always, notebook: "/n/Walk.ipynb", capability: "location")
         XCTAssertEqual(status(), "authorized")
+        system.status = .notDetermined
+        XCTAssertEqual(status(), "denied", "kept, but nothing can ask the system")
         XCTAssertEqual(code(send(["id": 10, "method": "nothing.authorizationStatus", "params": [:]])), "unavailable")
     }
 
-    func testOpenURLInTheAppNeedsAWindow() {
-        let reply = send(["id": 11, "method": "openURL", "params": ["url": "https://example.com", "inApp": true]])
-        XCTAssertEqual(code(reply), "unavailable")
+    func testOpenURLInTheAppGoesToTheSystemsHandler() {
+        let opener = Opener()
+        let bridge = DeviceBridge(clipboard: nil, urlOpener: opener, appVersion: "")
+        let engine = bridge.engineDevice(headless: true)
+        let text = String(data: try! JSONSerialization.data(withJSONObject: ["id": 1, "method": "openURL", "params": ["url": "https://example.com", "inApp": true]]), encoding: .utf8)!
+        var reply: String?
+        engine.respond(to: text) { reply = $0 }
+        XCTAssertFalse(reply?.contains("error") ?? true)
+        XCTAssertEqual(opener.opened.map(\.inApp), [false])
     }
 
     func testADialogFailsUnavailable() {
@@ -84,4 +92,10 @@ final class HeadlessTests: XCTestCase {
         XCTAssertEqual(code(send(["id": 7, "method": "folders.pick", "params": [:]])), "unavailable")
         XCTAssertEqual(code(send(["id": 8, "method": "location.requestAuthorization", "params": [:]])), "unavailable")
     }
+}
+
+@MainActor
+private final class Opener: URLOpener {
+    var opened: [(url: URL, inApp: Bool)] = []
+    func open(_ url: URL, inApp: Bool) { opened.append((url, inApp)) }
 }
