@@ -78,7 +78,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A notebook was renamed or moved: its kernels and kept answers follow.
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
-        ledgerRequests.move(from: old, to: new)
+        ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 
     /// Of a notebook's declared capabilities (`metadata.ganymede.device`),
@@ -424,7 +424,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         let params = call["params"] as? [String: Any] ?? [:]
-        if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
+        if let namespace = requestedNamespace(method), let permission = permissions[namespace],
+           permission.status == .denied || permission.status == .restricted {
+            // The system already refused: answer that without the app's prompt.
+            pending.answer(token, ["result": permission.status.rawValue])
+        } else if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
             // The ledger first: a notebook it refuses gets `denied` without
             // the system prompt.
             checkLedger(method, namespace, call: token, owner: owner, refused: { [weak self] _ in
