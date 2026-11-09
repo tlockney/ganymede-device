@@ -138,6 +138,9 @@ public final class PublishedWidgets {
     }
 
     func publish(_ content: WidgetContent, notebook: String, kind: String, at date: Date = Date()) {
+        // The same content again changes nothing, and WidgetKit budgets
+        // reloads, so a cell updating in a loop doesn't spend them.
+        if content(notebook: notebook, kind: kind) == content { return }
         let others = store.load().filter { $0.notebook != notebook }
         var own = store.load().filter { $0.notebook == notebook && $0.kind != kind }
         own.append(PublishedWidget(notebook: notebook, kind: kind, content: content, updated: date))

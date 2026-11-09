@@ -803,7 +803,9 @@ since a widget can't run a script itself. The app turns it on with
 
 - `kind` is 1 to 64 ASCII letters, digits, `.`, `_` or `-`. Content is
   kept per notebook and kind, newest first, 16 per notebook; `notebookMoved`
-  carries it.
+  carries it. An update with the content a widget already shows doesn't
+  reload it, since WidgetKit budgets reloads; the app should still not
+  update in a tight loop.
 - `content`: `title` (up to 64 characters), `rows` (up to six: `{ text }`
   up to 128 characters, or `{ label?, value, unit? }` with a finite
   number and labels and units up to 32), `tint` (one of `WIDGET_TINTS`),

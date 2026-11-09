@@ -90,6 +90,8 @@ final class RunTests: XCTestCase {
         XCTAssertEqual(b.sparkline, [1, 2.5])
         XCTAssertEqual(widgets.saved.count, 2)
         XCTAssertEqual(widgets.reloads, 3)
+        bridge.respond(to: ["id": 3, "owner": 1, "method": "widget.update", "params": ["kind": "weather", "content": ["title": "Bergen"]]]) { _ in }
+        XCTAssertEqual(widgets.reloads, 3, "the same content again doesn't reload")
         bridge.notebookMoved(from: "/n/A.ipynb", to: "/n/C.ipynb")
         XCTAssertEqual(published.content(notebook: "/n/C.ipynb", kind: "weather")?.title, "Bergen")
     }
