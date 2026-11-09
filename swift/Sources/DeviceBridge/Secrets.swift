@@ -41,9 +41,40 @@ public struct NotebookSecret: Hashable, Sendable {
 @MainActor
 public final class NotebookSecrets {
     private let store: SecretStore
+    private let defaults: UserDefaults
+    private let pendingKey: String
 
-    public init(store: SecretStore? = nil) {
+    /// `defaults` keeps renames the keychain couldn't apply yet (it was
+    /// locked, or refused), so they survive a relaunch.
+    public init(store: SecretStore? = nil, defaults: UserDefaults = .standard, pendingKey: String = "ganymede.device.secrets.pendingMoves") {
         self.store = store ?? KeychainSecretStore()
+        self.defaults = defaults
+        self.pendingKey = pendingKey
+    }
+
+    /// Renames not applied yet, oldest first.
+    public var pendingMoves: [(from: String, to: String)] {
+        (defaults.array(forKey: pendingKey) as? [[String]] ?? []).compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
+    }
+
+    private func savePending(_ moves: [(from: String, to: String)]) {
+        if moves.isEmpty {
+            defaults.removeObject(forKey: pendingKey)
+        } else {
+            defaults.set(moves.map { [$0.from, $0.to] }, forKey: pendingKey)
+        }
+    }
+
+    /// Applies the pending renames, in order. Every secrets call does this
+    /// first, so a notebook never reads under a path its secrets haven't
+    /// left yet; it throws when the keychain still can't be changed.
+    public func settle() throws {
+        var moves = pendingMoves
+        while let move = moves.first {
+            try apply(from: move.from, to: move.to)
+            moves.removeFirst()
+            savePending(moves)
+        }
     }
 
     static func account(_ notebook: String, _ name: String) -> String { "\(notebook)\0\(name)" }
@@ -56,7 +87,8 @@ public final class NotebookSecrets {
     /// Every secret's notebook and name, for a Settings screen. Empty when
     /// the store can't be read.
     public var all: [NotebookSecret] {
-        ((try? store.accounts()) ?? []).compactMap(Self.split).sorted { ($0.notebook, $0.name) < ($1.notebook, $1.name) }
+        try? settle()
+        return ((try? store.accounts()) ?? []).compactMap(Self.split).sorted { ($0.notebook, $0.name) < ($1.notebook, $1.name) }
     }
 
     /// `notebook`'s names, sorted.
@@ -80,12 +112,23 @@ public final class NotebookSecrets {
 
     /// Deletes every one of `notebook`'s secrets.
     public func delete(notebook: String) throws {
+        try settle()
         for name in try names(for: notebook) { try delete(name, notebook: notebook) }
     }
 
-    /// A notebook was renamed or moved: its secrets follow. One the new
-    /// path already has keeps the new path's value.
-    public func move(from old: String, to new: String) throws {
+    /// A notebook was renamed or moved: its secrets follow. The rename is
+    /// kept until it applies, so one the keychain refuses now (locked
+    /// before the first unlock) applies on the next secrets call or
+    /// `settle()`; until then those calls fail.
+    public func move(from old: String, to new: String) {
+        guard old != new else { return }
+        savePending(pendingMoves + [(old, new)])
+        try? settle()
+    }
+
+    /// One the new path already has keeps the new path's value. Safe to
+    /// run again after a failure part way.
+    private func apply(from old: String, to new: String) throws {
         guard old != new else { return }
         for name in try names(for: old) {
             if try value(name, notebook: new) == nil, let value = try value(name, notebook: old) {
@@ -195,6 +238,9 @@ extension DeviceBridge {
                 guard let notebook = context.notebook else {
                     throw DeviceCallError("denied", "\(method): the app hasn't said which notebook this kernel runs")
                 }
+                // A rename not applied yet goes first, so no notebook reads
+                // under a path another's secrets haven't left.
+                try secrets.settle()
                 reply(.success(try body(notebook)))
             } catch is SecretStoreLocked {
                 reply(.failure(DeviceCallError("unavailable", "\(method): the keychain is locked until the device is first unlocked")))

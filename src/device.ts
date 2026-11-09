@@ -1429,7 +1429,8 @@ export interface Secrets extends Authorization {
    * @throws {DeviceError} `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name or value isn't valid.
    * @example
    * ```ts
-   * await device.secrets.set("github", await device.ui.prompt("GitHub token") ?? "");
+   * const token = await device.ui.prompt("GitHub token");
+   * if (token) await device.secrets.set("github", token);
    * ```
    */
   set(name: string, value: string, options?: CallOptions): Promise<void>;

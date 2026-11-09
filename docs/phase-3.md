@@ -95,9 +95,8 @@ As built (#113): per notebook only, no app-wide secrets (decided
 2026-11-09). Swift `addSecrets()` with `KeychainSecretStore(accessGroup:)`
 (nil by default; the app passes the shared group once it has the
 entitlement) and `NotebookSecrets` for Settings. Names count UTF-16 code
-units, as the cell's `length` does. A rename made while the keychain is
-locked leaves the secrets under the old path; the app moves again after
-the first unlock.
+units, as the cell's `length` does. A rename the keychain refuses is kept
+(`pendingMoves`) and applied before the next secrets call.
 
 ## 3. Host events (`device.on`)
 

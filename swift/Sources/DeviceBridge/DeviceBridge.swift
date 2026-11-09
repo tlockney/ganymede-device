@@ -99,9 +99,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
         folderGrants?.move(from: old, to: new)
-        // A locked keychain keeps them under the old path; a later move
-        // can't find them there, so the app should move again once unlocked.
-        try? notebookSecrets?.move(from: old, to: new)
+        // Kept until it applies, when the keychain is locked now.
+        notebookSecrets?.move(from: old, to: new)
         ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 

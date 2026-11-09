@@ -19,14 +19,16 @@ final class MemorySecretStore: SecretStore {
 @MainActor
 final class SecretsTests: XCTestCase {
     private var store: MemorySecretStore!
+    private var defaults: UserDefaults!
     private var bridge: DeviceBridge!
     private var replies: [[String: Any]] = []
     private var nextID = 1
 
     override func setUp() async throws {
         store = MemorySecretStore()
+        defaults = UserDefaults(suiteName: "secrets-\(UUID().uuidString)")
         bridge = DeviceBridge(clipboard: nil, ledger: PermissionLedger(store: MemoryLedgerStore()), appVersion: "")
-        bridge.addSecrets(NotebookSecrets(store: store))
+        bridge.addSecrets(NotebookSecrets(store: store, defaults: defaults))
         for (owner, notebook) in [(1, "/n/A.ipynb"), (2, "/n/B.ipynb")] {
             bridge.setNotebook(notebook, for: owner)
             bridge.ledger.record(.always, notebook: notebook, capability: "secrets")
@@ -68,7 +70,22 @@ final class SecretsTests: XCTestCase {
         bridge.notebookMoved(from: "/n/A.ipynb", to: "/n/C.ipynb")
         XCTAssertEqual(call("secrets.get", ["name": "github"])?["result"] as? String, "tok", "the kernel and its kept answer moved too")
         XCTAssertEqual(store.items, ["/n/C.ipynb\0github": "tok"])
-        XCTAssertEqual(NotebookSecrets(store: store).all, [NotebookSecret(notebook: "/n/C.ipynb", name: "github")])
+        XCTAssertEqual(NotebookSecrets(store: store, defaults: defaults).all, [NotebookSecret(notebook: "/n/C.ipynb", name: "github")])
+    }
+
+    func testARenameWhileLockedAppliesOnceUnlocked() {
+        _ = call("secrets.set", ["name": "github", "value": "tok"])
+        store.locked = true
+        bridge.notebookMoved(from: "/n/A.ipynb", to: "/n/C.ipynb")
+        XCTAssertEqual(NotebookSecrets(store: store, defaults: defaults).pendingMoves.map { $0.to }, ["/n/C.ipynb"], "kept, even across a relaunch")
+        // A new notebook saved at the old path, granted secrets.
+        bridge.setNotebook("/n/A.ipynb", for: 3)
+        bridge.ledger.record(.always, notebook: "/n/A.ipynb", capability: "secrets")
+        XCTAssertEqual(code(call("secrets.get", ["name": "github"], owner: 3)), "unavailable", "still locked")
+        store.locked = false
+        XCTAssertTrue(call("secrets.get", ["name": "github"], owner: 3)?["result"] is NSNull, "the rename applied first")
+        XCTAssertEqual(call("secrets.get", ["name": "github"])?["result"] as? String, "tok")
+        XCTAssertTrue(NotebookSecrets(store: store, defaults: defaults).pendingMoves.isEmpty)
     }
 
     func testALedgerDenyRejectsDenied() {
@@ -82,7 +99,7 @@ final class SecretsTests: XCTestCase {
     func testALockedKeychainIsUnavailable() {
         store.locked = true
         XCTAssertEqual(code(call("secrets.get", ["name": "github"])), "unavailable")
-        XCTAssertEqual(NotebookSecrets(store: store).all, [], "Settings shows none rather than failing")
+        XCTAssertEqual(NotebookSecrets(store: store, defaults: defaults).all, [], "Settings shows none rather than failing")
     }
 
     func testBadNamesAndValuesFail() {
@@ -99,7 +116,7 @@ final class SecretsTests: XCTestCase {
         _ = call("secrets.set", ["name": "a", "value": "1"])
         _ = call("secrets.set", ["name": "b", "value": "2"])
         _ = call("secrets.set", ["name": "a", "value": "3"], owner: 2)
-        let settings = NotebookSecrets(store: store)
+        let settings = NotebookSecrets(store: store, defaults: defaults)
         try settings.delete(notebook: "/n/A.ipynb")
         XCTAssertEqual(settings.all, [NotebookSecret(notebook: "/n/B.ipynb", name: "a")])
     }

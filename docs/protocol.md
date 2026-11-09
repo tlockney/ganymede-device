@@ -429,7 +429,13 @@ Settings screen lists names (never values) and deletes them with its own
   is the only consent, and `secrets.authorizationStatus` reads the
   ledger alone. A headless run needs a kept "always".
 - Per notebook: the keychain account is `<notebook path>\0<name>`, so a
-  notebook never sees another's names. `notebookMoved` re-keys them.
+  notebook never sees another's names. `notebookMoved` re-keys them. A
+  rename the keychain refuses (locked before the first unlock) is kept,
+  in UserDefaults so it survives a relaunch, and applied before the
+  next secrets call or Settings listing; until it applies, secrets calls
+  fail, so a notebook later saved at the old path can't read what was
+  under it. `NotebookSecrets.pendingMoves` and `settle()` show and retry
+  them.
 - Names are 1 to 128 UTF-16 code units without NUL; values are strings
   up to 64 KiB as UTF-8. Anything else fails `failed`.
 - `KeychainSecretStore`: generic passwords under service
@@ -439,7 +445,10 @@ Settings screen lists names (never values) and deletes them with its own
   locked, once it has been unlocked since it started; before that a call
   fails `unavailable`. `KeychainSecretStore(accessGroup:)` shares them
   with the app's extensions (phase-4.md, part 2), which needs
-  `keychain-access-groups` on the app and each extension.
+  `keychain-access-groups` on the app and each extension. Items saved
+  without a group sit in the app's default one and queries with a group
+  don't find them, so an app that starts passing the group copies its
+  existing items into it once, as for the ledger's App Group suite.
 - On-device only: none of these is in the remote subset.
 
 ## Permissions

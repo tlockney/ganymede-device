@@ -2398,7 +2398,8 @@ Saves a secret, in place of one by the same name.
 Values up to 64 KiB; names 1 to 128 characters.
 
 ```ts
-await device.secrets.set("github", await device.ui.prompt("GitHub token") ?? "");
+const token = await device.ui.prompt("GitHub token");
+if (token) await device.secrets.set("github", token);
 ```
 
 ### `device.secrets.delete(name, options?)`
