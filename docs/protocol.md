@@ -133,6 +133,11 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `location.reverseGeocode` | `{ latitude, longitude }` | places as `location.geocode` answers them |
 | `motion.watch` | `{ interval? }`, seconds, 0.01 to 1, 0.1 by default | a stream ("Streams" below) of samples as `motion.latest` answers them. Needs the motion permission |
 | `motion.latest` | `{}` | `{ attitude: { roll, pitch, yaw }, rotationRate, gravity, userAcceleration, timestamp }`: radians, radians per second and g (each `{ x, y, z }`), milliseconds since 1970. Needs the motion permission |
+| `contacts.search` | `{ query }` | contacts (below) whose name matches; by email or phone number when the query is one. Needs the contacts permission |
+| `contacts.get` | `{ id }` | a contact, or `null` when there is none with that id |
+| `contacts.all` | `{}` | every contact the app may see, in the person's sort order |
+| `contacts.add` | `{ contact }`: a contact without `id`, with a name, organization, email or phone | the new contact's id |
+| `contacts.delete` | `{ id }` | `true`, or `false` when there was none |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -188,6 +193,23 @@ The app turns `save` on with `DeviceBridge.addPhotoSaving()`, and needs
 `NSPhotoLibraryAddUsageDescription` in its Info.plist and, on a
 sandboxed Mac, the `com.apple.security.personal-information.photos-library`
 entitlement.
+
+A contact is a plain record: `{ id, givenName?, middleName?,
+familyName?, nickname?, organization?, jobTitle?, emails?, phones?,
+addresses?, birthday? }`. `emails` and `phones` are `[{ label?, value }]`;
+`addresses` are `[{ label?, street?, city?, state?, postalCode?,
+country? }]`; `birthday` is `YYYY-MM-DD`, or `--MM-DD` without a year.
+Labels are plain words (`home`, `work`, `mobile`, `main`, `iPhone`,
+`school`, `other`) or the person's own. Missing fields are left out.
+Every `contacts.*` method needs the contacts permission. With limited
+access (iPhone and iPad), the status reads `limited` and the framework
+shows only the contacts the person shared with the app. Not wrapped:
+groups, containers (accounts; `add` uses the default one), photos, and
+notes (which need an entitlement Apple grants on request). A bad call
+fails `failed` before any prompt. The app turns the namespace on with
+`DeviceBridge.addContacts()`, and needs `NSContactsUsageDescription` and,
+on a sandboxed Mac, the
+`com.apple.security.personal-information.addressbook` entitlement.
 
 ## Streams
 

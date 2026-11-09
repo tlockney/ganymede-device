@@ -309,6 +309,48 @@ export const SUPPORT = {
     permission: "motion",
     note: "Starts the sensors and keeps them running while calls keep coming; they stop about 10 seconds after the last.",
   },
+  "contacts.search": {
+    call: "contacts.search(query)",
+    returns: "`Contact[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "contacts",
+    note: "By name, or by email or phone number when the query is one. With limited access, only the contacts shared with the app.",
+  },
+  "contacts.get": {
+    call: "contacts.get(id)",
+    returns: "a `Contact`, or `null`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "contacts",
+  },
+  "contacts.all": {
+    call: "contacts.all()",
+    returns: "`Contact[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "contacts",
+  },
+  "contacts.add": {
+    call: "contacts.add(contact)",
+    returns: "the new contact's id",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "contacts",
+    note: "To the default account; groups and accounts aren't wrapped.",
+  },
+  "contacts.delete": {
+    call: "contacts.delete(id)",
+    returns: "`true`, or `false` when there was none",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "contacts",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

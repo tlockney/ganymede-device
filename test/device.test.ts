@@ -147,6 +147,11 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.location.reverseGeocode({ latitude: 0, longitude: 0 }).catch(() => {});
   await device.motion.watch().next().catch(() => {}); // null isn't a stream
   await device.motion.latest().catch(() => {}); // null isn't a sample
+  await device.contacts.search("a").catch(() => {}); // null isn't a list
+  await device.contacts.get("x");
+  await device.contacts.all().catch(() => {});
+  await device.contacts.add({ givenName: "a" }).catch(() => {}); // null isn't an id
+  await device.contacts.delete("x").catch(() => {}); // null isn't a boolean
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
