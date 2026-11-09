@@ -255,7 +255,7 @@ extension DeviceBridge {
     private static func notificationReply(_ note: ScheduledNotification) -> [String: Any] {
         var reply: [String: Any] = ["id": note.id, "body": note.body]
         if let title = note.title { reply["title"] = title }
-        if let date = note.date { reply["date"] = ISO8601DateFormatter().string(from: date) }
+        if let date = note.date { reply["date"] = date.ISO8601Format() }
         return reply
     }
 }

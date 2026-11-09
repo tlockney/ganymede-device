@@ -189,7 +189,6 @@ export interface Files {
   export(data: Bytes, options: ExportFileOptions): Promise<boolean>;
 }
 
-/** The photo library, through the system photo picker. */
 export interface ScheduleNotificationOptions extends CallOptions {
   /** Seconds from now, more than 0. */
   delay: number;
@@ -233,6 +232,7 @@ export interface Notifications extends Authorization {
   cancelAll(options?: CallOptions): Promise<void>;
 }
 
+/** The photo library, through the system photo picker. */
 export interface Photos {
   /**
    * The photos the person picked, as image `File`s in their stored format
