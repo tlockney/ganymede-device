@@ -8,6 +8,15 @@ errors, where it works, and an example. The
 explains where `device` exists and how to call it from a server kernel
 or a browser.
 
+> [!IMPORTANT]
+> **macOS and iOS only, for now.** The native side is the Swift
+> `DeviceBridge` in Ganymede's Mac, iPad and iPhone apps (macOS 26 and
+> iOS 26). There is no host for Windows, Linux or Android. A notebook
+> page in any browser can answer a few methods that need no permission
+> with web APIs
+> ([In a browser](https://ganymede-server.com/docs/ganymede-ui/device#in-a-browser));
+> everything else needs one of the apps.
+
 `device` is `undefined` on kernels the app doesn't host, so a cell
 checks for it first (`device?.clipboard.readText()`, or
 `if (device) …`). The examples skip that check, and the

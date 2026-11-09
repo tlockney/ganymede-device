@@ -5,6 +5,14 @@ Mac and iPad apps, in the spirit of [Juno's `juno`
 module](https://juno.sh/docs/python/juno/). A cell calls
 `await device.clipboard.readText()` and the app answers from Swift.
 
+> [!IMPORTANT]
+> **macOS and iOS only, for now.** The native side is the Swift
+> `DeviceBridge` in Ganymede's Mac, iPad and iPhone apps (macOS 26 and
+> iOS 26). There is no host for Windows, Linux or Android. A notebook
+> page in any browser can answer a few methods that need no permission
+> with web APIs (the browser fallback); everything else needs one of
+> the apps.
+
 ```ts
 /// <reference types="@tlockney/ganymede-device/globals" />
 if (device?.has("clipboard.readText")) {
