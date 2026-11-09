@@ -213,6 +213,39 @@ export const SUPPORT = {
     browserClick: true,
     note: "The system photo picker, which needs no photo library permission. A browser shows a file picker for images, and keeps the first `limit` picked.",
   },
+  "notifications.schedule": {
+    call: "notifications.schedule(body, { delay, title })",
+    returns: "the notification's id",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "notifications",
+    note: "After `delay` seconds, even when the notebook is closed. iOS and iPadOS keep at most 64 per app.",
+  },
+  "notifications.pending": {
+    call: "notifications.pending()",
+    returns: "this notebook's `PendingNotification[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Only the calling notebook's.",
+  },
+  "notifications.cancel": {
+    call: "notifications.cancel(id)",
+    returns: "nothing",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Only the calling notebook's.",
+  },
+  "notifications.cancelAll": {
+    call: "notifications.cancelAll()",
+    returns: "nothing",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Only the calling notebook's.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;
