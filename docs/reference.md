@@ -90,6 +90,15 @@ such API.
 | [`device.camera.isAuthorized(options?)`](#device-camera-isauthorized-options) | Whether the permission is granted, without asking. |
 | [`device.camera.requestAuthorization(options?)`](#device-camera-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.camera.capture(options?)`](#device-camera-capture-options) | Shows the system camera and waits for the person to take a photo. |
+| [`device.reminders.authorizationStatus(options?)`](#device-reminders-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.reminders.isAuthorized(options?)`](#device-reminders-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.reminders.requestAuthorization(options?)`](#device-reminders-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.reminders.calendars(options?)`](#device-reminders-calendars-options) | The reminder lists. |
+| [`device.reminders.list(options?)`](#device-reminders-list-options) | Reminders, from one list or all of them. |
+| [`device.reminders.add(reminder, options?)`](#device-reminders-add-reminder-options) | Adds a reminder. |
+| [`device.reminders.complete(id, options?)`](#device-reminders-complete-id-options) | Marks a reminder done. |
+| [`device.reminders.uncomplete(id, options?)`](#device-reminders-uncomplete-id-options) | Marks a reminder not done. |
+| [`device.reminders.delete(id, options?)`](#device-reminders-delete-id-options) | Deletes a reminder. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -256,6 +265,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `motion` | `DeviceMotion` | The motion sensors, on iPad and iPhone: see `DeviceMotion`. |
 | `contacts` | `Contacts` | The person's contacts: see `Contacts`. |
 | `camera` | `Camera` | The system camera: see `Camera`. |
+| `reminders` | `Reminders` | The person's reminders: see `Reminders`. |
 
 ## `device.clipboard`
 
@@ -1718,6 +1728,241 @@ const jpeg = await device.camera.capture();
 if (jpeg) await device.preview([{ name: "photo.jpg", data: jpeg }]);
 ```
 
+## `device.reminders`
+
+The person's reminders, over EventKit. Every method needs the
+reminders permission: the first call asks (the app's prompt for this
+notebook, then the system's), and a refusal rejects `denied`. No
+recurrence, alarms or subtasks.
+
+Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.
+
+### `device.reminders.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.reminders.authorizationStatus());
+```
+
+### `device.reminders.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.reminders.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.reminders.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.reminders.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.reminders.calendars(options?)`
+
+```ts
+calendars(options?: CallOptions): Promise<ReminderCalendar[]>;
+```
+
+The reminder lists.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<ReminderCalendar[]>`: The lists, the default one marked `isDefault`.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read reminders.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+```ts
+for (const list of await device.reminders.calendars()) console.log(list.title, list.isDefault);
+```
+
+### `device.reminders.list(options?)`
+
+```ts
+list(options?: ListRemindersOptions): Promise<Reminder[]>;
+```
+
+Reminders, from one list or all of them.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `ListRemindersOptions` | no | `calendar`, a list's id; `completed`, to see only completed or only incomplete ones; and the call's `signal`. |
+
+**Returns** `Promise<Reminder[]>`: The reminders, or `[]`.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read reminders; `failed` when `calendar` isn't a reminder list.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+```ts
+const open = await device.reminders.list({ completed: false });
+for (const r of open) console.log(r.title, r.due ?? "");
+```
+
+### `device.reminders.add(reminder, options?)`
+
+```ts
+add(reminder: NewReminder, options?: CallOptions): Promise<string>;
+```
+
+Adds a reminder.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `reminder` | `NewReminder` | yes | A `title`, and optional `notes`, `due`, `priority` and `calendar`. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a reminder already saved stays. |
+
+**Returns** `Promise<string>`: The new reminder's id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not add reminders; `failed` when the title is empty, `due` isn't a date, `priority` isn't 0 to 9, or `calendar` isn't a list that can be added to.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+No recurrence or alarms.
+
+```ts
+const id = await device.reminders.add({ title: "Buy milk", due: "2026-11-10", priority: 1 });
+```
+
+### `device.reminders.complete(id, options?)`
+
+```ts
+complete(id: string, options?: CallOptions): Promise<boolean>;
+```
+
+Marks a reminder done.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The reminder's id. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true`, or `false` when there is no reminder with that id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+```ts
+const [first] = await device.reminders.list({ completed: false });
+if (first) await device.reminders.complete(first.id);
+```
+
+### `device.reminders.uncomplete(id, options?)`
+
+```ts
+uncomplete(id: string, options?: CallOptions): Promise<boolean>;
+```
+
+Marks a reminder not done.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The reminder's id. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true`, or `false` when there is no reminder with that id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+```ts
+const [last] = await device.reminders.list({ completed: true });
+if (last) await device.reminders.uncomplete(last.id);
+```
+
+### `device.reminders.delete(id, options?)`
+
+```ts
+delete(id: string, options?: CallOptions): Promise<boolean>;
+```
+
+Deletes a reminder.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The reminder's id. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a reminder already deleted stays deleted. |
+
+**Returns** `Promise<boolean>`: `true`, or `false` when there is no reminder with that id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | reminders | no | no |
+
+```ts
+const id = await device.reminders.add({ title: "Test" });
+console.log(await device.reminders.delete(id)); // true
+```
+
 ## `SoundPlayer`
 
 A loaded sound a cell controls, from `device.sound.player`. Close it when
@@ -2237,6 +2482,54 @@ A contact's postal address; any part may be missing.
 | `state` | `string` | no | The state, province or region. |
 | `postalCode` | `string` | no | The postal or ZIP code. |
 | `country` | `string` | no | The country, as written. |
+
+### `ReminderCalendar`
+
+A reminder list, from `device.reminders.calendars()`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The list's id, for `list({ calendar })` and `add({ calendar })`. |
+| `title` | `string` | yes | The list's name, as the Reminders app shows it. |
+| `isDefault` | `boolean` | yes | Whether `add` puts reminders here when it isn't given a list. |
+
+### `Reminder`
+
+A reminder as `device.reminders` reads it: a plain record.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The store's identifier, for `complete`, `uncomplete` and `delete`. |
+| `title` | `string` | yes | What to do. |
+| `calendar` | `string` | yes | The id of the list it is in. |
+| `completed` | `boolean` | yes | Whether it is done. |
+| `notes` | `string` | no | Notes, when it has any. |
+| `due` | `string` | no | `"YYYY-MM-DD"` for a due day, or an ISO 8601 date and time when it is due at a time. |
+| `priority` | `number` | no | 1 (high) to 9 (low); left out for none. The Reminders app shows 1, 5 and 9 as high, medium and low. |
+| `completedAt` | `string` | no | When it was completed, as ISO 8601. |
+
+### `NewReminder`
+
+A reminder for `device.reminders.add`: a title, and the rest optional.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `title` | `string` | yes | What to do. |
+| `notes` | `string` | no | Notes. |
+| `due` | `string \| Date` | no | A due day (`"YYYY-MM-DD"`), or a day and time: an ISO 8601 string or a `Date`. |
+| `priority` | `number` | no | 0 (none, the default) or 1 (high) to 9 (low). |
+| `calendar` | `string` | no | The id of the list to add it to; the default list when left out. |
+
+### `ListRemindersOptions`
+
+Options for `device.reminders.list`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `calendar` | `string` | no | A list's id from `calendars()`; every list when left out. |
+| `completed` | `boolean` | no | `true` for completed reminders only, `false` for incomplete ones only; both when left out. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
 
 ### `AuthorizationStatus`
 
