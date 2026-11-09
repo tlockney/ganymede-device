@@ -52,7 +52,11 @@ such API.
 | [`device.ui.pickDate(options?)`](#device-ui-pickdate-options) | Asks for a date, a time, or both. |
 | [`device.files.pick(options?)`](#device-files-pick-options) | Shows the open panel on the Mac, or the document picker on iPad and iPhone, and reads the files the person picks. |
 | [`device.files.export(data, options)`](#device-files-export-data-options) | Asks where to save `data`, and saves it there: the save panel on the Mac, the document picker on iPad and iPhone. |
+| [`device.photos.authorizationStatus(options?)`](#device-photos-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.photos.isAuthorized(options?)`](#device-photos-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.photos.requestAuthorization(options?)`](#device-photos-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.photos.pick(options?)`](#device-photos-pick-options) | Shows the system photo picker and reads the photos the person picks. |
+| [`device.photos.save(image, options?)`](#device-photos-save-image-options) | Adds an image to the photo library, as a new photo. |
 | [`device.sound.play(data, options?)`](#device-sound-play-data-options) | Starts playing a sound, which plays to its end on its own. |
 | [`device.sound.player(data, options?)`](#device-sound-player-data-options) | Loads a sound into a player, paused at the start, for a cell to play, pause, seek and close. |
 | [`device.notifications.authorizationStatus(options?)`](#device-notifications-authorizationstatus-options) | Reads the permission's status, without asking. |
@@ -652,7 +656,74 @@ console.log(saved ? "saved" : "cancelled");
 
 ## `device.photos`
 
-The photo library, through the system photo picker.
+The photo library: the system photo picker to read photos, which needs
+no permission, and `save` to add one, which needs add-only access. The
+permission methods are about that add-only access: the first `save`
+asks (the app's prompt for this notebook, then the system's), and a
+refusal rejects `denied`. Granted, `authorizationStatus()` reads
+`writeOnly`: the app may add photos, never read the library.
+
+The permission methods (`authorizationStatus`, `isAuthorized`, `requestAuthorization`) are about `save`'s add-only access, and work where `save` does: in the app, not from a remote kernel or a browser.
+
+### `device.photos.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.photos.authorizationStatus());
+```
+
+### `device.photos.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.photos.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.photos.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.photos.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
 
 ### `device.photos.pick(options?)`
 
@@ -683,6 +754,37 @@ The system photo picker, which needs no photo library permission. A browser show
 ```ts
 const photos = await device.photos.pick({ limit: 3 });
 for (const photo of photos) console.log(photo.name, photo.type, photo.size);
+```
+
+### `device.photos.save(image, options?)`
+
+```ts
+save(image: Bytes, options?: CallOptions): Promise<void>;
+```
+
+Adds an image to the photo library, as a new photo.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `image` | `Bytes` | yes | PNG, JPEG, GIF, HEIC or TIFF bytes, or a `Blob` of them, at most 16 MiB. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; the photo may already have been added. |
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't PNG, JPEG, GIF, HEIC or TIFF, or the library refuses them.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | photos | no | no |
+
+Add-only access: the app may add photos, never read the library.
+
+```ts
+const canvas = new OffscreenCanvas(256, 256);
+const g = canvas.getContext("2d")!;
+g.fillStyle = "teal";
+g.fillRect(0, 0, 256, 256);
+await device.photos.save(await canvas.convertToBlob({ type: "image/png" }));
 ```
 
 ## `device.sound`
