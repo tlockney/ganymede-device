@@ -207,6 +207,69 @@ final class PermissionsTests: XCTestCase {
         XCTAssertEqual(errorCode(second.last), "cancelled")
     }
 
+    // Ids start over when the page reloads: a step left over from a call
+    // dropped with the old page must not answer the new page's call that
+    // has the same id.
+
+    func testAfterAReloadTheOldCallsPromptAnswerReachesOnlyTheNewCall() {
+        let permission = FakePermission(.notDetermined)
+        let bridge = bridge(permission)
+        let old = Answers()
+        let new = Answers()
+        call(bridge, "test.read", id: 1, into: old)
+        bridge.dropPage()
+        call(bridge, "test.read", id: 1, into: new)
+        permission.answer(.authorized)
+        XCTAssertEqual(old.all.count, 1)
+        XCTAssertEqual(errorCode(old.last), "cancelled")
+        XCTAssertEqual(new.all.count, 1)
+        XCTAssertEqual(new.last?["result"] as? Int, 42)
+        XCTAssertEqual(runs, 1, "only the new call runs")
+    }
+
+    func testAfterAReloadAnOldRequestAuthorizationDoesntAnswerTheNewCall() {
+        let permission = FakePermission(.notDetermined)
+        let bridge = bridge(permission)
+        let old = Answers()
+        let new = Answers()
+        call(bridge, "test.requestAuthorization", id: 1, into: old)
+        bridge.dropPage()
+        call(bridge, "test.read", id: 1, into: new)
+        permission.answer(.authorized)
+        XCTAssertEqual(new.all.count, 1)
+        XCTAssertEqual(new.last?["result"] as? Int, 42)
+    }
+
+    func testAfterAReloadAnOldHandlersLateReplyIsIgnored() {
+        let bridge = bridge(FakePermission(.authorized), wait: true)
+        let old = Answers()
+        let new = Answers()
+        call(bridge, "test.read", id: 1, into: old)
+        let oldReply = pendingRead
+        bridge.dropPage()
+        call(bridge, "test.read", id: 1, into: new)
+        oldReply?(.success(7))
+        XCTAssertTrue(new.all.isEmpty)
+        pendingRead?(.success(8))
+        XCTAssertEqual(new.last?["result"] as? Int, 8)
+    }
+
+    func testAMethodWhosePermissionIsMissingIsntListed() {
+        let bridge = DeviceBridge(clipboard: nil, appVersion: "")
+        bridge.addMethod("nope.read", permission: "nope") { _, reply in
+            reply(.success(1))
+            return nil
+        }
+        bridge.addStream("nope.watch", permission: "nope") { _, _ in Ticks() }
+        bridge.addMethod("free.read") { _, reply in
+            reply(.success(1))
+            return nil
+        }
+        XCTAssertFalse(bridge.capabilities.contains("nope.read"))
+        XCTAssertFalse(bridge.capabilities.contains("nope.watch"))
+        XCTAssertTrue(bridge.capabilities.contains("free.read"))
+    }
+
     func testARemoteKernelCantAsk() {
         let bridge = bridge(FakePermission(.authorized))
         let answers = Answers()

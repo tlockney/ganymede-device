@@ -48,39 +48,58 @@ public typealias MethodHandler = @MainActor (_ params: [String: Any], _ reply: @
 /// Calls that answer later and aren't dialogs: permission requests, and
 /// methods added with `addMethod`, while they wait on a prompt or their
 /// handler. Each is answered once: by its outcome, or by a cancel.
+/// One waiting call: its id, and which call with that id it is.
+struct PendingCall: Hashable {
+    let id: Int
+    let serial: Int
+}
+
 @MainActor
 final class PendingCalls {
     private final class Call {
         let owner: Int
+        let serial: Int
         let reply: ([String: Any]) -> Void
         var cancel: (() -> Void)?
 
-        init(owner: Int, reply: @escaping ([String: Any]) -> Void) {
+        init(owner: Int, serial: Int, reply: @escaping ([String: Any]) -> Void) {
             self.owner = owner
+            self.serial = serial
             self.reply = reply
         }
     }
 
     private var calls: [Int: Call] = [:]
+    private var serial = 0
 
-    /// Tracks call `id`; false when one with that id is already waiting.
-    func begin(_ id: Int, owner: Int, reply: @escaping ([String: Any]) -> Void) -> Bool {
-        guard calls[id] == nil else { return false }
-        calls[id] = Call(owner: owner, reply: reply)
-        return true
+    /// Tracks call `id`; nil when one with that id is already waiting.
+    /// Steps that answer later hold on to the `PendingCall`, not the id:
+    /// ids start over when the page reloads, so a step left over from a
+    /// cancelled call must not reach a new call with the same id.
+    func begin(_ id: Int, owner: Int, reply: @escaping ([String: Any]) -> Void) -> PendingCall? {
+        guard calls[id] == nil else { return nil }
+        serial += 1
+        calls[id] = Call(owner: owner, serial: serial, reply: reply)
+        return PendingCall(id: id, serial: serial)
     }
 
-    /// Whether call `id` still waits (not cancelled, not answered).
-    func isWaiting(_ id: Int) -> Bool { calls[id] != nil }
-
-    /// What stops call `id`'s current step, replacing the last one.
-    func setCancel(_ id: Int, _ cancel: (() -> Void)?) {
-        calls[id]?.cancel = cancel
+    private func current(_ call: PendingCall) -> Call? {
+        guard let found = calls[call.id], found.serial == call.serial else { return nil }
+        return found
     }
 
-    /// Answers call `id`, once; ignored after a cancel.
-    func answer(_ id: Int, _ reply: [String: Any]) {
-        calls.removeValue(forKey: id)?.reply(reply)
+    /// Whether `call` still waits (not cancelled, not answered).
+    func isWaiting(_ call: PendingCall) -> Bool { current(call) != nil }
+
+    /// What stops `call`'s current step, replacing the last one.
+    func setCancel(_ call: PendingCall, _ cancel: (() -> Void)?) {
+        current(call)?.cancel = cancel
+    }
+
+    /// Answers `call`, once; ignored after a cancel.
+    func answer(_ call: PendingCall, _ reply: [String: Any]) {
+        guard current(call) != nil else { return }
+        calls.removeValue(forKey: call.id)?.reply(reply)
     }
 
     /// Rejects call `id` `cancelled` and stops what it waits on.

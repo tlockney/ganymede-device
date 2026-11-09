@@ -295,8 +295,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public var capabilities: [String] {
         Self.capabilities + (haptics.isAvailable ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])
             + permissions.keys.sorted().flatMap { ["\($0).authorizationStatus", "\($0).requestAuthorization"] }
-            + methods.keys.sorted()
-            + streams.methods.keys.sorted()
+            // A method whose namespace has no `addPermission` would only fail
+            // `unavailable`, so `has()` mustn't report it.
+            + methods.filter { $0.value.permission.map { permissions[$0] != nil } ?? true }.keys.sorted()
+            + streams.methods.keys.filter { streamPermissions[$0].map { permissions[$0] != nil } ?? true }.sorted()
     }
 
     private func hello() -> [String: Any] {
@@ -366,45 +368,45 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         let owner = Self.callID(call["owner"]) ?? 0
-        guard pending.begin(id, owner: owner, reply: reply) else {
+        guard let token = pending.begin(id, owner: owner, reply: reply) else {
             reply(Self.error("failed", "call \(id) is already waiting"))
             return
         }
         let params = call["params"] as? [String: Any] ?? [:]
         if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
             requests.request(permission) { [weak self] status in
-                self?.pending.answer(id, ["result": status.rawValue])
+                self?.pending.answer(token, ["result": status.rawValue])
             }
         } else if let entry = methods[method] {
-            authorize(method, entry.permission, call: id) { [weak self] in
-                self?.run(entry.handler, params, call: id)
+            authorize(method, entry.permission, call: token) { [weak self] in
+                self?.run(entry.handler, params, call: token)
             }
         } else {
-            authorize(method, streamPermissions[method], call: id) { [weak self] in
+            authorize(method, streamPermissions[method], call: token) { [weak self] in
                 guard let self else { return }
-                self.pending.answer(id, self.streams.start(method, params, call: id, owner: owner))
+                self.pending.answer(token, self.streams.start(method, params, call: id, owner: owner))
             }
         }
     }
 
     /// Runs `proceed` once `namespace`'s permission is granted, asking the
-    /// system when it hasn't been asked; otherwise rejects call `id`
+    /// system when it hasn't been asked; otherwise rejects `token`
     /// `denied`. Nothing happens for a call cancelled meanwhile.
-    private func authorize(_ method: String, _ namespace: String?, call id: Int, then proceed: @escaping @MainActor () -> Void) {
+    private func authorize(_ method: String, _ namespace: String?, call token: PendingCall, then proceed: @escaping @MainActor () -> Void) {
         guard let namespace else {
             proceed()
             return
         }
         guard let permission = permissions[namespace] else {
-            pending.answer(id, Self.error("unavailable", "\(method) needs the \(namespace) permission, which this app doesn't have"))
+            pending.answer(token, Self.error("unavailable", "\(method) needs the \(namespace) permission, which this app doesn't have"))
             return
         }
         let decide: @MainActor (PermissionStatus) -> Void = { [weak self] status in
-            guard let self, self.pending.isWaiting(id) else { return }
+            guard let self, self.pending.isWaiting(token) else { return }
             if status.isAuthorized {
                 proceed()
             } else {
-                self.pending.answer(id, Self.error("denied", "\(method): \(namespace) permission is \(status.rawValue)"))
+                self.pending.answer(token, Self.error("denied", "\(method): \(namespace) permission is \(status.rawValue)"))
             }
         }
         if permission.status == .notDetermined {
@@ -414,18 +416,18 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    private func run(_ handler: MethodHandler, _ params: [String: Any], call id: Int) {
-        guard pending.isWaiting(id) else { return }
+    private func run(_ handler: MethodHandler, _ params: [String: Any], call token: PendingCall) {
+        guard pending.isWaiting(token) else { return }
         let cancel = handler(params) { [weak self] result in
             switch result {
             case let .success(value):
-                self?.pending.answer(id, ["result": value])
+                self?.pending.answer(token, ["result": value])
             case let .failure(error):
-                self?.pending.answer(id, Self.error(error.code, error.message))
+                self?.pending.answer(token, Self.error(error.code, error.message))
             }
         }
         // Not when it already answered.
-        if pending.isWaiting(id) { pending.setCancel(id, cancel) }
+        if pending.isWaiting(token) { pending.setCancel(token, cancel) }
     }
 
     /// The hardware model identifier, such as "Mac14,2" or "iPad13,4".
