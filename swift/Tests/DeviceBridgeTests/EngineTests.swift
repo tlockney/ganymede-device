@@ -100,6 +100,22 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(code(send(engine, ["id": 2, "method": "clipboard.readText", "params": [:]])()), "unavailable")
     }
 
+    func testAReleaseMessageClosesTheContextsDialogs() {
+        let engine = bridge.engineDevice()
+        let open = send(engine, ["id": 1, "method": "ui.alert", "params": ["message": "hi"]])
+        _ = send(engine, ["release": true])
+        XCTAssertEqual(screen.closed, 1)
+        XCTAssertNotNil(open())
+    }
+
+    func testARemoteMessageCantNameTheEngineRange() {
+        var reply: [String: Any]?
+        bridge.respondRemote(to: ["id": 1, "owner": engineBase + 1, "release": true]) { reply = $0 }
+        XCTAssertEqual(code(reply), "failed")
+        bridge.respondRemote(to: ["id": engineBase + 1, "cancel": true]) { reply = $0 }
+        XCTAssertEqual(code(reply), "failed")
+    }
+
     func testTheEngineFunctionResolvesWithTheReply() async throws {
         let engine = bridge.engineDevice()
         let context = try XCTUnwrap(JSContext())

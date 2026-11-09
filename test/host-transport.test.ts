@@ -3,6 +3,7 @@
 // then what is particular to it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { hostFunctionTransport, installHostDevice } from "../src/host.ts";
 import { DeviceError } from "../src/errors.ts";
 
@@ -55,6 +56,14 @@ test("an abort rejects at once, even if the host never answers", async () => {
   const timeout = transport.call("ui.alert", { message: "hi" }, { signal: timer.signal });
   timer.abort(new DOMException("timed out", "TimeoutError"));
   await assert.rejects(timeout, (err) => err instanceof DeviceError && err.code === "timeout");
+});
+
+test("a call takes its listeners off a shared signal once it settles", async () => {
+  const { post } = engine(() => ({ result: "x" }));
+  const transport = hostFunctionTransport(post);
+  const cell = new AbortController();
+  for (let i = 0; i < 5; i++) await transport.call("clipboard.readText", {}, { signal: cell.signal });
+  assert.equal(getEventListeners(cell.signal, "abort").length, 0);
 });
 
 test("without a host function, nothing is installed", async () => {

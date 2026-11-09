@@ -45,8 +45,10 @@ extension DeviceBridge {
         // Every message but a cancel names its owner, so none falls into the
         // kernel page's owner-less bucket (owner 0).
         for key in ["id", "owner"] where call[key] != nil || (key == "owner" && !cancel) {
-            guard let n = Self.callID(call[key]), n > 0 else {
-                reply(Self.error("failed", "a remote message's \(key) must be a positive integer"))
+            // Below the engine range, so a remote message can't name an
+            // engine context's calls or owner.
+            guard let n = Self.callID(call[key]), n > 0, n < engineBase else {
+                reply(Self.error("failed", "a remote message's \(key) must be a positive integer below 2^40"))
                 return
             }
             call[key] = -n

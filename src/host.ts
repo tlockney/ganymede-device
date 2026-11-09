@@ -46,15 +46,17 @@ export function hostFunctionTransport(post: HostPost): HostFunctionTransport {
       const encoded = await encodeBinary(params ?? {});
       if (signal?.aborted) throw cancelled();
       const id = ++nextId;
-      const onAbort = () => void send({ id, cancel: true }).catch(() => {});
+      // Both listeners come off once the call settles: the signal is often
+      // the cell's, shared by every call the cell makes.
+      let rejectAbort: (() => void) | undefined;
+      const aborted = new Promise<never>((_, reject) => (rejectAbort = () => reject(cancelled())));
+      const onAbort = () => {
+        void send({ id, cancel: true }).catch(() => {});
+        rejectAbort?.();
+      };
       signal?.addEventListener("abort", onAbort, { once: true });
       try {
-        const reply = await Promise.race([
-          send({ id, owner: 1, method, params: encoded }),
-          new Promise<never>((_, reject) => {
-            if (signal) signal.addEventListener("abort", () => reject(cancelled()), { once: true });
-          }),
-        ]);
+        const reply = await Promise.race([send({ id, owner: 1, method, params: encoded }), aborted]);
         if (isRecord(reply) && isRecord(reply.error)) {
           throw DeviceError.from({
             name: "DeviceError",

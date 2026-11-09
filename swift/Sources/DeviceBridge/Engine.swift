@@ -67,6 +67,8 @@ public final class EngineDevice {
         }
         call["owner"] = owner
         if call["release"] as? Bool == true {
+            // Dialogs are kept by call id, not owner: close this context's.
+            bridge.dialogs.drop { [calls] id in calls.values.contains(id) }
             calls.removeAll()
             return reply(Self.text(bridge.handle(call)))
         }
