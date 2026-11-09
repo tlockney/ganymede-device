@@ -134,6 +134,9 @@ final class MotionHub {
 
     private var watches: [Watch] = []
     private(set) var newest: MotionSample?
+    /// When `newest` arrived, by `now`: a sample from before a suspend
+    /// isn't the newest any more.
+    private var newestAt: Date?
     private var warmUntil: Date?
     private var waiting: [Int: (Result<MotionSample, DeviceCallError>) -> Void] = [:]
     private var nextWaiter = 0
@@ -164,7 +167,8 @@ final class MotionHub {
         // last sample may be a second old.
         let warm = latestWanted
         warmUntil = now().addingTimeInterval(Self.keepWarm)
-        if warm, running != nil, let newest {
+        if warm, running != nil, let newest, let at = newestAt,
+           now().timeIntervalSince(at) <= Self.latestInterval * 2 {
             done(.success(newest))
             // A slower watch's interval may be all that runs now.
             update()
@@ -220,10 +224,17 @@ final class MotionHub {
 
     private func received(_ sample: MotionSample) {
         newest = sample
+        newestAt = now()
+        // A bridge freed without closing its streams (a closed window)
+        // leaves its watches here; let them go.
+        let before = watches.count
+        watches.removeAll { !$0.sink.isOpen }
+        if watches.count != before { update() }
         let answers = waiting.values
         waiting = [:]
         for answer in answers { answer(.success(sample)) }
         let step = running ?? 0
+        var reply: [String: Any]?
         for watch in watches {
             // A slower watch takes the sample nearest each due time, so
             // over time it gets one every `interval` even when that isn't
@@ -237,7 +248,8 @@ final class MotionHub {
             } else {
                 watch.due = sample.timestamp.addingTimeInterval(watch.interval)
             }
-            watch.sink.send(DeviceBridge.motionReply(sample))
+            if reply == nil { reply = DeviceBridge.motionReply(sample) }
+            watch.sink.send(reply!)
         }
         // `latest` went cold: run slower for the watches, or stop.
         if !latestWanted { update() }
@@ -250,13 +262,20 @@ extension DeviceBridge {
     /// Core Motion by default, through one source every bridge in the app
     /// shares; a Mac has none, so this does nothing there.
     public func addMotion(_ provider: MotionProvider? = nil) {
+        addMotion(hub: Self.motionHub(provider))
+    }
+
+    private static func motionHub(_ provider: MotionProvider?) -> MotionHub? {
         #if os(iOS)
-        let hub = provider.map { MotionHub(provider: $0) } ?? MotionHub.system
+        return provider.map { MotionHub(provider: $0) } ?? MotionHub.system
         #else
-        guard let provider else { return }
-        let hub = MotionHub(provider: provider)
+        return provider.map { MotionHub(provider: $0) }
         #endif
-        guard hub.provider.isAvailable else { return }
+    }
+
+    /// `addMotion` over `hub`, which tests share between bridges.
+    func addMotion(hub: MotionHub?) {
+        guard let hub, hub.provider.isAvailable else { return }
         addPermission("motion", LedgerOnlyPermission())
         // A bad interval fails before the permission prompt.
         addStream("motion.watch", permission: "motion", check: { _ = try Self.motionInterval($0) }) { params, sink in
@@ -270,10 +289,12 @@ extension DeviceBridge {
     /// `motion.watch`'s interval: 0.1 s unless the call gives 0.01 to 1.
     private static func motionInterval(_ params: [String: Any]) throws -> TimeInterval {
         guard let value = params["interval"] else { return 0.1 }
-        guard let number = (value as? NSNumber)?.doubleValue, number >= 0.01, number <= 1 else {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue >= 0.01, number.doubleValue <= 1
+        else {
             throw DeviceCallError("failed", "motion.watch: interval must be 0.01 to 1 seconds")
         }
-        return number
+        return number.doubleValue
     }
 
     /// A sample as the cell reads it (src/device.ts `MotionSample`).

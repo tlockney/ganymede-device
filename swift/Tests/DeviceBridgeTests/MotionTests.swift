@@ -225,11 +225,43 @@ final class MotionTests: XCTestCase {
         XCTAssertTrue(motion.running)
     }
 
+    func testAFreedBridgesWatchesLetTheSensorsStop() throws {
+        let motion = FakeMotion()
+        let hub = MotionHub(provider: motion)
+        var bridge: DeviceBridge? = DeviceBridge(clipboard: nil, ledger: PermissionLedger(store: MemoryLedgerStore()), appVersion: "")
+        bridge?.ledgerPrompter = prompter
+        bridge?.setNotebook("a.ipynb", for: 1)
+        bridge?.addMotion(hub: hub)
+        weak var gone = bridge
+        _ = bridge.map { call($0, "motion.watch", ["interval": 0.01], id: 1) }
+        XCTAssertTrue(motion.running)
+        bridge = nil
+        XCTAssertNil(gone, "the bridge is freed, as when a window closes, without closing its streams")
+        motion.send(at: 0)
+        XCTAssertFalse(motion.running, "the next sample finds no open watch")
+    }
+
+    func testAWarmLatestAfterASuspendWaitsForAFreshSample() {
+        var clock = Date(timeIntervalSince1970: 0)
+        let motion = FakeMotion()
+        let hub = MotionHub(provider: motion, now: { clock })
+        _ = hub.latest { _ in }
+        motion.send(at: 0, yaw: 0.1)
+        // Suspended for 3 s, inside the 10 s keep-warm.
+        clock = clock.addingTimeInterval(3)
+        var got: MotionSample?
+        _ = hub.latest { got = try? $0.get() }
+        XCTAssertNil(got, "the sample from before the suspend isn't the newest")
+        motion.send(at: 3, yaw: 0.2)
+        XCTAssertEqual(got?.yaw, 0.2)
+    }
+
     func testWatchChecksTheInterval() {
         let motion = FakeMotion()
         let bridge = bridge(motion)
         XCTAssertEqual(errorCode(call(bridge, "motion.watch", ["interval": 0.001])), "failed")
         XCTAssertEqual(errorCode(call(bridge, "motion.watch", ["interval": "fast"])), "failed")
+        XCTAssertEqual(errorCode(call(bridge, "motion.watch", ["interval": true])), "failed", "a JSON boolean isn't 1 s")
         XCTAssertFalse(motion.running)
         XCTAssertEqual(prompter.asked, 0, "a bad interval fails before the ledger asks")
     }

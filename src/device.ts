@@ -559,7 +559,7 @@ export interface DeviceMotion extends Authorization {
    *
    * @param options `interval` in seconds, 0.01 to 1 (0.1 by default); and the call's `signal`, which ends the stream.
    * @returns A stream of samples; `close()` or leaving the loop stops the sensors unless something else still reads them.
-   * @throws {DeviceError} `denied` when the notebook may not use motion; `failed` when `interval` is out of range.
+   * @throws {DeviceError} `denied` when the notebook may not use motion; `failed` when `interval` is out of range, or Core Motion stops with an error.
    * @example
    * ```ts
    * const samples = [];
@@ -577,7 +577,7 @@ export interface DeviceMotion extends Authorization {
    *
    * @param options The call's `signal`. Cancel rejects `cancelled`.
    * @returns The newest sample.
-   * @throws {DeviceError} `denied` when the notebook may not use motion.
+   * @throws {DeviceError} `denied` when the notebook may not use motion; `failed` when Core Motion stops with an error.
    * @example
    * ```ts
    * const { attitude } = await device.motion.latest();

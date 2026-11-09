@@ -1234,7 +1234,7 @@ reads slower than they come (`dropped` counts the rest).
 
 **Returns** `DeviceStream<MotionSample>`: A stream of samples; `close()` or leaving the loop stops the sensors unless something else still reads them.
 
-**Throws** `DeviceError`: `denied` when the notebook may not use motion; `failed` when `interval` is out of range.
+**Throws** `DeviceError`: `denied` when the notebook may not use motion; `failed` when `interval` is out of range, or Core Motion stops with an error.
 
 **Availability**
 
@@ -1268,7 +1268,7 @@ reading; they keep running while calls keep coming, and stop about
 
 **Returns** `Promise<MotionSample>`: The newest sample.
 
-**Throws** `DeviceError`: `denied` when the notebook may not use motion.
+**Throws** `DeviceError`: `denied` when the notebook may not use motion; `failed` when Core Motion stops with an error.
 
 **Availability**
 
