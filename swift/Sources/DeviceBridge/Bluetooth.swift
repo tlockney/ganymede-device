@@ -695,7 +695,9 @@ public final class SystemBluetoothCentral: NSObject, BluetoothCentral, CBCentral
     nonisolated public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
             guard let attempt = connecting.removeValue(forKey: peripheral.identifier) else {
-                // Cancelled meanwhile.
+                // Cancelled meanwhile: the link is up, so its disconnect
+                // callback will come, and isn't a later connect's.
+                releasing.insert(peripheral.identifier)
                 central.cancelPeripheralConnection(peripheral)
                 return
             }
@@ -746,6 +748,8 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
 
     private var discovered: [BluetoothServiceInfo]?
     private var discovering = false
+    /// The table changed while discovering: what is being found is stale.
+    private var rediscover = false
     private var characteristicsLeft = 0
     private var discoveryError: DeviceCallError?
     private var serviceWaiters: [Int: @MainActor (Result<Void, DeviceCallError>) -> Void] = [:]
@@ -863,6 +867,15 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
 
     private func finishDiscovery(_ error: DeviceCallError?) {
         discovering = false
+        if rediscover, error == nil {
+            // Changed underway: discover again before anyone is answered.
+            rediscover = false
+            discovering = true
+            discoveryError = nil
+            peripheral.discoverServices(nil)
+            return
+        }
+        rediscover = false
         if error == nil {
             discovered = (peripheral.services ?? []).map { service in
                 BluetoothServiceInfo(
@@ -1054,7 +1067,18 @@ final class SystemBluetoothPeripheral: NSObject, BluetoothPeripheral, CBPeripher
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
         // The GATT table changed: discover again on the next call.
-        MainActor.assumeIsolated { if !discovering { discovered = nil } }
+        MainActor.assumeIsolated {
+            if discovering { rediscover = true } else { discovered = nil }
+            // Streams on characteristics that went away would never hear
+            // again: end them, so the cell can subscribe anew.
+            let gone = Set(invalidatedServices.flatMap { $0.characteristics ?? [] }.map(ObjectIdentifier.init))
+            for slot in gone {
+                subscribed.remove(slot)
+                for notify in notifies.removeValue(forKey: slot) ?? [] {
+                    notify.end(DeviceCallError("failed", "bluetooth.notify: the peripheral removed this characteristic"))
+                }
+            }
+        }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
