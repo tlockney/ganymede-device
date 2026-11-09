@@ -271,7 +271,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         handles.stop(remote)
         streams.stop(remote)
         cancelPending(remote)
-        ledger.forget(remote)
+        ledger.forget(owners: remote)
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
