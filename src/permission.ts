@@ -22,11 +22,33 @@ export function isGranted(status: AuthorizationStatus): boolean {
   return status === "authorized" || status === "limited" || status === "writeOnly" || status === "reducedAccuracy";
 }
 
-/** The trio on every permissioned namespace, such as `device.location`. */
+/**
+ * The trio on every permissioned namespace, such as `device.location`.
+ * The examples use `device.notifications`; the reference shows each
+ * namespace's own (scripts/reference.ts).
+ */
 export interface Authorization {
-  /** The current status, without asking. Cancel rejects `cancelled`. */
+  /**
+   * Reads the permission's status, without asking.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+   * @example
+   * ```ts
+   * console.log(await device.notifications.authorizationStatus());
+   * ```
+   */
   authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
-  /** True when the status is a grant, partial ones included. Cancel rejects `cancelled`. */
+  /**
+   * Whether the permission is granted, without asking.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns `true` when the status is a grant, partial ones included.
+   * @example
+   * ```ts
+   * if (!(await device.notifications.isAuthorized())) console.log("notifications are off");
+   * ```
+   */
   isAuthorized(options?: CallOptions): Promise<boolean>;
   /**
    * Shows the system prompt when the person hasn't been asked, and
@@ -34,6 +56,14 @@ export interface Authorization {
    * as it is. The namespace's methods ask on their own, so calling this
    * first is optional. Cancel rejects `cancelled`; a system prompt already
    * up stays, and its answer still counts for later calls.
+   *
+   * @param options The call's `signal`.
+   * @returns The status after the prompt, or as it was when the person had already been asked.
+   * @example
+   * ```ts
+   * const status = await device.notifications.requestAuthorization();
+   * if (status === "denied") console.log("turn notifications on in Settings");
+   * ```
    */
   requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 }

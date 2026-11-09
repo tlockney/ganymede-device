@@ -38,9 +38,11 @@ files=$(git diff --no-renames --name-only "$base" HEAD) || everything
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   case $f in
+    # Generated from src/ and checked by test/reference.test.ts.
+    docs/reference.md) ts=true ;;
     *.md | docs/* | LICENSE) ;;
     Package.swift | Package.resolved | swift/*) swift=true ;;
-    src/* | test/* | scripts/build.mjs | package.json | package-lock.json | tsconfig*.json) ts=true ;;
+    src/* | test/* | scripts/build.mjs | scripts/reference.ts | package.json | package-lock.json | tsconfig*.json) ts=true ;;
     *) ts=true; swift=true ;;
   esac
 done <<EOF2
