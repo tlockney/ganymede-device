@@ -30,6 +30,25 @@ private final class FakePermission: Permission {
     }
 }
 
+/// The ledger's prompt, always answering "always", so these tests reach
+/// the system permission.
+@MainActor
+private final class AllowAll: LedgerPrompter {
+    func askPermission(_ capability: String, notebook: String, id: Int, answer: @escaping @MainActor (LedgerAnswer?) -> Void) {
+        answer(.always)
+    }
+
+    func dismissPermission(_ id: Int) {}
+}
+
+/// Kept answers in memory.
+@MainActor
+final class MemoryLedgerStore: LedgerStore {
+    var saved: [LedgerGrant] = []
+    func load() -> [LedgerGrant] { saved }
+    func save(_ grants: [LedgerGrant]) { saved = grants }
+}
+
 @MainActor
 private final class Answers {
     var all: [[String: Any]] = []
@@ -39,6 +58,7 @@ private final class Answers {
 
 @MainActor
 final class PermissionsTests: XCTestCase {
+    private lazy var allowAll = AllowAll()
     private var runs = 0
     private var cancels = 0
     /// The reply of the last `test.read` that hasn't answered yet.
@@ -48,7 +68,10 @@ final class PermissionsTests: XCTestCase {
     /// it; answers 42, or waits when `wait` is set) and `test.ticks` (a
     /// stream that needs it).
     private func bridge(_ permission: FakePermission, wait: Bool = false) -> DeviceBridge {
-        let bridge = DeviceBridge(clipboard: nil, appVersion: "")
+        let bridge = DeviceBridge(clipboard: nil, ledger: PermissionLedger(store: MemoryLedgerStore()), appVersion: "")
+        bridge.ledgerPrompter = allowAll
+        bridge.setNotebook("a.ipynb", for: 1)
+        bridge.setNotebook("b.ipynb", for: 2)
         bridge.addPermission("test", permission)
         bridge.addMethod("test.read", permission: "test") { [unowned self] _, reply in
             self.runs += 1

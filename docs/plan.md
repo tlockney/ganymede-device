@@ -571,6 +571,9 @@ Done:
    src/permission.ts), and in Swift `addPermission`, `addMethod` and
    `addStream(permission:)`, which ask lazily and reject `denied`
    (docs/protocol.md, "Permissions").
+10. **Phase 2's ledger, Swift side** (#60): `DeviceBridge.ledger`, the
+   notebook per kernel, `ledgerPrompter`, declarations (docs/protocol.md,
+   "The ledger"). The app's prompt and Settings pane are ganymede-ui#383.
 
 Next:
 
