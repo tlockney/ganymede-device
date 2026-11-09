@@ -83,6 +83,15 @@ refresh.
 reads the location; without it the call is `unavailable` in `has()` and
 fails `unavailable`; a dialog fails `unavailable`.
 
+As built: `bridge.engineDevice(headless: true)` and
+`EngineDevice.allows(_:)`; a headless `hello` lists only what `allows`
+passes and other calls fail `unavailable` (protocol.md, "Headless
+runs"). The `headless` column in `src/support.ts`, checked against
+Swift's dialog list by test/swift.test.ts. The App Group store is the
+existing `UserDefaultsLedgerStore(defaults:)` given a suite; the
+entitlements and running a `.ts` file or notebook top to bottom belong
+to the extensions (parts 3 to 5).
+
 ## 3. Share-sheet extension
 
 - "Run with Ganymede" in the share sheet on iPad, iPhone and Mac. The

@@ -407,6 +407,20 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         "files.pick", "files.export", "photos.pick",
     ]
 
+    /// The permission namespace `method` needs before it runs, if any.
+    func permissionNamespace(_ method: String) -> String? {
+        methods[method]?.permission ?? streamPermissions[method] ?? addedDialogs[method]?.permission
+    }
+
+    /// Whether the system has granted `namespace`'s permission.
+    func isAuthorized(_ namespace: String) -> Bool {
+        permissions[namespace]?.status.isAuthorized == true
+    }
+
+    /// Every method that shows something and waits for the person: the
+    /// built-in dialogs and those a namespace added.
+    var personMethods: Set<String> { Self.dialogMethods.union(addedDialogs.keys) }
+
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
         Self.capabilities + (haptics.isAvailable ? ["haptics.impact", "haptics.notification", "haptics.selection"] : [])

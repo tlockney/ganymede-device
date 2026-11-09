@@ -730,3 +730,45 @@ context, `install(in:)` defines the function in a `JSContext`, and
   that call opened, for the context's latest 64 answered calls.
 - Call the function, and run the context, on the main thread; a call
   from another thread fails `unavailable`.
+
+### Headless runs
+
+A run with no notebook on screen (the share sheet, Shortcuts, a widget)
+gets `bridge.engineDevice(headless: true)`. Set its notebook, the
+script's path, with `setNotebook(_:for:)` before the preload runs: the
+preload's `hello` fixes `device.has()` for the whole run, so a context
+with no notebook then has no permissioned method at all.
+`allows(method)` says what such a context may call:
+
+- Not a dialog, picker, `share` or `preview` (`DeviceBridge.dialogMethods`
+  and the dialogs a namespace added), and no `requestAuthorization`.
+- A method that needs a permission only when the ledger has a kept
+  "always" for the notebook and capability, and the system has granted
+  the permission.
+- Everything else, such as `authorizationStatus`, the clipboard and
+  sounds. `authorizationStatus` reads `denied` unless the notebook has
+  a kept "always" and the system has granted the permission, since
+  otherwise the namespace's calls fail and nothing can ask. `openURL`
+  ignores `inApp` and hands the URL to the system.
+
+Its `hello` lists only those methods, so `device.has()` answers
+truthfully, and any other call fails `unavailable` without reaching the
+ledger or a dialog. The `headless` column of `src/support.ts` says which
+methods a headless run never has.
+
+Extensions read the app's kept answers from an App Group suite (named
+`group.<name>` on iOS and iPadOS, `<team>.<name>` on the Mac): pass
+`PermissionLedger(store: UserDefaultsLedgerStore(defaults: suite))` and
+`addFolders(FolderGrants(store: UserDefaultsFolderStore(defaults:
+suite)))` in the app and in each extension, or a headless run sees no
+kept answers and no folders. Only the app writes. Both stores default
+to `.standard`, so an app moving to the suite copies its existing rows
+across once. On the Mac a folder's bookmark is scoped to the app that
+made it, so an extension gets the list but can't open the folders; that
+is for the Mac extension to settle.
+
+A permission whose status the app learns asynchronously, such as
+notifications, reads `notDetermined` until it does, and a `hello`
+before then leaves its methods out for the run. An extension has to
+wait for it; an awaitable refresh comes with the extensions (parts 3
+to 5).
