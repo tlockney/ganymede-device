@@ -13,6 +13,11 @@ gets a few of those through web APIs where they fit; see "Browser
 fallback". Every feature's support in each case is documented in one
 matrix; see "Documentation".
 
+Platforms: macOS and iOS (iPadOS) only, for now. The native side is
+Swift in Ganymede's Apple apps; there is no Windows, Linux or Android
+host, and none is planned. The browser fallback is the only part that
+runs elsewhere.
+
 Sources: Juno's module docs (juno.sh/docs/python/juno/ and its 17
 module pages, read 2026-10-18) and the existing design in the
 [ts-on-ipados](https://github.com/tlockney/research/tree/main/ts-on-ipados)
@@ -611,6 +616,9 @@ Done:
    `Folder` that lists, reads, writes and removes inside a folder the
    person picked, kept per notebook as a bookmark (docs/protocol.md,
    "Folders").
+21. **Phase 3's secrets** (#113): `device.secrets` get, set, delete and
+   list, strings kept per notebook in the keychain on this device, with
+   the ledger's prompt as the only consent (docs/protocol.md, "Secrets").
 
 Next:
 

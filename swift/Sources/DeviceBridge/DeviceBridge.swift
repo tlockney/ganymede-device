@@ -50,6 +50,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// What notebooks published for widgets (`addWidgets`), so a moved
     /// notebook keeps them.
     var publishedWidgets: PublishedWidgets?
+    /// The secrets notebooks saved (`addSecrets`), so a moved notebook
+    /// keeps them.
+    var notebookSecrets: NotebookSecrets?
     private let requests = PermissionRequests()
     private let ledgerRequests = LedgerRequests()
     private let appVersion: String
@@ -100,6 +103,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         ledger.move(from: old, to: new)
         folderGrants?.move(from: old, to: new)
         publishedWidgets?.move(from: old, to: new)
+        // Kept until it applies, when the keychain is locked now.
+        notebookSecrets?.move(from: old, to: new)
         ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 

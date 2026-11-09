@@ -91,6 +91,13 @@ device.secrets.list(): Promise<string[]>        // names only
 second notebook can't see it; a rename keeps it; a ledger "deny"
 rejects `denied`. XCTest against a fake keychain.
 
+As built (#113): per notebook only, no app-wide secrets (decided
+2026-11-09). Swift `addSecrets()` with `KeychainSecretStore(accessGroup:)`
+(nil by default; the app passes the shared group once it has the
+entitlement) and `NotebookSecrets` for Settings. Names count UTF-16 code
+units, as the cell's `length` does. A rename the keychain refuses is kept
+(`pendingMoves`) and applied before the next secrets call.
+
 ## 3. Host events (`device.on`)
 
 ```ts
@@ -235,8 +242,8 @@ plan.md "Where things stand" updated.
 
 ## Open questions
 
-1. Secrets: per notebook only, or also an app-wide scope the person can
-   share across notebooks (Settings would mark which)?
+1. ~~Secrets: per notebook only, or also an app-wide scope?~~ Per
+   notebook only (decided 2026-11-09).
 2. Folders: should a process kernel on the Mac get them as Deno
    permission scopes in this phase, or wait?
 3. Bluetooth on a remote kernel stays "no"; confirm no need for it from

@@ -411,6 +411,52 @@ shares the bridge's store.
   so there is nothing to close.
 - On-device only: none of these is in the remote subset.
 
+## Secrets
+
+`device.secrets` keeps strings a notebook saved, such as an API token,
+in the keychain. The app turns it on with `DeviceBridge.addSecrets()`; a
+Settings screen lists names (never values) and deletes them with its own
+`NotebookSecrets()`, which shares the bridge's store.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `secrets.get` | `{ name }` | the value, or `null` when the notebook has none by that name |
+| `secrets.set` | `{ name, value }` | `null` once saved, in place of one by the same name |
+| `secrets.delete` | `{ name }` | `true`, or `false` when there was none |
+| `secrets.list` | `{}` | the notebook's names, sorted |
+
+- Capability `secrets`, with no system permission: the ledger's prompt
+  is the only consent, and `secrets.authorizationStatus` reads the
+  ledger alone. A headless run needs a kept "always".
+- Per notebook: the keychain account is `<notebook path>\0<name>`, so a
+  notebook never sees another's names. `notebookMoved` re-keys them. A
+  rename the keychain refuses (locked before the first unlock) is kept,
+  in UserDefaults so it survives a relaunch, and applied before the
+  next secrets call or Settings listing; until it applies, secrets calls
+  fail, so a notebook later saved at the old path can't read what was
+  under it. Only the two paths a stuck rename names wait; other
+  notebooks' calls go on. `NotebookSecrets.pendingMoves` and `settle()`
+  show and retry them, and `forgetPendingMoves()` drops one the keychain
+  keeps refusing, leaving the secrets under the old path for Settings
+  to delete.
+- Names are 1 to 128 UTF-16 code units without NUL; values are strings
+  up to 64 KiB as UTF-8. Anything else fails `failed`.
+- `KeychainSecretStore`: generic passwords under service
+  `ganymede.device.secrets`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`,
+  never synced; on the Mac in the data protection keychain, which needs
+  a signed app. So a headless run can read them while the device is
+  locked, once it has been unlocked since it started; before that a call
+  fails `unavailable`. `KeychainSecretStore(accessGroup:)` shares them
+  with the app's extensions (phase-4.md, part 2), which needs
+  `keychain-access-groups` on the app and each extension. Items saved
+  without a group sit in the app's default one and queries with a group
+  don't find them, so an app that starts passing the group copies its
+  existing items into it once, as for the ledger's App Group suite.
+  Pass the same suite as `NotebookSecrets(defaults:)` then, so an
+  extension sees the app's pending renames and doesn't read under a path
+  the app hasn't settled.
+- On-device only: none of these is in the remote subset.
+
 ## Permissions
 
 A namespace that needs a system (TCC) permission, such as `location`,
