@@ -307,7 +307,10 @@ function renderSection(
     index.push(`| [${title}](#${slugify(title)}) | ${cell(oneLine(doc.summary.split(/(?<=\.)\s/)[0]))} |`);
     out.push(`### ${title}`, "");
     out.push("```ts", source(m, sf), "```", "");
-    renderDoc(out, doc, [m], where, row, r);
+    // The trio's examples are written for `device.notifications`; under
+    // another namespace they call that namespace.
+    const shown = inherited ? { ...doc, examples: doc.examples.map((e) => e.replaceAll("device.notifications.", section.prefix)) } : doc;
+    renderDoc(out, shown, [m], where, row, r);
   }
   if (props.length > 0) {
     out.push("### Properties", "", "| Property | Type | Description |", "| --- | --- | --- |", ...props, "");

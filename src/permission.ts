@@ -22,7 +22,11 @@ export function isGranted(status: AuthorizationStatus): boolean {
   return status === "authorized" || status === "limited" || status === "writeOnly" || status === "reducedAccuracy";
 }
 
-/** The trio on every permissioned namespace, such as `device.location`. */
+/**
+ * The trio on every permissioned namespace, such as `device.location`.
+ * The examples use `device.notifications`; the reference shows each
+ * namespace's own (scripts/reference.ts).
+ */
 export interface Authorization {
   /**
    * Reads the permission's status, without asking.
