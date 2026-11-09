@@ -258,6 +258,18 @@ final class LedgerTests: XCTestCase {
         XCTAssertNil(bridge.ledger.answer(notebook: "/a.ipynb", capability: "location"))
     }
 
+    func testAnAnswerIsKeptUnderThePromptsNotebookEvenIfTheKernelNumberIsReused() {
+        let bridge = bridge()
+        let replies = Replies()
+        call(bridge, id: 1, into: replies)
+        // The kernel number now runs another notebook (a reload elsewhere
+        // reused it) while the prompt for walk.ipynb is still up.
+        bridge.setNotebook("/notes/other.ipynb", for: 1)
+        prompter.answer(.deny)
+        XCTAssertEqual(bridge.ledger.answer(notebook: "/notes/walk.ipynb", capability: "location"), .deny)
+        XCTAssertNil(bridge.ledger.answer(notebook: "/notes/other.ipynb", capability: "location"))
+    }
+
     func testDeclarationsListWhatIsStillToAsk() {
         store.saved = [LedgerGrant(notebook: "/n.ipynb", capability: "location", answer: .deny)]
         let bridge = bridge()

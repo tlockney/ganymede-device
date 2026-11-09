@@ -159,55 +159,62 @@ public final class PermissionLedger {
 /// come while one is up wait on it.
 @MainActor
 final class LedgerRequests {
-    private struct Key: Hashable {
-        let notebook: String
-        let capability: String
-    }
-
     private final class Prompt {
         let id: Int
+        /// The notebook asked about; follows a rename while the prompt is up.
+        var notebook: String
+        let capability: String
         var waiters: [(call: Int, done: @MainActor (LedgerAnswer?) -> Void)] = []
 
-        init(id: Int) {
+        init(id: Int, notebook: String, capability: String) {
             self.id = id
+            self.notebook = notebook
+            self.capability = capability
         }
     }
 
-    private var prompts: [Key: Prompt] = [:]
+    /// By prompt id.
+    private var prompts: [Int: Prompt] = [:]
     private var nextID = 1
 
     /// Asks through `prompter`, or joins the prompt already up; `done` gets
-    /// the answer, once. The call that opens the prompt supplies `record`,
-    /// which keeps the answer once, before the waiters hear it.
+    /// the answer, once. `record` keeps the answer once, under the prompt's
+    /// own notebook (where a rename took it), before the waiters hear it.
     func ask(
         _ capability: String, notebook: String, call: Int, prompter: LedgerPrompter,
-        record: @escaping @MainActor (LedgerAnswer) -> Void,
+        record: @escaping @MainActor (_ answer: LedgerAnswer, _ notebook: String) -> Void,
         done: @escaping @MainActor (LedgerAnswer?) -> Void
     ) {
-        let key = Key(notebook: notebook, capability: capability)
-        if let prompt = prompts[key] {
+        if let prompt = prompts.values.first(where: { $0.notebook == notebook && $0.capability == capability }) {
             prompt.waiters.append((call, done))
             return
         }
-        let prompt = Prompt(id: nextID)
+        let prompt = Prompt(id: nextID, notebook: notebook, capability: capability)
         nextID += 1
         prompt.waiters.append((call, done))
-        prompts[key] = prompt
+        prompts[prompt.id] = prompt
         prompter.askPermission(capability, notebook: notebook, id: prompt.id) { [weak self, weak prompt] answer in
-            guard let self, let prompt, self.prompts[key] === prompt else { return }
-            self.prompts[key] = nil
-            if let answer { record(answer) }
+            guard let self, let prompt, self.prompts[prompt.id] === prompt else { return }
+            self.prompts[prompt.id] = nil
+            if let answer { record(answer, prompt.notebook) }
             for waiter in prompt.waiters { waiter.done(answer) }
+        }
+    }
+
+    /// A notebook was renamed or moved: its prompts now ask for the new path.
+    func move(from old: String, to new: String) {
+        for prompt in prompts.values where prompt.notebook == old {
+            prompt.notebook = new
         }
     }
 
     /// Call `call` was cancelled: it stops waiting, and a prompt nobody
     /// waits on any more is dismissed.
     func cancel(_ call: Int, prompter: LedgerPrompter?) {
-        for (key, prompt) in prompts where prompt.waiters.contains(where: { $0.call == call }) {
+        for prompt in prompts.values where prompt.waiters.contains(where: { $0.call == call }) {
             prompt.waiters.removeAll { $0.call == call }
             if prompt.waiters.isEmpty {
-                prompts[key] = nil
+                prompts[prompt.id] = nil
                 prompter?.dismissPermission(prompt.id)
             }
         }

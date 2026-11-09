@@ -77,6 +77,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A notebook was renamed or moved: its kernels and kept answers follow.
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
+        ledgerRequests.move(from: old, to: new)
     }
 
     /// Of a notebook's declared capabilities (`metadata.ganymede.device`),
@@ -472,10 +473,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
                 refused("\(method): \(notebook) has no \(namespace) grant, and no one can be asked")
                 return
             }
-            ledgerRequests.ask(namespace, notebook: notebook, call: token.id, prompter: prompter, record: { [weak self] answer in
-                // Under the notebook's path now, in case it moved while the prompt was up.
-                guard let self else { return }
-                self.ledger.record(answer, notebook: self.ledger.notebook(for: owner) ?? notebook, capability: namespace)
+            ledgerRequests.ask(namespace, notebook: notebook, call: token.id, prompter: prompter, record: { [weak self] answer, notebook in
+                self?.ledger.record(answer, notebook: notebook, capability: namespace)
             }) { [weak self] answer in
                 guard let self, self.pending.isWaiting(token) else { return }
                 if answer == .once || answer == .always {
