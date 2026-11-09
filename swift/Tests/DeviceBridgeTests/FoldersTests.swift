@@ -82,13 +82,16 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(folder["name"] as? String, "Data")
         XCTAssertEqual(folder["writable"] as? Bool, true)
         XCTAssertEqual(picker.shown, [.pickFolder(write: true)])
-        let listed = try XCTUnwrap((await call("folders.list"))["result"] as? [[String: Any]])
+        let r1 = await call("folders.list")
+        let listed = try XCTUnwrap(r1["result"] as? [[String: Any]])
         XCTAssertEqual(listed.map { $0["id"] as? String }, [folder["id"] as? String])
-        let other = try XCTUnwrap((await call("folders.list", owner: 2))["result"] as? [[String: Any]])
+        let r2 = await call("folders.list", owner: 2)
+        let other = try XCTUnwrap(r2["result"] as? [[String: Any]])
         XCTAssertTrue(other.isEmpty, "another notebook can't see it")
 
         // Picking it again replaces the grant and keeps its id.
-        let again = try XCTUnwrap((await call("folders.pick"))["result"] as? [String: Any])
+        let r3 = await call("folders.pick")
+        let again = try XCTUnwrap(r3["result"] as? [String: Any])
         XCTAssertEqual(again["id"] as? String, folder["id"] as? String)
         XCTAssertEqual(again["writable"] as? Bool, false)
         XCTAssertEqual(store.saved.count, 1)
@@ -96,84 +99,115 @@ final class FoldersTests: XCTestCase {
 
     func testACancelledPickerIsNull() async {
         picker.folder = nil
-        XCTAssertTrue((await call("folders.pick"))["result"] is NSNull)
+        let r4 = await call("folders.pick")
+        XCTAssertTrue(r4["result"] is NSNull)
         XCTAssertTrue(store.saved.isEmpty)
     }
 
     func testAKernelWithNoNotebookCantPick() async {
-        XCTAssertEqual(code(await call("folders.pick", owner: 3)), "denied")
+        let r5 = await call("folders.pick", owner: 3)
+        XCTAssertEqual(code(r5), "denied")
         XCTAssertEqual(picker.shown, [], "refused before the picker shows")
     }
 
     func testEntriesReadWriteAndRemove() async throws {
-        let id = try XCTUnwrap(await pick(write: true))
-        let entries = try XCTUnwrap((await call("folders.entries", ["folder": id]))["result"] as? [[String: Any]])
+        let r6 = await pick(write: true)
+        let id = try XCTUnwrap(r6)
+        let r7 = await call("folders.entries", ["folder": id])
+        let entries = try XCTUnwrap(r7["result"] as? [[String: Any]])
         XCTAssertEqual(entries.map { $0["name"] as? String }, ["a.txt", "sub"])
         XCTAssertEqual(entries.map { $0["kind"] as? String }, ["file", "directory"])
         XCTAssertEqual(entries[0]["size"] as? Int, 2)
         XCTAssertNotNil(entries[0]["modified"] as? String)
 
-        XCTAssertEqual(text(await call("folders.read", ["folder": id, "path": "a.txt"])), "hi")
+        let r8 = await call("folders.read", ["folder": id, "path": "a.txt"])
+        XCTAssertEqual(text(r8), "hi")
         let data = ["base64": Data("new".utf8).base64EncodedString()]
-        XCTAssertTrue((await call("folders.write", ["folder": id, "path": "notes/b.txt", "data": data]))["result"] is NSNull)
+        let r9 = await call("folders.write", ["folder": id, "path": "notes/b.txt", "data": data])
+        XCTAssertTrue(r9["result"] is NSNull)
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("notes/b.txt"), encoding: .utf8), "new")
-        XCTAssertEqual(code(await call("folders.remove", ["folder": id, "path": "notes"])), "failed", "not empty")
-        XCTAssertTrue((await call("folders.remove", ["folder": id, "path": "notes/b.txt"]))["result"] is NSNull)
-        XCTAssertTrue((await call("folders.remove", ["folder": id, "path": "notes"]))["result"] is NSNull)
+        let r10 = await call("folders.remove", ["folder": id, "path": "notes"])
+        XCTAssertEqual(code(r10), "failed", "not empty")
+        let r11 = await call("folders.remove", ["folder": id, "path": "notes/b.txt"])
+        XCTAssertTrue(r11["result"] is NSNull)
+        let r12 = await call("folders.remove", ["folder": id, "path": "notes"])
+        XCTAssertTrue(r12["result"] is NSNull)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("notes").path))
-        XCTAssertEqual(code(await call("folders.read", ["folder": id, "path": "missing.txt"])), "failed")
-        XCTAssertEqual(code(await call("folders.read", ["folder": id, "path": "sub"])), "failed", "a directory")
-        XCTAssertEqual(code(await call("folders.remove", ["folder": id, "path": "."])), "denied", "the folder itself")
+        let r13 = await call("folders.read", ["folder": id, "path": "missing.txt"])
+        XCTAssertEqual(code(r13), "failed")
+        let r14 = await call("folders.read", ["folder": id, "path": "sub"])
+        XCTAssertEqual(code(r14), "failed", "a directory")
+        let r15 = await call("folders.remove", ["folder": id, "path": "."])
+        XCTAssertEqual(code(r15), "denied", "the folder itself")
     }
 
     func testAReadOnlyFolderRefusesWrites() async throws {
-        let id = try XCTUnwrap(await pick())
+        let r16 = await pick()
+        let id = try XCTUnwrap(r16)
         let data = ["base64": Data("x".utf8).base64EncodedString()]
-        XCTAssertEqual(code(await call("folders.write", ["folder": id, "path": "b.txt", "data": data])), "denied")
-        XCTAssertEqual(code(await call("folders.remove", ["folder": id, "path": "a.txt"])), "denied")
+        let r17 = await call("folders.write", ["folder": id, "path": "b.txt", "data": data])
+        XCTAssertEqual(code(r17), "denied")
+        let r18 = await call("folders.remove", ["folder": id, "path": "a.txt"])
+        XCTAssertEqual(code(r18), "denied")
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("a.txt").path))
     }
 
     func testPathsCantLeaveTheFolder() async throws {
-        let id = try XCTUnwrap(await pick(write: true))
+        let r19 = await pick(write: true)
+        let id = try XCTUnwrap(r19)
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: outside)
         try FileManager.default.createSymbolicLink(
             at: root.appendingPathComponent("file-link"), withDestinationURL: outside.appendingPathComponent("secret.txt"))
         for path in ["../Elsewhere/secret.txt", outside.appendingPathComponent("secret.txt").path, "link/secret.txt", "file-link", "sub/../../Elsewhere"] {
-            XCTAssertEqual(code(await call("folders.read", ["folder": id, "path": path])), "denied", path)
+            let r20 = await call("folders.read", ["folder": id, "path": path])
+            XCTAssertEqual(code(r20), "denied", path)
         }
         let data = ["base64": Data("x".utf8).base64EncodedString()]
-        XCTAssertEqual(code(await call("folders.write", ["folder": id, "path": "link/new.txt", "data": data])), "denied")
+        let r21 = await call("folders.write", ["folder": id, "path": "link/new.txt", "data": data])
+        XCTAssertEqual(code(r21), "denied")
         XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("new.txt").path))
-        XCTAssertEqual(code(await call("folders.entries", ["folder": id, "path": "link"])), "denied")
+        let r22 = await call("folders.entries", ["folder": id, "path": "link"])
+        XCTAssertEqual(code(r22), "denied")
     }
 
     func testAnotherNotebookCantUseTheFolder() async throws {
-        let id = try XCTUnwrap(await pick())
-        XCTAssertEqual(code(await call("folders.read", ["folder": id, "path": "a.txt"], owner: 2)), "denied")
+        let r23 = await pick()
+        let id = try XCTUnwrap(r23)
+        let r24 = await call("folders.read", ["folder": id, "path": "a.txt"], owner: 2)
+        XCTAssertEqual(code(r24), "denied")
     }
 
     func testAMoveCarriesTheFolderAndARevokeDropsIt() async throws {
-        let id = try XCTUnwrap(await pick())
+        let r25 = await pick()
+        let id = try XCTUnwrap(r25)
         bridge.notebookMoved(from: "/n/a.ipynb", to: "/n/c.ipynb")
-        XCTAssertEqual(text(await call("folders.read", ["folder": id, "path": "a.txt"])), "hi")
+        let r26 = await call("folders.read", ["folder": id, "path": "a.txt"])
+        XCTAssertEqual(text(r26), "hi")
         XCTAssertEqual(store.saved.first?.notebook, "/n/c.ipynb")
         FolderGrants(store: store).revoke(id)
-        XCTAssertEqual(code(await call("folders.read", ["folder": id, "path": "a.txt"])), "denied")
+        let r27 = await call("folders.read", ["folder": id, "path": "a.txt"])
+        XCTAssertEqual(code(r27), "denied")
     }
 
     func testAFolderThatIsGoneIsDropped() async throws {
-        let id = try XCTUnwrap(await pick())
+        let r28 = await pick()
+        let id = try XCTUnwrap(r28)
         try FileManager.default.removeItem(at: root)
-        XCTAssertEqual(code(await call("folders.entries", ["folder": id])), "unavailable")
+        let r29 = await call("folders.entries", ["folder": id])
+        XCTAssertEqual(code(r29), "unavailable")
         XCTAssertTrue(store.saved.isEmpty)
     }
 
     func testBadArgumentsFail() async throws {
-        let id = try XCTUnwrap(await pick(write: true))
-        XCTAssertEqual(code(await call("folders.read", ["folder": id])), "failed")
-        XCTAssertEqual(code(await call("folders.read", ["path": "a.txt"])), "failed")
-        XCTAssertEqual(code(await call("folders.write", ["folder": id, "path": "b.txt", "data": "plain"])), "failed")
-        XCTAssertEqual(code(await call("folders.pick", ["write": "yes"])), "failed")
+        let r30 = await pick(write: true)
+        let id = try XCTUnwrap(r30)
+        let r31 = await call("folders.read", ["folder": id])
+        XCTAssertEqual(code(r31), "failed")
+        let r32 = await call("folders.read", ["path": "a.txt"])
+        XCTAssertEqual(code(r32), "failed")
+        let r33 = await call("folders.write", ["folder": id, "path": "b.txt", "data": "plain"])
+        XCTAssertEqual(code(r33), "failed")
+        let r34 = await call("folders.pick", ["write": "yes"])
+        XCTAssertEqual(code(r34), "failed")
     }
 }
