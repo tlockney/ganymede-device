@@ -343,6 +343,28 @@ final class LedgerTests: XCTestCase {
         XCTAssertTrue(prompter.asked.isEmpty)
     }
 
+    /// An app with a bridge per window, and a Settings screen, makes a
+    /// ledger for each on one store: an answer or revoke in one is seen by
+    /// the others, while each keeps its own owners.
+    func testLedgersOnOneStoreShareAnswersButNotOwners() {
+        let one = PermissionLedger(store: store)
+        let two = PermissionLedger(store: store)
+        one.record(.always, notebook: "/a.ipynb", capability: "location")
+        XCTAssertEqual(two.answer(notebook: "/a.ipynb", capability: "location"), .always)
+        two.revoke(notebook: "/a.ipynb")
+        XCTAssertNil(one.answer(notebook: "/a.ipynb", capability: "location"))
+        XCTAssertTrue(one.grants.isEmpty)
+
+        two.record(.deny, notebook: "/b.ipynb", capability: "contacts")
+        one.move(from: "/b.ipynb", to: "/c.ipynb")
+        XCTAssertEqual(two.answer(notebook: "/c.ipynb", capability: "contacts"), .deny)
+
+        one.setNotebook("/a.ipynb", for: 1)
+        two.setNotebook("/b.ipynb", for: 1)
+        XCTAssertEqual(one.notebook(for: 1), "/a.ipynb")
+        XCTAssertEqual(two.notebook(for: 1), "/b.ipynb")
+    }
+
     func testTheUserDefaultsStoreKeepsAlwaysAndDeny() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "ganymede.device.ledger.test"))
         defaults.removePersistentDomain(forName: "ganymede.device.ledger.test")
