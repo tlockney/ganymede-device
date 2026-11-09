@@ -242,8 +242,8 @@ plan.md "Where things stand" updated.
 
 ## Open questions
 
-1. Secrets: per notebook only, or also an app-wide scope the person can
-   share across notebooks (Settings would mark which)?
+1. ~~Secrets: per notebook only, or also an app-wide scope?~~ Per
+   notebook only (decided 2026-11-09).
 2. Folders: should a process kernel on the Mac get them as Deno
    permission scopes in this phase, or wait?
 3. Bluetooth on a remote kernel stays "no"; confirm no need for it from

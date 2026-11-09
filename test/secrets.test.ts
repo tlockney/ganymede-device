@@ -43,10 +43,13 @@ test("bad names and values fail before asking the host", async () => {
   await assert.rejects(device.secrets.get(""), isCode("failed"));
   await assert.rejects(device.secrets.get("x".repeat(129)), isCode("failed"));
   await assert.rejects(device.secrets.get("a\0b"), isCode("failed"));
+  await assert.rejects(device.secrets.get("a\uD800"), isCode("failed"), "a lone surrogate");
+  await assert.rejects(device.secrets.get("\uDC00a"), isCode("failed"));
   await assert.rejects(device.secrets.delete(1 as unknown as string), isCode("failed"));
   await assert.rejects(device.secrets.set("a", 1 as unknown as string), isCode("failed"));
   await assert.rejects(device.secrets.set("a", "é".repeat(32 * 1024 + 1)), isCode("failed"), "64 KiB counts UTF-8 bytes");
   assert.equal(sent.length, 0);
+  await assert.rejects(device.secrets.get("😀"), isCode("unavailable"), "a pair is fine");
   await assert.rejects(device.secrets.set("a", "x".repeat(64 * 1024)), isCode("unavailable"), "exactly 64 KiB reaches the host");
 });
 

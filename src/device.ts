@@ -2442,8 +2442,9 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
 const MAX_SECRET_BYTES = 64 * 1024;
 
 function checkSecretName(method: string, name: unknown): void {
-  if (typeof name !== "string" || name.length < 1 || name.length > 128 || name.includes("\0")) {
-    throw new DeviceError("failed", `${method} needs a name of 1 to 128 characters, without NUL`);
+  // A lone surrogate would become U+FFFD in Swift, so two names could share one secret.
+  if (typeof name !== "string" || name.length < 1 || name.length > 128 || name.includes("\0") || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(name)) {
+    throw new DeviceError("failed", `${method} needs a name of 1 to 128 characters, without NUL or a lone surrogate`);
   }
 }
 

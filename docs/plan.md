@@ -611,6 +611,9 @@ Done:
    `Folder` that lists, reads, writes and removes inside a folder the
    person picked, kept per notebook as a bookmark (docs/protocol.md,
    "Folders").
+21. **Phase 3's secrets** (#113): `device.secrets` get, set, delete and
+   list, strings kept per notebook in the keychain on this device, with
+   the ledger's prompt as the only consent (docs/protocol.md, "Secrets").
 
 Next:
 
