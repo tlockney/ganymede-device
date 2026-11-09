@@ -31,7 +31,7 @@ folders need the same rules, so they become one mechanism first.
 ```ts
 interface NativeHandle extends AsyncDisposable {
   readonly closed: boolean;
-  close(): Promise<void>;        // idempotent; later calls fail `failed`
+  close(): Promise<void>;        // a second close() is fine; other calls after it fail `failed`
 }
 ```
 
