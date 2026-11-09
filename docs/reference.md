@@ -586,7 +586,7 @@ most 16 MiB.
 
 **Returns** `Promise<File[]>`: The picked files, with their names and MIME types, or `[]` when the person cancels.
 
-**Throws** `DeviceError`: `failed` when the files together are over 16 MiB.
+**Throws** `DeviceError`: `failed` when `types` or `multiple` has the wrong type, or the files together are over 16 MiB.
 
 **Availability**
 
@@ -656,7 +656,7 @@ permission. Together the photos are at most 16 MiB.
 
 **Returns** `Promise<File[]>`: The picked photos as image `File`s in their stored format (often HEIC or JPEG), or `[]` when the person cancels.
 
-**Throws** `DeviceError`: `failed` when the photos together are over 16 MiB.
+**Throws** `DeviceError`: `failed` when `limit` isn't a whole number of 0 or more, or the photos together are over 16 MiB.
 
 **Availability**
 

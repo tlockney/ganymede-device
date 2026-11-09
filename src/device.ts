@@ -257,7 +257,7 @@ export interface Files {
    *
    * @param options `types` limits what can be picked, `multiple` allows more than one, and `signal` cancels: it closes the picker and rejects `cancelled`.
    * @returns The picked files, with their names and MIME types, or `[]` when the person cancels.
-   * @throws {DeviceError} `failed` when the files together are over 16 MiB.
+   * @throws {DeviceError} `failed` when `types` or `multiple` has the wrong type, or the files together are over 16 MiB.
    * @example
    * ```ts
    * const [file] = await device.files.pick({ types: [".csv", "text/csv"] });
@@ -384,7 +384,7 @@ export interface Photos {
    *
    * @param options `limit` is how many may be picked (1 by default, 0 for no limit); `signal` cancels: it closes the picker and rejects `cancelled`.
    * @returns The picked photos as image `File`s in their stored format (often HEIC or JPEG), or `[]` when the person cancels.
-   * @throws {DeviceError} `failed` when the photos together are over 16 MiB.
+   * @throws {DeviceError} `failed` when `limit` isn't a whole number of 0 or more, or the photos together are over 16 MiB.
    * @example
    * ```ts
    * const photos = await device.photos.pick({ limit: 3 });
