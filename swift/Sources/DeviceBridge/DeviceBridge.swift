@@ -24,6 +24,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let state: DeviceState
     private let dialogs: DialogQueue
     private let sounds: Sounds
+    /// What calls opened that outlive them: sound players, so far.
+    let handles: Handles
     private let streams = Streams()
     /// Each namespace's system permission (`addPermission`).
     private var permissions: [String: Permission] = [:]
@@ -59,7 +61,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.urlOpener = urlOpener ?? SystemURLOpener()
         self.state = state ?? SystemDeviceState()
         self.dialogs = DialogQueue(presenter: presenter ?? SystemDialogPresenter())
-        self.sounds = Sounds(loader: sounds ?? SystemSoundLoader())
+        let handles = Handles()
+        self.handles = handles
+        self.sounds = Sounds(loader: sounds ?? SystemSoundLoader(), handles: handles)
         self.ledger = ledger ?? PermissionLedger()
         self.appVersion = appVersion
     }
@@ -204,6 +208,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropAll() {
         dialogs.drop { _ in true }
         sounds.stop { _ in true }
+        handles.stop { _ in true }
         streams.stop { _ in true }
         cancelPending { _ in true }
         ledger.forget { _ in true }
@@ -216,6 +221,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropPage() {
         dialogs.drop { $0 > 0 }
         sounds.stop { $0 >= 0 }
+        handles.stop { $0 >= 0 }
         streams.stop { $0 >= 0 }
         cancelPending { $0 >= 0 }
         ledger.forget { $0 >= 0 }
@@ -227,6 +233,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func dropRemote() {
         dialogs.drop { $0 < 0 }
         sounds.stop { $0 < 0 }
+        handles.stop { $0 < 0 }
         streams.stop { $0 < 0 }
         cancelPending { $0 < 0 }
         ledger.forget { $0 < 0 }
@@ -242,7 +249,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         let owner = Self.callID(call["owner"]) ?? 0
         if call["release"] as? Bool == true {
             // The kernel behind this handler shut down.
-            sounds.release(owner)
+            sounds.stop { $0 == owner }
+            handles.stop { $0 == owner }
             streams.stop { $0 == owner }
             cancelPending { $0 == owner }
             ledger.forget { $0 == owner }
@@ -250,10 +258,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         if call["cancel"] as? Bool == true {
             // Closes the dialog the call showed, or takes it off the queue,
-            // or closes the player it opened.
+            // or closes the handle (a player) it opened.
             if let id = Self.callID(call["id"]) {
                 dialogs.cancel(id)
-                sounds.cancel(id)
+                handles.cancel(id)
                 ledgerRequests.cancel(id, prompter: ledgerPrompter)
                 pending.cancel(id)
                 streams.cancel(id)
@@ -269,7 +277,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             // Each Worker says hello once, when it starts: anything an
             // earlier Worker of this kernel opened has no handle left.
             if owner != 0 {
-                sounds.release(owner)
+                sounds.stop { $0 == owner }
+                handles.stop { $0 == owner }
                 streams.stop { $0 == owner }
                 cancelPending { $0 == owner }
             }
@@ -311,6 +320,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return Self.error("failed", "stream.next answers later; send it through respond(to:reply:)")
         case "stream.close":
             return streams.close(params, owner: owner)
+        case "handle.close":
+            // Closing one already closed, or another kernel's, is fine and
+            // does nothing, as `stream.close` does.
+            guard let id = Self.callID(params["handle"]) else {
+                return Self.error("failed", "handle.close needs a handle id")
+            }
+            handles.close(id, owner: owner)
+            return ["result": NSNull()]
         case _ where answersLater(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         case _ where method.hasSuffix(".authorizationStatus"):

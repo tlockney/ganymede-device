@@ -630,7 +630,9 @@ test("a sound player controls the host's player by id and closes once", async ()
   );
   assert.ok(sent.slice(1).every(([, params]) => params.player === 7));
   const player = await device.sound.player(new Uint8Array([1]));
+  assert.equal(player.closed, false);
   await player.close();
+  assert.equal(player.closed, true);
   await player.close();
   assert.equal(sent.filter(([m]) => m === "sound.close").length, 2, "a second close sends nothing");
   await assert.rejects(player.play(), (err) => err instanceof DeviceError && err.code === "failed");

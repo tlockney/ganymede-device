@@ -125,6 +125,7 @@ const types: { name: string; file: string }[] = [
   { name: "PickPhotosOptions", file: DEVICE },
   { name: "PlaySoundOptions", file: DEVICE },
   { name: "SoundState", file: DEVICE },
+  { name: "NativeHandle", file: DEVICE },
   { name: "ScheduleNotificationOptions", file: DEVICE },
   { name: "PendingNotification", file: DEVICE },
   { name: "LocationOptions", file: DEVICE },

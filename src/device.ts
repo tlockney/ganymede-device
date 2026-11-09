@@ -948,12 +948,33 @@ export interface SoundState {
 }
 
 /**
- * A loaded sound a cell controls, from `device.sound.player`. Close it when
- * done, or hold it with `await using`. The app closes a kernel's players
- * when that kernel restarts or shuts down; a kernel has at most 32 open.
- * Each method answers the player's state after the change.
+ * Something on the device a call opened that outlives the call, such as a
+ * sound player. Close it when done, or hold it with `await using`. The app
+ * closes a kernel's handles when that kernel restarts or shuts down. A
+ * call on a closed handle rejects `failed`.
  */
-export interface SoundPlayer extends AsyncDisposable {
+export interface NativeHandle extends AsyncDisposable {
+  /** Whether it is closed: by `close()`, or by leaving its `await using` block. */
+  readonly closed: boolean;
+  /**
+   * Closes it and frees what it holds. Closing twice is fine.
+   *
+   * @example
+   * ```ts
+   * await handle.close();
+   * ```
+   */
+  close(): Promise<void>;
+}
+
+/**
+ * A loaded sound a cell controls, from `device.sound.player`: a
+ * `NativeHandle`. Close it when done, or hold it with `await using`. The
+ * app closes a kernel's players when that kernel restarts or shuts down; a
+ * kernel has at most 32 open. Each method answers the player's state after
+ * the change.
+ */
+export interface SoundPlayer extends NativeHandle {
   /** The sound's length in seconds. */
   readonly duration: number;
   /**
@@ -1318,21 +1339,51 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       return undefined;
     }
   }
-  function soundPlayer(id: number, duration: number): SoundPlayer {
+  /**
+   * A host handle's lifetime: `close()` sends `closeCall` once (by default
+   * `handle.close { handle }`), and `check()` rejects a call on a closed
+   * handle without a round trip.
+   */
+  function nativeHandle(
+    what: string,
+    id: number,
+    closeCall: () => Promise<unknown> = () => call("handle.close", { handle: id }),
+  ): { handle: NativeHandle; check(): void } {
     let closed = false;
+    async function close(): Promise<void> {
+      if (closed) return;
+      // Closed only once the host has it, so a failed close can be retried.
+      await closeCall();
+      closed = true;
+    }
+    return {
+      handle: {
+        get closed() {
+          return closed;
+        },
+        close,
+        [asyncDispose]: close,
+      },
+      check() {
+        if (closed) throw new DeviceError("failed", `this ${what} is closed`);
+      },
+    };
+  }
+  function soundPlayer(id: number, duration: number): SoundPlayer {
+    // `sound.close` is the wire's name for `handle.close` on a player.
+    const { handle, check } = nativeHandle("sound player", id, () => call("sound.close", { player: id }));
     async function control(action: string, extra: Record<string, unknown>, options?: CallOptions): Promise<SoundState> {
-      if (closed) throw new DeviceError("failed", "this sound player is closed");
+      check();
       const state = await call("sound.control", { player: id, action, ...extra }, options);
       if (!isRecord(state)) throw new DeviceError("failed", "the host's sound.control reply is malformed");
       return { playing: state.playing === true, time: Number(state.time), duration: Number(state.duration) };
     }
-    async function close(): Promise<void> {
-      if (closed) return;
-      // Closed only once the host has it, so a failed close can be retried.
-      await call("sound.close", { player: id });
-      closed = true;
-    }
     return {
+      get closed() {
+        return handle.closed;
+      },
+      close: () => handle.close(),
+      [asyncDispose]: () => handle.close(),
       duration,
       play: (options) => control("play", {}, options),
       pause: (options) => control("pause", {}, options),
@@ -1353,8 +1404,6 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return control("state", { volume }, options);
       },
       state: (options) => control("state", {}, options),
-      close,
-      [asyncDispose]: close,
     };
   }
   return {

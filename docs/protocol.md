@@ -55,9 +55,9 @@ with no `owner` (a page from before owners) counts as owner 0, whose
 | Message | Meaning | Reply |
 | --- | --- | --- |
 | `{ id, owner, method, params }` | A call from kernel `owner`. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
-| `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the player a `sound.player` call opened (the page drops its answer, so it has no id to close). | Anything; ignored |
+| `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the handle ("Handles" below) the call opened, such as a `sound.player` player (the page drops its answer, so it has no id to close). | Anything; ignored |
 | `{ id, cancel: true }` (continued) | For a stream (below): a cancel of its opening call, or of the `stream.next` waiting on it, stops its source. | |
-| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds, close its players and stop its streams. | Anything; ignored |
+| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds, close its handles (such as players) and stop its streams. | Anything; ignored |
 
 Rules for the Swift handler:
 
@@ -268,6 +268,28 @@ nothing pushes into the Worker.
 - Streaming methods are on-device only: none is in the remote subset, and
   `stream.next` and `stream.close` aren't either, so over a comm they
   fail `unavailable`.
+
+## Handles
+
+A handle is something a call opened that outlives the call, which later
+calls name by id: a `sound.player` player today, Bluetooth connections
+and folders in Phase 3 (docs/phase-3.md). In a cell it is a
+`NativeHandle`: `closed`, `close()`, and `await using`.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `handle.close` | `{ handle }` | `null`; frees what the handle holds. Closing one already closed, or another kernel's, is fine and does nothing |
+
+- Swift keeps handles in one registry (`Handles`), each under the kernel
+  that opened it (`owner`), with the same lifetime as streams: a new
+  `hello` from the same owner, `release`, `dropPage()`, `dropRemote()`
+  and `dropAll()` close the owner's handles, and a cancel of the call
+  that opened one closes it.
+- A call naming another kernel's handle answers as for no such handle.
+- Each kind has a per-kernel limit (32 sound players).
+- `sound.close { player }` is a player's `handle.close`, kept by name.
+- A cell's handle rejects `failed` after `close()`, without a round trip.
+- Handles are on-device only: `handle.close` isn't in the remote subset.
 
 ## Permissions
 
