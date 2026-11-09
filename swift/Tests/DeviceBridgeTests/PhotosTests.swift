@@ -97,6 +97,13 @@ final class PhotosTests: XCTestCase {
         XCTAssertEqual(always.asked, 1)
     }
 
+    func testAGIFIsTakenToo() {
+        let library = FakeLibrary(.writeOnly)
+        let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!
+        XCTAssertNil(call(bridge(library), "photos.save", image(gif))?["error"])
+        XCTAssertEqual(library.saved, [gif])
+    }
+
     func testRefusalsRejectDenied() {
         let library = FakeLibrary(.notDetermined)
         library.answer = .denied

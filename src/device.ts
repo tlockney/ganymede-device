@@ -616,7 +616,7 @@ export interface Photos extends Authorization {
    *
    * @param image PNG, JPEG, GIF, HEIC or TIFF bytes, or a `Blob` of them, at most 16 MiB.
    * @param options The call's `signal`. Cancel rejects `cancelled`; the photo may already have been added.
-   * @throws {DeviceError} `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't an image the device reads, or the library refuses it.
+   * @throws {DeviceError} `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't PNG, JPEG, GIF, HEIC or TIFF, or the library refuses them.
    * @example
    * ```ts
    * const canvas = new OffscreenCanvas(256, 256);

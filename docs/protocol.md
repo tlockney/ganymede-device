@@ -182,7 +182,8 @@ Saving a photo needs add-only access (`PHAccessLevel.addOnly`): the app
 can add to the library but never read it, so a grant reads `writeOnly`.
 `photos.pick` needs no permission, since the system picker shows the
 library without letting the app in; the `photos` trio is about saving.
-Bytes ImageIO doesn't read as an image fail `failed` before any prompt.
+Bytes that aren't PNG, JPEG, GIF, HEIC (or another HEIF still) or TIFF
+fail `failed` before any prompt.
 The app turns `save` on with `DeviceBridge.addPhotoSaving()`, and needs
 `NSPhotoLibraryAddUsageDescription` in its Info.plist and, on a
 sandboxed Mac, the `com.apple.security.personal-information.photos-library`

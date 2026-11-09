@@ -91,8 +91,9 @@ extension DeviceBridge {
     }
 
     /// The formats `photos.save` takes, as documented: ImageIO reads more
-    /// (WebP, BMP, RAW), some of which Photos refuses.
-    private static let savedTypes: [UTType] = [.png, .jpeg, .gif, .heic, .tiff]
+    /// (WebP, BMP, RAW), some of which Photos refuses. `.heif` too: a
+    /// HEIF still with a non-HEVC brand doesn't conform to `.heic`.
+    private static let savedTypes: [UTType] = [.png, .jpeg, .gif, .heic, .heif, .tiff]
 
     /// `photos.save`'s image: PNG, JPEG, GIF, HEIC or TIFF bytes.
     static func savedImage(_ params: [String: Any]) throws -> Data {

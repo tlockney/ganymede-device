@@ -769,7 +769,7 @@ Adds an image to the photo library, as a new photo.
 | `image` | `Bytes` | yes | PNG, JPEG, GIF, HEIC or TIFF bytes, or a `Blob` of them, at most 16 MiB. |
 | `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; the photo may already have been added. |
 
-**Throws** `DeviceError`: `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't an image the device reads, or the library refuses it.
+**Throws** `DeviceError`: `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't PNG, JPEG, GIF, HEIC or TIFF, or the library refuses them.
 
 **Availability**
 
