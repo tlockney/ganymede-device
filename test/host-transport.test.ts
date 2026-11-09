@@ -66,6 +66,27 @@ test("a call takes its listeners off a shared signal once it settles", async () 
   assert.equal(getEventListeners(cell.signal, "abort").length, 0);
 });
 
+const xyz = { x: 0, y: 0, z: 0 };
+const SAMPLE = { attitude: { roll: 0, pitch: 0, yaw: 0 }, rotationRate: xyz, gravity: xyz, userAcceleration: xyz, timestamp: 1 };
+
+test("after an interrupt, the stream's close still reaches the host", async () => {
+  const hello = { result: { platform: "ipados", appVersion: "0.1", capabilities: ["motion.watch"] } };
+  const { sent, post } = engine((msg) => {
+    if (msg.method === "hello") return hello;
+    if (msg.method === "motion.watch") return { result: { stream: 7 } };
+    if (msg.method === "stream.next") return { result: { values: [SAMPLE], dropped: 0 } };
+    return { result: null };
+  });
+  const cell = new AbortController();
+  const device = await installHostDevice(post, { cellSignal: () => cell.signal });
+  assert.ok(device);
+  const values = device.motion.watch()[Symbol.asyncIterator]();
+  await values.next();
+  cell.abort();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(sent.some((m) => m.method === "stream.close"), `sent: ${sent.map((m) => m.method ?? (m.cancel ? "cancel" : "release")).join(", ")}`);
+});
+
 test("without a host function, nothing is installed", async () => {
   delete (globalThis as { device?: unknown }).device;
   assert.equal(await installHostDevice(undefined), undefined);
