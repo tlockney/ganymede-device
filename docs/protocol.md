@@ -411,6 +411,37 @@ shares the bridge's store.
   so there is nothing to close.
 - On-device only: none of these is in the remote subset.
 
+## Secrets
+
+`device.secrets` keeps strings a notebook saved, such as an API token,
+in the keychain. The app turns it on with `DeviceBridge.addSecrets()`; a
+Settings screen lists names (never values) and deletes them with its own
+`NotebookSecrets()`, which shares the bridge's store.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `secrets.get` | `{ name }` | the value, or `null` when the notebook has none by that name |
+| `secrets.set` | `{ name, value }` | `null` once saved, in place of one by the same name |
+| `secrets.delete` | `{ name }` | `true`, or `false` when there was none |
+| `secrets.list` | `{}` | the notebook's names, sorted |
+
+- Capability `secrets`, with no system permission: the ledger's prompt
+  is the only consent, and `secrets.authorizationStatus` reads the
+  ledger alone. A headless run needs a kept "always".
+- Per notebook: the keychain account is `<notebook path>\0<name>`, so a
+  notebook never sees another's names. `notebookMoved` re-keys them.
+- Names are 1 to 128 UTF-16 code units without NUL; values are strings
+  up to 64 KiB as UTF-8. Anything else fails `failed`.
+- `KeychainSecretStore`: generic passwords under service
+  `ganymede.device.secrets`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`,
+  never synced; on the Mac in the data protection keychain, which needs
+  a signed app. So a headless run can read them while the device is
+  locked, once it has been unlocked since it started; before that a call
+  fails `unavailable`. `KeychainSecretStore(accessGroup:)` shares them
+  with the app's extensions (phase-4.md, part 2), which needs
+  `keychain-access-groups` on the app and each extension.
+- On-device only: none of these is in the remote subset.
+
 ## Permissions
 
 A namespace that needs a system (TCC) permission, such as `location`,

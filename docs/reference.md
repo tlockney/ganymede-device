@@ -110,6 +110,13 @@ such API.
 | [`device.bluetooth.connect(id, options?)`](#device-bluetooth-connect-id-options) | Connects to a peripheral. |
 | [`device.folders.pick(options?)`](#device-folders-pick-options) | Shows the system folder picker and keeps what the person picks for this notebook. |
 | [`device.folders.list(options?)`](#device-folders-list-options) | The folders this notebook was given, in the order they were picked. |
+| [`device.secrets.authorizationStatus(options?)`](#device-secrets-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.secrets.isAuthorized(options?)`](#device-secrets-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.secrets.requestAuthorization(options?)`](#device-secrets-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.secrets.get(name, options?)`](#device-secrets-get-name-options) | Reads a secret. |
+| [`device.secrets.set(name, value, options?)`](#device-secrets-set-name-value-options) | Saves a secret, in place of one by the same name. |
+| [`device.secrets.delete(name, options?)`](#device-secrets-delete-name-options) | Deletes a secret. |
+| [`device.secrets.list(options?)`](#device-secrets-list-options) | The names of this notebook's secrets, never their values. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -328,6 +335,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `reminders` | `Reminders` | The person's reminders: see `Reminders`. |
 | `bluetooth` | `Bluetooth` | Bluetooth LE peripherals: see `Bluetooth`. |
 | `folders` | `Folders` | Folders the person picked for this notebook: see `Folders`. |
+| `secrets` | `Secrets` | Strings this notebook saved in the keychain: see `Secrets`. |
 
 ## `device.clipboard`
 
@@ -2263,6 +2271,187 @@ A `Folder` lists, reads, writes and removes inside the folder only; reads up to 
 ```ts
 const folders = await device.folders.list();
 const data = folders.find((f) => f.name === "Data") ?? (await device.folders.pick());
+```
+
+## `device.secrets`
+
+Strings this notebook saved, such as an API token, kept in the
+system keychain on this device and never synced. Each notebook sees
+only its own names; a renamed or moved notebook keeps them. There is
+no system permission: the first call asks the app's prompt for this
+notebook, and Settings lists and deletes each notebook's secrets.
+
+Strings a notebook keeps in the system keychain, on this device only and per notebook. Every method needs the secrets permission, which is the app's prompt alone: there is no system one. The permission methods work where the rest of the namespace does.
+
+### `device.secrets.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.secrets.authorizationStatus());
+```
+
+### `device.secrets.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.secrets.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.secrets.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.secrets.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.secrets.get(name, options?)`
+
+```ts
+get(name: string, options?: CallOptions): Promise<string | null>;
+```
+
+Reads a secret.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | The secret's name: 1 to 128 characters, no NUL. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<string | null>`: The value, or `null` when this notebook has no secret by that name.
+
+**Throws** `DeviceError`: `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name isn't valid.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | secrets | no | no |
+
+The keychain, this device only. A notebook sees only its own secrets; the app's prompt is the only consent.
+
+```ts
+const token = await device.secrets.get("github");
+if (!token) console.log("set it first: await device.secrets.set('github', '...')");
+```
+
+### `device.secrets.set(name, value, options?)`
+
+```ts
+set(name: string, value: string, options?: CallOptions): Promise<void>;
+```
+
+Saves a secret, in place of one by the same name.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | The secret's name: 1 to 128 characters, no NUL. |
+| `value` | `string` | yes | The value: a string up to 64 KiB as UTF-8. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a value already saved stays. |
+
+**Throws** `DeviceError`: `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name or value isn't valid.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | secrets | no | no |
+
+Values up to 64 KiB; names 1 to 128 characters.
+
+```ts
+await device.secrets.set("github", await device.ui.prompt("GitHub token") ?? "");
+```
+
+### `device.secrets.delete(name, options?)`
+
+```ts
+delete(name: string, options?: CallOptions): Promise<boolean>;
+```
+
+Deletes a secret.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | The secret's name. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a secret already deleted stays deleted. |
+
+**Returns** `Promise<boolean>`: `true`, or `false` when there was no secret by that name.
+
+**Throws** `DeviceError`: `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name isn't valid.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | secrets | no | no |
+
+```ts
+console.log(await device.secrets.delete("github"));
+```
+
+### `device.secrets.list(options?)`
+
+```ts
+list(options?: CallOptions): Promise<string[]>;
+```
+
+The names of this notebook's secrets, never their values.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<string[]>`: The names, sorted, or `[]`.
+
+**Throws** `DeviceError`: `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | secrets | no | no |
+
+```ts
+console.log(await device.secrets.list()); // ["github"]
 ```
 
 ## `SoundPlayer`

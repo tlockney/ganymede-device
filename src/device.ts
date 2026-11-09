@@ -1398,6 +1398,68 @@ export interface Bluetooth extends Authorization {
   connect(id: string, options?: ConnectOptions): Promise<Peripheral>;
 }
 
+/**
+ * Strings this notebook saved, such as an API token, kept in the
+ * system keychain on this device and never synced. Each notebook sees
+ * only its own names; a renamed or moved notebook keeps them. There is
+ * no system permission: the first call asks the app's prompt for this
+ * notebook, and Settings lists and deletes each notebook's secrets.
+ */
+export interface Secrets extends Authorization {
+  /**
+   * Reads a secret.
+   *
+   * @param name The secret's name: 1 to 128 characters, no NUL.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The value, or `null` when this notebook has no secret by that name.
+   * @throws {DeviceError} `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name isn't valid.
+   * @example
+   * ```ts
+   * const token = await device.secrets.get("github");
+   * if (!token) console.log("set it first: await device.secrets.set('github', '...')");
+   * ```
+   */
+  get(name: string, options?: CallOptions): Promise<string | null>;
+  /**
+   * Saves a secret, in place of one by the same name.
+   *
+   * @param name The secret's name: 1 to 128 characters, no NUL.
+   * @param value The value: a string up to 64 KiB as UTF-8.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a value already saved stays.
+   * @throws {DeviceError} `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name or value isn't valid.
+   * @example
+   * ```ts
+   * await device.secrets.set("github", await device.ui.prompt("GitHub token") ?? "");
+   * ```
+   */
+  set(name: string, value: string, options?: CallOptions): Promise<void>;
+  /**
+   * Deletes a secret.
+   *
+   * @param name The secret's name.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a secret already deleted stays deleted.
+   * @returns `true`, or `false` when there was no secret by that name.
+   * @throws {DeviceError} `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started; `failed` when the name isn't valid.
+   * @example
+   * ```ts
+   * console.log(await device.secrets.delete("github"));
+   * ```
+   */
+  delete(name: string, options?: CallOptions): Promise<boolean>;
+  /**
+   * The names of this notebook's secrets, never their values.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The names, sorted, or `[]`.
+   * @throws {DeviceError} `denied` when the notebook may not use secrets; `unavailable` before the device's first unlock since it started.
+   * @example
+   * ```ts
+   * console.log(await device.secrets.list()); // ["github"]
+   * ```
+   */
+  list(options?: CallOptions): Promise<string[]>;
+}
+
 /** Options for `device.folders.pick`. */
 export interface PickFolderOptions extends CallOptions {
   /** Ask for writing too, not only reading. `false` by default. */
@@ -1682,6 +1744,8 @@ export interface Device {
   readonly bluetooth: Bluetooth;
   /** Folders the person picked for this notebook: see `Folders`. */
   readonly folders: Folders;
+  /** Strings this notebook saved in the keychain: see `Secrets`. */
+  readonly secrets: Secrets;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -2346,7 +2410,40 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return found.map((item) => folder("folders.list", item));
       },
     },
+    secrets: {
+      ...permission("secrets"),
+      async get(name, options) {
+        checkSecretName("secrets.get", name);
+        const value = await call("secrets.get", { name }, options);
+        if (value !== null && typeof value !== "string") throw new DeviceError("failed", "the host's secrets.get reply is malformed");
+        return value;
+      },
+      async set(name, value, options) {
+        checkSecretName("secrets.set", name);
+        if (typeof value !== "string") throw new DeviceError("failed", "secrets.set: the value must be a string");
+        if (new TextEncoder().encode(value).length > MAX_SECRET_BYTES) throw new DeviceError("failed", `secrets.set: the value is over ${MAX_SECRET_BYTES} bytes`);
+        await call("secrets.set", { name, value }, options);
+      },
+      async delete(name, options) {
+        checkSecretName("secrets.delete", name);
+        return booleanReply("secrets.delete", await call("secrets.delete", { name }, options));
+      },
+      async list(options) {
+        const names = await call("secrets.list", {}, options);
+        if (!Array.isArray(names) || !names.every((n) => typeof n === "string")) throw new DeviceError("failed", "the host's secrets.list reply is malformed");
+        return names;
+      },
+    },
   };
+}
+
+/** The longest secret value, in UTF-8 bytes. */
+const MAX_SECRET_BYTES = 64 * 1024;
+
+function checkSecretName(method: string, name: unknown): void {
+  if (typeof name !== "string" || name.length < 1 || name.length > 128 || name.includes("\0")) {
+    throw new DeviceError("failed", `${method} needs a name of 1 to 128 characters, without NUL`);
+  }
 }
 
 /** A Bluetooth UUID: 16-bit ("180D"), 32-bit or 128-bit. */

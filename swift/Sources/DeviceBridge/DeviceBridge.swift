@@ -47,6 +47,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// The folders notebooks picked (`addFolders`), so a moved notebook
     /// keeps them.
     var folderGrants: FolderGrants?
+    /// The secrets notebooks saved (`addSecrets`), so a moved notebook
+    /// keeps them.
+    var notebookSecrets: NotebookSecrets?
     private let requests = PermissionRequests()
     private let ledgerRequests = LedgerRequests()
     private let appVersion: String
@@ -96,6 +99,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
         folderGrants?.move(from: old, to: new)
+        // A locked keychain keeps them under the old path; a later move
+        // can't find them there, so the app should move again once unlocked.
+        try? notebookSecrets?.move(from: old, to: new)
         ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 
