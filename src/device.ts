@@ -1398,6 +1398,138 @@ export interface Bluetooth extends Authorization {
   connect(id: string, options?: ConnectOptions): Promise<Peripheral>;
 }
 
+/** Options for `device.folders.pick`. */
+export interface PickFolderOptions extends CallOptions {
+  /** Ask for writing too, not only reading. `false` by default. */
+  write?: boolean;
+}
+
+/** One item in a folder, from `Folder.entries()`. */
+export interface FolderEntry {
+  /** Its name in its directory. */
+  name: string;
+  /** A symlink reads as a file. */
+  kind: "file" | "directory";
+  /** Bytes, for a file. */
+  size?: number;
+  /** When its contents last changed. */
+  modified?: Date;
+}
+
+/**
+ * A folder the person picked for this notebook, from
+ * `device.folders.pick()` or `list()`. It stays this notebook's until
+ * the person revokes it in Settings, across kernel and app restarts, so
+ * there is nothing to close.
+ *
+ * Each `path` is relative to the folder, with `/` between parts. An
+ * absolute path, a `..`, or a symlink that leads outside the folder
+ * rejects `denied`.
+ */
+export interface Folder {
+  /** Names the grant; `list()` gives the same id after a restart. */
+  readonly id: string;
+  /** The folder's name, as the picker showed it. */
+  readonly name: string;
+  /** Whether it was picked with `write: true`. */
+  readonly writable: boolean;
+  /**
+   * Lists a directory in the folder, sorted by name.
+   *
+   * @param path A directory in the folder; the folder itself when left out.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns Its files and directories, hidden ones included.
+   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no directory there.
+   * @example
+   * ```ts
+   * const [folder] = await device.folders.list();
+   * for (const entry of await folder.entries()) console.log(entry.kind, entry.name, entry.size);
+   * ```
+   */
+  entries(path?: string, options?: CallOptions): Promise<FolderEntry[]>;
+  /**
+   * Reads a file in the folder.
+   *
+   * @param path The file, relative to the folder.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns Its bytes.
+   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no file there or it is over 16 MiB.
+   * @example
+   * ```ts
+   * const [folder] = await device.folders.list();
+   * const csv = new TextDecoder().decode(await folder.read("data/temps.csv"));
+   * ```
+   */
+  read(path: string, options?: CallOptions): Promise<Uint8Array>;
+  /**
+   * Writes a file in the folder, replacing what is there and making the
+   * directories on the way.
+   *
+   * @param path The file, relative to the folder.
+   * @param data The bytes, at most 16 MiB, or a string written as UTF-8.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; the write may already be done.
+   * @returns Once the file is written.
+   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when the path is a directory or `data` is over 16 MiB.
+   * @example
+   * ```ts
+   * const folder = await device.folders.pick({ write: true });
+   * if (folder) await folder.write("notes/today.txt", "Written from a notebook");
+   * ```
+   */
+  write(path: string, data: Bytes | string, options?: CallOptions): Promise<void>;
+  /**
+   * Removes a file, or an empty directory, in the folder.
+   *
+   * @param path What to remove, relative to the folder.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; it may already be removed.
+   * @returns Once it is gone.
+   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when nothing is there or a directory isn't empty.
+   * @example
+   * ```ts
+   * const folder = await device.folders.pick({ write: true });
+   * if (folder) await folder.remove("notes/old.txt");
+   * ```
+   */
+  remove(path: string, options?: CallOptions): Promise<void>;
+}
+
+/**
+ * Folders the person picked, for lasting access from this notebook: the
+ * kernel has no file system of its own. The picker is the consent, so
+ * there is no permission prompt; Settings lists each notebook's folders
+ * and revokes them. Works in kernels in the app only.
+ */
+export interface Folders {
+  /**
+   * Shows the system folder picker and keeps what the person picks for
+   * this notebook. Picking a folder it already has replaces that grant,
+   * keeping its id.
+   *
+   * @param options `write` to ask for writing too, and the call's `signal`, which closes the picker and rejects `cancelled`.
+   * @returns The folder, or `null` when the person cancelled.
+   * @throws {DeviceError} `denied` when the app doesn't know which notebook this is; `failed` when access to the folder can't be kept.
+   * @example
+   * ```ts
+   * const folder = await device.folders.pick();
+   * if (folder) console.log(folder.name, (await folder.entries()).length);
+   * ```
+   */
+  pick(options?: PickFolderOptions): Promise<Folder | null>;
+  /**
+   * The folders this notebook was given, in the order they were picked.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns Its folders, or `[]`.
+   * @throws {DeviceError} `denied` when the app doesn't know which notebook this is.
+   * @example
+   * ```ts
+   * const folders = await device.folders.list();
+   * const data = folders.find((f) => f.name === "Data") ?? (await device.folders.pick());
+   * ```
+   */
+  list(options?: CallOptions): Promise<Folder[]>;
+}
+
 /** What each host event's handler gets, by event (`device.on`). */
 export interface HostEvents {
   /** The system appearance changed. */
@@ -1545,6 +1677,8 @@ export interface Device {
   readonly reminders: Reminders;
   /** Bluetooth LE peripherals: see `Bluetooth`. */
   readonly bluetooth: Bluetooth;
+  /** Folders the person picked for this notebook: see `Folders`. */
+  readonly folders: Folders;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1674,6 +1808,54 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return control("state", { volume }, options);
       },
       state: (options) => control("state", {}, options),
+    };
+  }
+  /** A folder from a `folders.pick` or `folders.list` reply. */
+  function folder(method: string, value: unknown): Folder {
+    if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.writable !== "boolean") {
+      throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+    }
+    const id = value.id;
+    function at(method: string, path: unknown, optional = false): Record<string, unknown> {
+      if (optional && path === undefined) return { folder: id };
+      if (typeof path !== "string" || (!optional && path === "")) throw new DeviceError("failed", `${method} needs a path in the folder`);
+      if (path.startsWith("/") || path.split("/").includes("..")) {
+        throw new DeviceError("denied", `${method}: "${path}" leaves the folder; paths are relative to it, without ..`);
+      }
+      return { folder: id, path };
+    }
+    return {
+      id,
+      name: value.name,
+      writable: value.writable,
+      async entries(path, options) {
+        const found = await call("folders.entries", at("folders.entries", path, true), options);
+        if (!Array.isArray(found)) throw new DeviceError("failed", "the host's folders.entries reply is malformed");
+        return found.map((item): FolderEntry => {
+          if (!isRecord(item) || typeof item.name !== "string" || (item.kind !== "file" && item.kind !== "directory")) {
+            throw new DeviceError("failed", "the host's folders.entries reply is malformed");
+          }
+          const modified = typeof item.modified === "string" ? new Date(item.modified) : undefined;
+          return {
+            name: item.name,
+            kind: item.kind,
+            ...(typeof item.size === "number" ? { size: item.size } : {}),
+            ...(modified && !Number.isNaN(modified.getTime()) ? { modified } : {}),
+          };
+        });
+      },
+      async read(path, options) {
+        return replyBytes("folders.read", await call("folders.read", at("folders.read", path), options));
+      },
+      async write(path, data, options) {
+        const params = at("folders.write", path);
+        requireMethod("folders.write");
+        const bytes = await toBytes(typeof data === "string" ? new TextEncoder().encode(data) : data);
+        await call("folders.write", { ...params, data: bytes }, options);
+      },
+      async remove(path, options) {
+        await call("folders.remove", at("folders.remove", path), options);
+      },
     };
   }
   /** A connected peripheral (`bluetooth.connect`): a handle its calls name. */
@@ -2146,6 +2328,19 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
           throw new DeviceError("failed", "the host's bluetooth.connect reply is malformed");
         }
         return peripheral(reply.peripheral, reply.id, typeof reply.name === "string" ? reply.name : null);
+      },
+    },
+    folders: {
+      async pick(options = {}) {
+        const { write, ...rest } = options;
+        if (write !== undefined && typeof write !== "boolean") throw new DeviceError("failed", "folders.pick: write must be true or false");
+        const picked = await call("folders.pick", defined({ write }), rest);
+        return picked === null ? null : folder("folders.pick", picked);
+      },
+      async list(options) {
+        const found = await call("folders.list", {}, options);
+        if (!Array.isArray(found)) throw new DeviceError("failed", "the host's folders.list reply is malformed");
+        return found.map((item) => folder("folders.list", item));
       },
     },
   };

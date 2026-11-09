@@ -108,6 +108,8 @@ such API.
 | [`device.bluetooth.scan(options?)`](#device-bluetooth-scan-options) | Advertisements from nearby peripherals, for `for await`, until the loop ends or the cell is interrupted. |
 | [`device.bluetooth.known(ids, options?)`](#device-bluetooth-known-ids-options) | Peripherals the system knows by id, such as one a past scan found, to connect again without scanning. |
 | [`device.bluetooth.connect(id, options?)`](#device-bluetooth-connect-id-options) | Connects to a peripheral. |
+| [`device.folders.pick(options?)`](#device-folders-pick-options) | Shows the system folder picker and keeps what the person picks for this notebook. |
+| [`device.folders.list(options?)`](#device-folders-list-options) | The folders this notebook was given, in the order they were picked. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -120,6 +122,10 @@ such API.
 | [`peripheral.write(service, characteristic, data, options?)`](#peripheral-write-service-characteristic-data-options) | Writes a characteristic's value. |
 | [`peripheral.notify(service, characteristic, options?)`](#peripheral-notify-service-characteristic-options) | A characteristic's values as it notifies or indicates them, for `for await`, until the loop ends, the cell is interrupted, or the peripheral closes. |
 | [`peripheral.rssi(options?)`](#peripheral-rssi-options) | Reads the signal strength now. |
+| [`folder.entries(path?, options?)`](#folder-entries-path-options) | Lists a directory in the folder, sorted by name. |
+| [`folder.read(path, options?)`](#folder-read-path-options) | Reads a file in the folder. |
+| [`folder.write(path, data, options?)`](#folder-write-path-data-options) | Writes a file in the folder, replacing what is there and making the directories on the way. |
+| [`folder.remove(path, options?)`](#folder-remove-path-options) | Removes a file, or an empty directory, in the folder. |
 
 ## `device`
 
@@ -321,6 +327,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `camera` | `Camera` | The system camera: see `Camera`. |
 | `reminders` | `Reminders` | The person's reminders: see `Reminders`. |
 | `bluetooth` | `Bluetooth` | Bluetooth LE peripherals: see `Bluetooth`. |
+| `folders` | `Folders` | Folders the person picked for this notebook: see `Folders`. |
 
 ## `device.clipboard`
 
@@ -2189,6 +2196,75 @@ for await (const ad of device.bluetooth.scan({ services: ["180D"] })) {
 }
 ```
 
+## `device.folders`
+
+Folders the person picked, for lasting access from this notebook: the
+kernel has no file system of its own. The picker is the consent, so
+there is no permission prompt; Settings lists each notebook's folders
+and revokes them. Works in kernels in the app only.
+
+Folders the person picked, kept per notebook as bookmarks, on the Mac, iPad and iPhone. No permission: the picker is the consent, and Settings revokes. A picked folder is a [`Folder`](#folder).
+
+### `device.folders.pick(options?)`
+
+```ts
+pick(options?: PickFolderOptions): Promise<Folder | null>;
+```
+
+Shows the system folder picker and keeps what the person picks for
+this notebook. Picking a folder it already has replaces that grant,
+keeping its id.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `PickFolderOptions` | no | `write` to ask for writing too, and the call's `signal`, which closes the picker and rejects `cancelled`. |
+
+**Returns** `Promise<Folder | null>`: The folder, or `null` when the person cancelled.
+
+**Throws** `DeviceError`: `denied` when the app doesn't know which notebook this is; `failed` when access to the folder can't be kept.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+The system folder picker, which is the consent; the folder stays the notebook's until revoked in Settings. A browser would need the File System Access API, which Safari doesn't have.
+
+```ts
+const folder = await device.folders.pick();
+if (folder) console.log(folder.name, (await folder.entries()).length);
+```
+
+### `device.folders.list(options?)`
+
+```ts
+list(options?: CallOptions): Promise<Folder[]>;
+```
+
+The folders this notebook was given, in the order they were picked.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Folder[]>`: Its folders, or `[]`.
+
+**Throws** `DeviceError`: `denied` when the app doesn't know which notebook this is.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+A `Folder` lists, reads, writes and removes inside the folder only; reads up to 16 MiB.
+
+```ts
+const folders = await device.folders.list();
+const data = folders.find((f) => f.name === "Data") ?? (await device.folders.pick());
+```
+
 ## `SoundPlayer`
 
 A loaded sound a cell controls, from `device.sound.player`: a
@@ -2469,6 +2545,117 @@ console.log(await peripheral.rssi());
 | --- | --- | --- |
 | `id` | `string` | Its id on this device. |
 | `name` | `string \| null` | Its name when it connected, or `null`. |
+
+## `Folder`
+
+A folder the person picked for this notebook, from
+`device.folders.pick()` or `list()`. It stays this notebook's until
+the person revokes it in Settings, across kernel and app restarts, so
+there is nothing to close.
+
+Each `path` is relative to the folder, with `/` between parts. An
+absolute path, a `..`, or a symlink that leads outside the folder
+rejects `denied`.
+
+Its methods work wherever [`device.folders.pick`](#device-folders-pick-options) does. Paths are relative to the folder; one that leads outside it rejects `denied`.
+
+### `folder.entries(path?, options?)`
+
+```ts
+entries(path?: string, options?: CallOptions): Promise<FolderEntry[]>;
+```
+
+Lists a directory in the folder, sorted by name.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | no | A directory in the folder; the folder itself when left out. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<FolderEntry[]>`: Its files and directories, hidden ones included.
+
+**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no directory there.
+
+```ts
+const [folder] = await device.folders.list();
+for (const entry of await folder.entries()) console.log(entry.kind, entry.name, entry.size);
+```
+
+### `folder.read(path, options?)`
+
+```ts
+read(path: string, options?: CallOptions): Promise<Uint8Array>;
+```
+
+Reads a file in the folder.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | The file, relative to the folder. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Uint8Array>`: Its bytes.
+
+**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no file there or it is over 16 MiB.
+
+```ts
+const [folder] = await device.folders.list();
+const csv = new TextDecoder().decode(await folder.read("data/temps.csv"));
+```
+
+### `folder.write(path, data, options?)`
+
+```ts
+write(path: string, data: Bytes | string, options?: CallOptions): Promise<void>;
+```
+
+Writes a file in the folder, replacing what is there and making the
+directories on the way.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | The file, relative to the folder. |
+| `data` | `Bytes \| string` | yes | The bytes, at most 16 MiB, or a string written as UTF-8. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; the write may already be done. |
+
+**Returns** once the file is written.
+
+**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when the path is a directory or `data` is over 16 MiB.
+
+```ts
+const folder = await device.folders.pick({ write: true });
+if (folder) await folder.write("notes/today.txt", "Written from a notebook");
+```
+
+### `folder.remove(path, options?)`
+
+```ts
+remove(path: string, options?: CallOptions): Promise<void>;
+```
+
+Removes a file, or an empty directory, in the folder.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | What to remove, relative to the folder. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; it may already be removed. |
+
+**Returns** once it is gone.
+
+**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when nothing is there or a directory isn't empty.
+
+```ts
+const folder = await device.folders.pick({ write: true });
+if (folder) await folder.remove("notes/old.txt");
+```
+
+### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Names the grant; `list()` gives the same id after a restart. |
+| `name` | `string` | The folder's name, as the picker showed it. |
+| `writable` | `boolean` | Whether it was picked with `write: true`. |
 
 ## Errors
 
@@ -3001,6 +3188,27 @@ Options for `Peripheral.write`.
 | `withResponse` | `boolean` | no | Wait for the peripheral to confirm; true by default. False sends and resolves at once. |
 
 It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `PickFolderOptions`
+
+Options for `device.folders.pick`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `write` | `boolean` | no | Ask for writing too, not only reading. `false` by default. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `FolderEntry`
+
+One item in a folder, from `Folder.entries()`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | Its name in its directory. |
+| `kind` | `"file" \| "directory"` | yes | A symlink reads as a file. |
+| `size` | `number` | no | Bytes, for a file. |
+| `modified` | `Date` | no | When its contents last changed. |
 
 ### `AuthorizationStatus`
 

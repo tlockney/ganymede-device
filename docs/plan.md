@@ -607,6 +607,10 @@ Done:
    connect, and a connected `Peripheral` handle with services, read,
    write, notify and RSSI over Core Bluetooth, Mac, iPad and iPhone
    (docs/protocol.md, "Bluetooth").
+20. **Phase 3's folders** (#102): `device.folders.pick` and `list`, and a
+   `Folder` that lists, reads, writes and removes inside a folder the
+   person picked, kept per notebook as a bookmark (docs/protocol.md,
+   "Folders").
 
 Next:
 

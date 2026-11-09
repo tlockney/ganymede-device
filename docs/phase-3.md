@@ -206,6 +206,11 @@ interface Folder {
 - Process kernels (a Node or Deno cdp-kernel on the Mac) could get the
   same folders as Deno `--allow-read`/`--allow-write` scopes later; not
   in this phase.
+- As built (#102): a `Folder` is a plain object named by its grant id,
+  not a native handle, since it outlives the kernel and needs no close.
+  `remove` takes a file or an empty directory only. `write` makes the
+  directories on the way. Grants live in their own store
+  (`FolderGrants`), beside the ledger's, so a Settings screen reads both.
 
 **Acceptance**: a notebook picks a folder on a Mac and an iPad (Files,
 iCloud Drive), lists, reads and writes in it after an app restart, can't
