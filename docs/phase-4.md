@@ -44,6 +44,15 @@ transport (test/device.test.ts, the browser test) pass against a
 host-function transport in Node with a fake bridge, and on an iPad with
 JavaScriptCore.
 
+As built: `src/host.ts` (`hostFunctionTransport`, `installHostDevice`,
+exported as `@tlockney/ganymede-device/host`) and Swift's
+`EngineDevice` (`bridge.engineDevice()`, `install(in: JSContext)`).
+test/host-transport.test.ts runs test/device.test.ts again through the
+host function. Swift maps each context's ids to bridge-wide ones rather
+than asking for negative ids, since an engine can't be trusted to keep
+to a range. Not yet: the run on an iPad with JavaScriptCore, which needs
+an engine kernel to run cells (ganymede#266).
+
 ## 2. Headless runs
 
 A run with no notebook on screen: the share sheet, Shortcuts, a widget

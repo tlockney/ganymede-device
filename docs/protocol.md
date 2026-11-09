@@ -639,7 +639,9 @@ renders outputs too, so the handler differs from `device`:
   `src/support.ts` whose remote column isn't `no` (a test checks the two
   lists agree), and its `hello` lists only those.
 - Its ids and owners are kept apart from the kernel page's, so a cancel
-  or release from one page never touches the other's calls. Dialogs from
+  or release from one page never touches the other's calls. They must
+  be positive integers below 2^40 (the engine range, "In an embedded
+  engine" below); any other fails `failed`. Dialogs from
   both share one queue: one dialog at a time.
 
 ### In a browser
@@ -691,3 +693,34 @@ prompt to preview: the text `clipboard.writeText` copies, or the text
 - The `ui.*` dialogs aren't answered yet: the page would draw them, and
   no page does so far.
 
+
+## In an embedded engine
+
+A JavaScript engine embedded in the app (JavaScriptCore now, jitless V8
+later; docs/phase-4.md, part 1) has no web view and no `webkit` handler.
+Swift installs one function in each engine context instead:
+
+```ts
+__ganymedeDevice(message: string): Promise<string>
+```
+
+It takes one of the messages above as JSON text and resolves with the
+reply as JSON text; `installHostDevice(globalThis.__ganymedeDevice)` from
+`src/host.ts` (`@tlockney/ganymede-device/host`) is the engine's preload,
+and `hostFunctionTransport(post)` the transport under it. On the Swift
+side, `bridge.engineDevice(host:)` makes an `EngineDevice` for one
+context, `install(in:)` defines the function in a `JSContext`, and
+`release()` stops what the context opened when it goes away.
+
+- Each context has an owner of its own, below every page's and remote
+  handler's, and the messages go to the same dispatcher, so streams,
+  handles, dialogs and the ledger work unchanged. `setNotebook(_:for:)`
+  takes the context's `owner`.
+- Swift stamps the context's owner on every message and ignores the one
+  it names, and maps the context's call ids to bridge-wide ones. So ids
+  count from 1 per context, and code in one context can't cancel,
+  release or read another's calls, streams or grants.
+- `dropPage()` and `dropRemote()` leave engine contexts alone.
+- Aborting a call (an interrupt aborts the cell's signal) sends
+  `{ id, cancel: true }` and rejects at once. Bytes cross as `{ base64 }`.
+- Call the function, and run the context, on the main thread.

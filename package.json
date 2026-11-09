@@ -39,6 +39,10 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
+    },
     "./globals": {
       "types": "./dist/globals.d.ts"
     }
