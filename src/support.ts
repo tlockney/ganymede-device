@@ -24,6 +24,13 @@ export interface SupportRow {
   browser: Support;
   /** The browser lets a page call it only after a click on a prompt the page shows. */
   browserClick?: boolean;
+  /**
+   * The system permission the call needs on-device, such as "location",
+   * the namespace whose trio (`authorizationStatus()`,
+   * `requestAuthorization()`) covers it. A permissioned method is `no` for
+   * remote kernels and browsers. None when absent.
+   */
+  permission?: string;
   /** Why a column is "no", or what limits it, for the docs' footnotes. */
   note?: string;
 }
@@ -224,15 +231,18 @@ function cell(support: Support, detail?: string): string {
 export function supportTable(support: Record<string, SupportRow> = SUPPORT): string {
   const rows: string[] = [];
   const notes: string[] = [];
+  // The Permission column shows once a method needs one.
+  const permissions = Object.values(support).some((row) => row.permission);
   for (const row of Object.values(support)) {
     const method = `\`device.${row.call}\``;
     const browser = cell(row.browser, row.browserClick ? "after a click" : undefined);
-    rows.push(`| ${method} | ${row.returns} | ${cell(row.onDevice, row.devices)} | ${cell(row.remote)} | ${browser} |`);
+    const permission = permissions ? ` ${row.permission ?? "none"} |` : "";
+    rows.push(`| ${method} | ${row.returns} | ${cell(row.onDevice, row.devices)} |${permission} ${cell(row.remote)} | ${browser} |`);
     if (row.note) notes.push(`- ${method}: ${row.note}`);
   }
   return [
-    "| Method | Returns | In the app | Remote kernel | Browser |",
-    "| --- | --- | --- | --- | --- |",
+    `| Method | Returns | In the app |${permissions ? " Permission |" : ""} Remote kernel | Browser |`,
+    `| --- | --- | --- |${permissions ? " --- |" : ""} --- | --- |`,
     ...rows,
     ...(notes.length ? ["", ...notes] : []),
   ].join("\n");

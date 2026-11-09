@@ -30,6 +30,7 @@ export {
   type UI,
   unavailableDevice,
 } from "./device.ts";
+export { AUTHORIZATION_STATUSES, type Authorization, type AuthorizationStatus, authorization, isGranted } from "./permission.ts";
 export { type DeviceStream, openStream, type StreamOptions } from "./stream.ts";
 export { type Bytes, MAX_BINARY_BYTES } from "./binary.ts";
 export { DeviceError, type DeviceErrorCode } from "./errors.ts";

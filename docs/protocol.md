@@ -168,6 +168,43 @@ nothing pushes into the Worker.
   `stream.next` and `stream.close` aren't either, so over a comm they
   fail `unavailable`.
 
+## Permissions
+
+A namespace that needs a system (TCC) permission, such as `location`,
+has the trio in TypeScript (`authorization()` in src/permission.ts) and
+answers two more methods:
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `<namespace>.authorizationStatus` | `{}` | the status, without prompting |
+| `<namespace>.requestAuthorization` | `{}` | the status after the system prompt; without one when the person was already asked |
+
+The status is one of `notDetermined`, `denied`, `restricted`,
+`authorized`, `limited`, `writeOnly` or `reducedAccuracy`. The last
+three are partial grants (some contacts or photos; add-only reminders or
+photos; approximate location) and count as granted.
+
+- The namespace's other methods ask lazily: a call while the status is
+  `notDetermined` shows the system prompt first, and any status short of
+  a grant rejects the call `denied`. Calling `requestAuthorization()`
+  first is optional. Calls that come while a prompt is up wait on that
+  prompt; it shows once.
+- A cancel (interrupt, abort) while the prompt is up rejects the call
+  `cancelled` at once. The system prompt can't be closed; its answer
+  still sets the status for later calls, but the cancelled call doesn't
+  run.
+- In Swift, `DeviceBridge.addPermission(namespace, permission)` takes a
+  `Permission` wrapping the framework's status and request; methods take
+  `permission: namespace` in `addMethod` (calls that answer later, with a
+  cancel action) or `addStream`. Handlers throw or reply
+  `DeviceCallError(code, message)` for an error with a code.
+- Permissioned methods are on-device only: `support.ts` marks them
+  `remote: "no"` and `browser: "no"` with a `permission` field, and the
+  generated support table gains a Permission column with the first one.
+  Their TSDoc names the permission ("Needs the location permission.").
+- The app's own ledger (docs/plan.md, "Permissions" item 2) is checked
+  before the system prompt (#60).
+
 ## Dialogs
 
 `ui.*`, `share`, `preview`, `files.*` and `photos.pick` calls wait on a person, so Swift answers
