@@ -12,9 +12,10 @@ if (device?.has("clipboard.readText")) {
 }
 ```
 
-The design, scope and phases are in [docs/plan.md](docs/plan.md); the
-wire format and the Swift side's contract in
-[docs/protocol.md](docs/protocol.md).
+Every method, with its arguments, return value, errors, where it works
+and an example, is in [docs/reference.md](docs/reference.md). The design,
+scope and phases are in [docs/plan.md](docs/plan.md); the wire format
+and the Swift side's contract in [docs/protocol.md](docs/protocol.md).
 
 ## Status
 
@@ -63,6 +64,12 @@ there are still planned. The package isn't published yet (#24).
   `npm run support-table` prints it as the Markdown that ganymede-ui's
   `docs/device.md` embeds.
 - `src/globals.ts`: ambient types for cells.
+- `scripts/reference.ts`: generates `docs/reference.md` from the doc
+  comments in `src/device.ts` and the rows in `src/support.ts`. After
+  changing either, run `node scripts/reference.ts --write`;
+  `test/reference.test.ts` fails while the page is out of date, a
+  method lacks a summary, `@param` or `@example`, or an example doesn't
+  type-check.
 - `Package.swift`, `swift/Sources/DeviceBridge/`: the Swift side, a
   `WKScriptMessageHandlerWithReply` named `device`, and a second one,
   `deviceRemote`, limited to the remote subset (`Remote.swift`).
@@ -132,7 +139,8 @@ swift test      # the Swift bridge; macOS only
 On a pull request, and on a push to `main`, CI runs only the jobs its
 files can affect
 (`scripts/ci-changes.sh`): the `swift` job for `Package.swift` and
-`swift/`, `test` and `browser` for the TypeScript side, none for docs.
+`swift/`, `test` and `browser` for the TypeScript side, none for docs
+(except the generated `docs/reference.md`, which the `test` job checks).
 
 ## Next
 

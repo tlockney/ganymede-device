@@ -217,7 +217,7 @@ export const SUPPORT = {
 
 export type Method = keyof typeof SUPPORT;
 
-function cell(support: Support, detail?: string): string {
+export function cell(support: Support, detail?: string): string {
   if (support === "yes") return detail ?? "yes";
   return detail && support === "planned" ? `planned, ${detail}` : support;
 }

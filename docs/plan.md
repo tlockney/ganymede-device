@@ -489,9 +489,10 @@ support matrix so docs and behaviour can't drift.
   remote in the app, and browser, plus a footnote per gap (why, and
   whether it's planned). Generated from the matrix in the package; CI
   fails if a method has no row.
-- **API reference.** TSDoc on every method, published from the types
-  package and shown by the editor. Each entry states where it works,
-  what permission it needs on-device, and what cancel returns.
+- **API reference.** TSDoc on every method, shown by the editor, and
+  generated into [reference.md](reference.md) (`scripts/reference.ts`,
+  #85). Each entry states what cancel returns; where it works and what
+  permission it needs on-device come from the support matrix.
 - **Guides.** "Your first device call", "Permissions and the ledger",
   "Using `device` from a remote kernel" (what's there, what isn't, why),
   "In a browser" (the click-through prompts), and "Headless runs".

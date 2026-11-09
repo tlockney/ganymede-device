@@ -6,7 +6,9 @@ export type DeviceErrorCode =
   | "denied"
   /** Interrupted or aborted before the host answered. */
   | "cancelled"
+  /** The call's `signal` came from `AbortSignal.timeout()` and timed out. */
   | "timeout"
+  /** Anything else, such as an argument the method refuses; the message says what. */
   | "failed"
   /** The peer went away mid-call, such as a Bluetooth device or a remote link. */
   | "disconnected";
