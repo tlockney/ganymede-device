@@ -2,11 +2,11 @@ import AVFoundation
 import Foundation
 
 // `device.sound`: `play` starts a sound and answers at once; `player`
-// opens a handle a cell controls with `sound.control` and closes with
-// `sound.close` (docs/protocol.md). Each sound belongs to the kernel that
-// started it (the call's `owner`), and ends when that kernel's Worker
-// restarts or its handler is released; `dropAll()` stops them all, and
-// `dropPage()` and `dropRemote()` those of one handler.
+// opens a handle (Handles.swift) a cell controls with `sound.control` and
+// closes with `sound.close` (docs/protocol.md). Each sound belongs to the
+// kernel that started it (the call's `owner`), and ends when that
+// kernel's Worker restarts or its handler is released; `dropAll()` stops
+// them all, and `dropPage()` and `dropRemote()` those of one handler.
 
 /// One sound loaded and ready, behind a protocol so tests needn't play any.
 @MainActor
@@ -90,18 +90,20 @@ final class Sounds {
         let sound: SoundPlayback
     }
 
+    /// The handle kind of a `sound.player` player.
+    static let kind = "sound.player"
+
     private let loader: SoundLoader
+    /// Players' lifetimes: closing a handle pauses and frees its player.
+    private let handles: Handles
     /// `sound.play` sounds, kept until they end.
     private var playing: [ObjectIdentifier: Owned] = [:]
-    private var players: [Int: Owned] = [:]
-    /// The player each `sound.player` call opened, by call id, so a cancel
-    /// that arrives after the answer closes it: the page drops that answer,
-    /// so nothing else would. Kept while the player is open.
-    private var openedBy: [Int: Int] = [:]
-    private var nextID = 1
+    /// Open players, by handle id.
+    private var players: [Int: SoundPlayback] = [:]
 
-    init(loader: SoundLoader) {
+    init(loader: SoundLoader, handles: Handles) {
         self.loader = loader
+        self.handles = handles
     }
 
     /// `call` is the call's id, when the page sent one; `owner` the
@@ -130,7 +132,7 @@ final class Sounds {
             }
             return ["result": NSNull()]
         case "sound.player":
-            guard players.values.filter({ $0.owner == owner }).count < Self.maxPlayers else {
+            guard handles.count(owner: owner, kind: Self.kind) < Self.maxPlayers else {
                 return DeviceBridge.error("failed", "sound.player: \(Self.maxPlayers) players are open; close one first")
             }
             let sound: SoundPlayback
@@ -139,15 +141,18 @@ final class Sounds {
             } catch {
                 return DeviceBridge.error("failed", "\(error)")
             }
-            let id = nextID
-            nextID += 1
-            players[id] = Owned(owner: owner, sound: sound)
-            if let call { openedBy[call] = id }
+            let opened = handles.open(owner: owner, kind: Self.kind, limit: Self.maxPlayers, call: call) { [weak self] id in
+                self?.players.removeValue(forKey: id)?.pause()
+            }
+            guard let id = opened else {
+                return DeviceBridge.error("failed", "sound.player: \(Self.maxPlayers) players are open; close one first")
+            }
+            players[id] = sound
             return ["result": ["player": id, "duration": sound.duration]]
         case "sound.control":
             // Another kernel's player is not this one's to control.
             guard let id = Self.number(params["player"]).flatMap({ Int(exactly: $0) }),
-                  let sound = players[id].flatMap({ $0.owner == owner ? $0.sound : nil })
+                  handles.isOpen(id, owner: owner, kind: Self.kind), let sound = players[id]
             else {
                 return DeviceBridge.error("failed", "sound.control: no open player with that id")
             }
@@ -190,45 +195,20 @@ final class Sounds {
             guard let id = Self.number(params["player"]).flatMap({ Int(exactly: $0) }) else {
                 return DeviceBridge.error("failed", "sound.close needs a player id")
             }
-            if players[id]?.owner == owner { close(id) }
+            handles.close(id, owner: owner, kind: Self.kind)
             return ["result": NSNull()]
         default:
             return DeviceBridge.error("unavailable", "\(method) isn't available in this app")
         }
     }
 
-    /// The page cancelled call `call`. If it opened a player, the page
-    /// dropped the answer and has no handle to close it with.
-    func cancel(_ call: Int) {
-        if let id = openedBy[call] { close(id) }
-    }
-
-    /// Stops the sounds and closes the players `owner` started: its Worker
-    /// restarted (a new `hello`) or its kernel shut down.
-    func release(_ owner: Int) {
-        for (key, entry) in playing where entry.owner == owner {
-            entry.sound.pause()
-            playing[key] = nil
-        }
-        for (id, entry) in players where entry.owner == owner {
-            close(id)
-        }
-    }
-
-    /// Stops the sounds and closes the players of each owner that `matches`.
+    /// Stops the `sound.play` sounds of each owner that `matches`. Players
+    /// are handles, which the bridge closes with the rest.
     func stop(_ matches: (Int) -> Bool) {
         for (key, entry) in playing where matches(entry.owner) {
             entry.sound.pause()
             playing[key] = nil
         }
-        for (id, entry) in players where matches(entry.owner) {
-            close(id)
-        }
-    }
-
-    private func close(_ id: Int) {
-        players.removeValue(forKey: id)?.sound.pause()
-        openedBy = openedBy.filter { $0.value != id }
     }
 
     private func load(_ method: String, _ params: [String: Any]) throws -> SoundPlayback {

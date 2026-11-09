@@ -47,6 +47,7 @@ export {
   type ScheduleNotificationOptions,
   type ShareOptions,
   type Sound,
+  type NativeHandle,
   type SoundPlayer,
   type SoundState,
   type UI,

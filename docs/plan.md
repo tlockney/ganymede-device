@@ -594,8 +594,11 @@ Done:
    contacts as plain records (docs/protocol.md, "Methods").
 16. **Phase 2's reminders** (#67): `device.reminders.calendars`, `list`,
    `add`, `complete`, `uncomplete` and `delete` over EventKit, Mac, iPad
-   and iPhone; write-only access adds but doesn't read (docs/protocol.md,
-   "Methods").
+   and iPhone (docs/protocol.md, "Methods").
+17. **Phase 3's native handles** (#96): one `Handles` registry for what
+   a call opens that outlives it, with streams' lifetime; `sound.player`
+   runs on it, and cells get `NativeHandle` (docs/protocol.md,
+   "Handles").
 
 Next:
 

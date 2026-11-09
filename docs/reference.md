@@ -1965,10 +1965,11 @@ console.log(await device.reminders.delete(id)); // true
 
 ## `SoundPlayer`
 
-A loaded sound a cell controls, from `device.sound.player`. Close it when
-done, or hold it with `await using`. The app closes a kernel's players
-when that kernel restarts or shuts down; a kernel has at most 32 open.
-Each method answers the player's state after the change.
+A loaded sound a cell controls, from `device.sound.player`: a
+`NativeHandle`. Close it when done, or hold it with `await using`. The
+app closes a kernel's players when that kernel restarts or shuts down; a
+kernel has at most 32 open. Each method answers the player's state after
+the change.
 
 Its methods work wherever [`device.sound.player`](#device-sound-player-data-options) does.
 
@@ -2327,6 +2328,18 @@ Where a player is: whether it is playing, and its time and length in seconds.
 | `playing` | `boolean` | yes | Whether it is playing now. |
 | `time` | `number` | yes | Where it is, in seconds from the start. |
 | `duration` | `number` | yes | The sound's length in seconds. |
+
+### `NativeHandle`
+
+Something on the device a call opened that outlives the call, such as a
+sound player. Close it when done, or hold it with `await using`. The app
+closes a kernel's handles when that kernel restarts or shuts down. A
+call on a closed handle rejects `failed`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `closed` | `boolean` | yes | Whether it is closed: by `close()`, or by leaving its `await using` block. |
+| `close` | `Promise<void>` | yes | Closes it and frees what it holds. Closing twice is fine. |
 
 ### `ScheduleNotificationOptions`
 
