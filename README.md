@@ -37,8 +37,9 @@ gets the remote subset (the methods that need no permission) with
 `connectDevice(jupyter.comm)`, answered by the notebook page in the app
 (docs/protocol.md, "Over a Jupyter comm") from the ganymede-ui release
 that carries tlockney/ganymede-ui#378. A notebook page in a browser
-can answer the same calls with web APIs (`/browser`); the dialogs
-(`ui.*`) there are still planned. The package isn't published yet (#24).
+can answer the same calls with web APIs (`/browser`), as ganymede-ui's
+does outside the app (tlockney/ganymede-ui#384); the dialogs (`ui.*`)
+there are still planned. The package isn't published yet (#24).
 
 ## Layout
 

@@ -182,10 +182,11 @@ subset's no-permission rule.
 
 The catch is **user activation**. Clipboard, Web Share, file pickers,
 `window.open` and audio need a recent click, and a message from the
-kernel is not one. The web implementation therefore renders a small
-inline prompt in the cell's output ("Copy to clipboard", "Choose file",
-"Share") and runs the call on that click. Calls that don't need
-activation run directly.
+kernel is not one. The web implementation therefore has the page show a
+prompt ("Copy to clipboard", "Choose a file", "Share"; ganymede-ui shows
+it above the notebook) and runs the call on that click. Calls that don't
+need activation run directly. The table below is the design; the browser
+column of `src/support.ts` says what is built.
 
 | Feature | Browser | Web API |
 | --- | --- | --- |
@@ -195,9 +196,9 @@ activation run directly.
 | files pick | yes, via click | `<input type=file>`; File System Access where present |
 | files export | yes, via click | Blob download link |
 | openURL | yes, via click | `window.open`; `inApp` ignored |
-| `ui.alert`, `confirm`, `prompt`, `actionSheet`, `pickDate` | yes | rendered inline in the output, not `window.alert` |
+| `ui.alert`, `confirm`, `prompt`, `actionSheet`, `pickDate` | planned | rendered inline in the output, not `window.alert` |
 | `sound.play` | yes, via click on first use | `HTMLAudioElement` |
-| preview | yes | an inline `jupyter.display` of the file instead of QuickLook |
+| preview | no | a browser has no Quick Look; an inline `jupyter.display` of the file is an option |
 | photos pick | yes, via click | `<input type=file accept="image/*">` |
 | haptics | no | `navigator.vibrate` isn't in Safari, and it's mostly a no-op elsewhere |
 | everything needing permission | no | same rule as remote |
@@ -514,7 +515,7 @@ Settled by 2026-11-01: the package lives in its own repo,
 Swift `DeviceBridge` beside it; and `device` is a global, installed by
 cdp-kernel's `preload` hook (cdp-kernel#384).
 
-## Where things stand (2026-11-07)
+## Where things stand (2026-11-09)
 
 The device API lives in its own repo, `tlockney/ganymede-device`: not
 Ganymede (the Rust core never sees a device call) and not cdp-kernel (a
@@ -552,7 +553,10 @@ Done:
 6. **The browser fallback's web side**: `browserForward({ click })` in
    `/browser` answers the remote subset with web APIs, through a
    click-through prompt the page draws (docs/protocol.md, "In a
-   browser"). Not yet: the `ui.*` dialogs, and a page that uses it.
+   browser"). ganymede-ui's notebook page uses it outside the app
+   (ganymede-ui#384): its prompt names the asking notebook
+   (ganymede-ui#400) and previews what a copy or share sends
+   (ganymede-ui#406, #75). Not yet: the `ui.*` dialogs.
 7. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
    that an HTML output can't reach the bridge.
 
@@ -561,7 +565,6 @@ Next:
 1. Try Phase 1's calls in the Mac and iPad apps, including that an
    interrupt closes a dialog or picker (#21).
 2. Publish the TS package and tag the Swift package (#24).
-3. Phase R in a browser (#26): ganymede-ui runs `answerDevice` with
-   `browserForward` outside the app and draws the click-through prompt;
-   then the `ui.*` dialogs in the browser.
-4. `device.shortcuts.run` (#40), then Phases 2 to 4 (#27).
+3. The `ui.*` dialogs in a browser (#26).
+4. `device.shortcuts.run` (#40), then Phase 2 (#57), Phase 3 (#68) and
+   Phase 4 (#69).
