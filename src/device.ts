@@ -1183,6 +1183,220 @@ export interface UI {
   pickDate(options?: PickDateOptions): Promise<Date | null>;
 }
 
+/** Options for `device.bluetooth.scan`. */
+export interface ScanOptions extends CallOptions {
+  /** Only peripherals that advertise one of these service UUIDs ("180D", or a full UUID). All by default. */
+  services?: string[];
+  /** Every advertisement, not only each peripheral's first; for RSSI over time. False by default. */
+  allowDuplicates?: boolean;
+}
+
+/** One advertisement a scan heard. */
+export interface Advertisement {
+  /** The peripheral's id on this device, for `connect()` and `known()`. Another device sees a different id. */
+  id: string;
+  /** Its advertised or cached name, or `null`. */
+  name: string | null;
+  /** Signal strength in dBm, such as -60; nearer is higher. */
+  rssi: number;
+  /** The service UUIDs it advertises. */
+  services: string[];
+  /** Its manufacturer data, the company id first, or `null`. */
+  manufacturerData: Uint8Array | null;
+  /** Service data by service UUID. */
+  serviceData: Record<string, Uint8Array>;
+}
+
+/** A peripheral the system knows, from `device.bluetooth.known`. */
+export interface KnownPeripheral {
+  /** Its id, for `connect()`. */
+  id: string;
+  /** Its cached name, or `null`. */
+  name: string | null;
+}
+
+/** Options for `device.bluetooth.connect`. */
+export interface ConnectOptions extends CallOptions {
+  /** Seconds to wait for the peripheral, 1 to 120; 15 by default. Then the call rejects `timeout`. */
+  timeout?: number;
+}
+
+/** A GATT characteristic and what it allows. */
+export interface BluetoothCharacteristic {
+  /** Its UUID, as Core Bluetooth writes it ("2A37", or the full form). */
+  uuid: string;
+  /** What it allows. */
+  properties: Array<"read" | "write" | "writeWithoutResponse" | "notify" | "indicate">;
+}
+
+/** A GATT service and its characteristics. */
+export interface BluetoothService {
+  /** Its UUID, as Core Bluetooth writes it ("180D", or the full form). */
+  uuid: string;
+  /** Its characteristics. */
+  characteristics: BluetoothCharacteristic[];
+}
+
+/** Options for `Peripheral.write`. */
+export interface WriteOptions extends CallOptions {
+  /** Wait for the peripheral to confirm; true by default. False sends and resolves at once. */
+  withResponse?: boolean;
+}
+
+/**
+ * A connected Bluetooth LE peripheral, from `device.bluetooth.connect`: a
+ * `NativeHandle`. Close it to disconnect, or hold it with `await using`.
+ * The app closes a kernel's peripherals when that kernel restarts or
+ * shuts down; a kernel has at most 8 connected. When the peripheral goes
+ * away, waiting calls reject `disconnected`, `notify` streams end with
+ * it, and the handle closes. Services and characteristics are UUIDs:
+ * "180D", or the full form.
+ */
+export interface Peripheral extends NativeHandle {
+  /** Its id on this device. */
+  readonly id: string;
+  /** Its name when it connected, or `null`. */
+  readonly name: string | null;
+  /**
+   * Its services and their characteristics, discovered on the first call.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns Each service with its characteristics and what they allow.
+   * @throws {DeviceError} `disconnected` when it went away; `failed` when it is closed or discovery fails.
+   * @example
+   * ```ts
+   * for (const service of await peripheral.services()) console.log(service.uuid, service.characteristics.map((c) => c.uuid));
+   * ```
+   */
+  services(options?: CallOptions): Promise<BluetoothService[]>;
+  /**
+   * Reads a characteristic's value.
+   *
+   * @param service The service's UUID.
+   * @param characteristic The characteristic's UUID.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The value's bytes.
+   * @throws {DeviceError} `disconnected` when it went away; `failed` when it is closed, there is no such characteristic, or it can't be read.
+   * @example
+   * ```ts
+   * const [level] = await peripheral.read("180F", "2A19");
+   * console.log(`battery ${level}%`);
+   * ```
+   */
+  read(service: string, characteristic: string, options?: CallOptions): Promise<Uint8Array>;
+  /**
+   * Writes a characteristic's value.
+   *
+   * @param service The service's UUID.
+   * @param characteristic The characteristic's UUID.
+   * @param data The bytes, at most what the link takes at once (512 with a response).
+   * @param options `withResponse` (true by default), and the call's `signal`. Cancel rejects `cancelled`; the write may already be sent.
+   * @returns Once the peripheral confirms it, or at once without a response.
+   * @throws {DeviceError} `disconnected` when it went away; `failed` when it is closed, there is no such characteristic, it can't be written that way, or `data` is too long.
+   * @example
+   * ```ts
+   * await peripheral.write("6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", new TextEncoder().encode("hi"));
+   * ```
+   */
+  write(service: string, characteristic: string, data: Bytes, options?: WriteOptions): Promise<void>;
+  /**
+   * A characteristic's values as it notifies or indicates them, for
+   * `for await`, until the loop ends, the cell is interrupted, or the
+   * peripheral closes. Keeps the newest 256 when the cell reads slower
+   * than they come.
+   *
+   * @param service The service's UUID.
+   * @param characteristic The characteristic's UUID.
+   * @param options The call's `signal`, which ends the stream.
+   * @returns A stream of values; leaving the loop unsubscribes.
+   * @throws {DeviceError} `disconnected` when it went away; `failed` when it is closed, or there is no such characteristic or it doesn't notify.
+   * @example
+   * ```ts
+   * for await (const value of peripheral.notify("180D", "2A37")) {
+   *   console.log(`heart rate ${value[1]}`);
+   * }
+   * ```
+   */
+  notify(service: string, characteristic: string, options?: CallOptions): DeviceStream<Uint8Array>;
+  /**
+   * Reads the signal strength now.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns dBm, such as -60.
+   * @throws {DeviceError} `disconnected` when it went away; `failed` when it is closed.
+   * @example
+   * ```ts
+   * console.log(await peripheral.rssi());
+   * ```
+   */
+  rssi(options?: CallOptions): Promise<number>;
+}
+
+/**
+ * A Bluetooth LE central, over Core Bluetooth: scan for peripherals,
+ * connect, and read, write and subscribe to their characteristics. On a
+ * Mac and an iPad or iPhone, in kernels in the app.
+ *
+ * `scan()`, `known()` and `connect()` need the bluetooth permission: the
+ * first call asks (the app's prompt for this notebook, then the
+ * system's) and a refusal rejects `denied`. They reject `unavailable`
+ * while Bluetooth is off.
+ */
+export interface Bluetooth extends Authorization {
+  /**
+   * Advertisements from nearby peripherals, for `for await`, until the
+   * loop ends or the cell is interrupted. Keeps the newest 128 when the
+   * cell reads slower than they come.
+   *
+   * @param options `services` to filter by, `allowDuplicates`, and the call's `signal`, which ends the stream.
+   * @returns A stream of advertisements; leaving the loop stops scanning.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `failed` when a service isn't a UUID.
+   * @example
+   * ```ts
+   * for await (const ad of device.bluetooth.scan({ services: ["180D"] })) {
+   *   console.log(ad.name, ad.rssi);
+   *   break;
+   * }
+   * ```
+   */
+  scan(options?: ScanOptions): DeviceStream<Advertisement>;
+  /**
+   * Peripherals the system knows by id, such as one a past scan found, to
+   * connect again without scanning.
+   *
+   * @param ids Peripheral ids from `scan()` on this device, at most 64.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The ones it knows; the others are left out.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `failed` when an id isn't a UUID.
+   * @example
+   * ```ts
+   * const [strap] = await device.bluetooth.known(["6E400001-B5A3-F393-E0A9-E50E24DCCA9E"]);
+   * if (strap) {
+   *   await using peripheral = await device.bluetooth.connect(strap.id);
+   *   console.log(await peripheral.rssi());
+   * }
+   * ```
+   */
+  known(ids: string[], options?: CallOptions): Promise<KnownPeripheral[]>;
+  /**
+   * Connects to a peripheral.
+   *
+   * @param id Its id, from `scan()` or `known()`.
+   * @param options `timeout` in seconds (15 by default), and the call's `signal`. Cancel stops connecting and rejects `cancelled`.
+   * @returns The connected peripheral, a handle to close when done.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `timeout` when it doesn't answer in time; `failed` when it is unknown, already connected, or the kernel has 8 connected.
+   * @example
+   * ```ts
+   * for await (const ad of device.bluetooth.scan({ services: ["180D"] })) {
+   *   await using strap = await device.bluetooth.connect(ad.id);
+   *   console.log(await strap.services());
+   *   break;
+   * }
+   * ```
+   */
+  connect(id: string, options?: ConnectOptions): Promise<Peripheral>;
+}
+
 /** What each host event's handler gets, by event (`device.on`). */
 export interface HostEvents {
   /** The system appearance changed. */
@@ -1328,6 +1542,8 @@ export interface Device {
   readonly camera: Camera;
   /** The person's reminders: see `Reminders`. */
   readonly reminders: Reminders;
+  /** Bluetooth LE peripherals: see `Bluetooth`. */
+  readonly bluetooth: Bluetooth;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1394,7 +1610,9 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
   function nativeHandle(
     what: string,
     id: number,
-    closeCall: () => Promise<unknown> = () => call("handle.close", { handle: id }),
+    // Not through `call`: `hello` doesn't list `handle.close`, which every
+    // host with a handle answers.
+    closeCall: () => Promise<unknown> = () => transport.call("handle.close", { handle: id }).catch((err: unknown) => Promise.reject(DeviceError.from(err))),
   ): { handle: NativeHandle; check(): void } {
     let closed = false;
     async function close(): Promise<void> {
@@ -1451,6 +1669,51 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return control("state", { volume }, options);
       },
       state: (options) => control("state", {}, options),
+    };
+  }
+  /** A connected peripheral (`bluetooth.connect`): a handle its calls name. */
+  function peripheral(handleID: number, id: string, name: string | null): Peripheral {
+    const { handle, check } = nativeHandle("peripheral", handleID);
+    function where(method: string, service: unknown, characteristic: unknown): Record<string, unknown> {
+      check();
+      checkBluetoothUUID(method, service);
+      checkBluetoothUUID(method, characteristic);
+      return { peripheral: handleID, service, characteristic };
+    }
+    return {
+      get closed() {
+        return handle.closed;
+      },
+      close: () => handle.close(),
+      [asyncDispose]: () => handle.close(),
+      id,
+      name,
+      async services(options) {
+        check();
+        return bluetoothServices(await call("bluetooth.services", { peripheral: handleID }, options));
+      },
+      async read(service, characteristic, options) {
+        const params = where("bluetooth.read", service, characteristic);
+        return replyBytes("bluetooth.read", await call("bluetooth.read", params, options));
+      },
+      async write(service, characteristic, data, options = {}) {
+        const { withResponse, ...rest } = options;
+        const params = where("bluetooth.write", service, characteristic);
+        if (withResponse !== undefined && typeof withResponse !== "boolean") {
+          throw new DeviceError("failed", "bluetooth.write: withResponse must be true or false");
+        }
+        await call("bluetooth.write", { ...params, data: await toBytes(data), ...defined({ withResponse }) }, rest);
+      },
+      notify(service, characteristic, options = {}) {
+        const params = where("bluetooth.notify", service, characteristic);
+        return stream("bluetooth.notify", params, options, (value) => replyBytes("bluetooth.notify", value));
+      },
+      async rssi(options) {
+        check();
+        const value = await call("bluetooth.rssi", { peripheral: handleID }, options);
+        if (typeof value !== "number") throw new DeviceError("failed", "the host's bluetooth.rssi reply is malformed");
+        return value;
+      },
     };
   }
   const hostEvents = hostEventHandlers();
@@ -1834,7 +2097,98 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return booleanReply("reminders.delete", await call("reminders.delete", { id }, options));
       },
     },
+    bluetooth: {
+      ...permission("bluetooth"),
+      scan(options = {}) {
+        const { services, allowDuplicates, ...rest } = options;
+        if (services !== undefined) {
+          if (!Array.isArray(services)) throw new DeviceError("failed", "bluetooth.scan: services must be a list of UUIDs");
+          for (const service of services) checkBluetoothUUID("bluetooth.scan", service);
+        }
+        if (allowDuplicates !== undefined && typeof allowDuplicates !== "boolean") {
+          throw new DeviceError("failed", "bluetooth.scan: allowDuplicates must be true or false");
+        }
+        return stream("bluetooth.scan", defined({ services, allowDuplicates }), rest, advertisement);
+      },
+      async known(ids, options) {
+        if (!Array.isArray(ids) || ids.length > 64 || !ids.every(isUUID)) {
+          throw new DeviceError("failed", "bluetooth.known needs a list of at most 64 peripheral ids");
+        }
+        const found = await call("bluetooth.known", { ids }, options);
+        if (!Array.isArray(found)) throw new DeviceError("failed", "the host's bluetooth.known reply is malformed");
+        return found.map((item): KnownPeripheral => {
+          if (!isRecord(item) || typeof item.id !== "string") throw new DeviceError("failed", "the host's bluetooth.known reply is malformed");
+          return { id: item.id, name: typeof item.name === "string" ? item.name : null };
+        });
+      },
+      async connect(id, options = {}) {
+        const { timeout, ...rest } = options;
+        if (!isUUID(id)) throw new DeviceError("failed", "bluetooth.connect needs a peripheral id (a UUID from scan or known)");
+        if (timeout !== undefined && !(typeof timeout === "number" && timeout >= 1 && timeout <= 120)) {
+          throw new DeviceError("failed", "bluetooth.connect: timeout must be 1 to 120 seconds");
+        }
+        const reply = await call("bluetooth.connect", defined({ id, timeout }), rest);
+        if (!isRecord(reply) || typeof reply.peripheral !== "number" || typeof reply.id !== "string") {
+          throw new DeviceError("failed", "the host's bluetooth.connect reply is malformed");
+        }
+        return peripheral(reply.peripheral, reply.id, typeof reply.name === "string" ? reply.name : null);
+      },
+    },
   };
+}
+
+/** A Bluetooth UUID: 16-bit ("180D"), 32-bit or 128-bit. */
+function checkBluetoothUUID(method: string, value: unknown): asserts value is string {
+  if (typeof value !== "string" || !(/^([0-9a-f]{4}|[0-9a-f]{8})$/i.test(value) || isUUID(value))) {
+    throw new DeviceError("failed", `${method}: "${String(value)}" isn't a Bluetooth UUID ("180D" or a full UUID)`);
+  }
+}
+
+function isUUID(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Bytes from a reply: a Uint8Array, as the transport decodes `{ base64 }`. */
+function replyBytes(method: string, value: unknown): Uint8Array {
+  if (!(value instanceof Uint8Array)) throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  return value;
+}
+
+/** A host's advertisement, checked. */
+function advertisement(value: unknown): Advertisement {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.rssi !== "number" || !Array.isArray(value.services)) {
+    throw new DeviceError("failed", "the host's bluetooth.scan value is malformed");
+  }
+  const serviceData: Record<string, Uint8Array> = {};
+  if (isRecord(value.serviceData)) {
+    for (const [uuid, data] of Object.entries(value.serviceData)) {
+      if (data instanceof Uint8Array) serviceData[uuid] = data;
+    }
+  }
+  return {
+    id: value.id,
+    name: typeof value.name === "string" ? value.name : null,
+    rssi: value.rssi,
+    services: value.services.filter((service): service is string => typeof service === "string"),
+    manufacturerData: value.manufacturerData instanceof Uint8Array ? value.manufacturerData : null,
+    serviceData,
+  };
+}
+
+/** A host's services, checked. */
+function bluetoothServices(value: unknown): BluetoothService[] {
+  const malformed = () => new DeviceError("failed", "the host's bluetooth.services reply is malformed");
+  if (!Array.isArray(value)) throw malformed();
+  return value.map((service): BluetoothService => {
+    if (!isRecord(service) || typeof service.uuid !== "string" || !Array.isArray(service.characteristics)) throw malformed();
+    return {
+      uuid: service.uuid,
+      characteristics: service.characteristics.map((item): BluetoothCharacteristic => {
+        if (!isRecord(item) || typeof item.uuid !== "string" || !Array.isArray(item.properties)) throw malformed();
+        return { uuid: item.uuid, properties: item.properties.filter((p): p is BluetoothCharacteristic["properties"][number] => typeof p === "string") };
+      }),
+    };
+  });
 }
 
 function checkReminderID(method: string, id: unknown): void {

@@ -114,6 +114,16 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         checks[method] = check
     }
 
+    /// `addStream` for a source that needs to know which kernel opened
+    /// it, such as one on a handle that kernel holds.
+    func addStream(
+        _ method: String, capacity: Int, permission: String? = nil,
+        ownedStart: @escaping @MainActor (_ params: [String: Any], _ owner: Int, _ sink: StreamSink) throws -> StreamSource
+    ) {
+        streams.add(method, capacity: capacity, ownedStart: ownedStart)
+        streamPermissions[method] = permission
+    }
+
     /// Adds `namespace`'s system permission: `hello` lists
     /// `<namespace>.authorizationStatus` and
     /// `<namespace>.requestAuthorization`, and methods added with

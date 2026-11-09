@@ -21,13 +21,15 @@ test("every member has a summary, its parameters and an example", () => {
 
 test("every example type-checks against the device types", () => {
   // Each example is its own module (top-level await is allowed). The page
-  // says examples skip the `device` check and use a `player`, so those are
+  // says examples skip the `device` check and use a `player` and a
+  // `peripheral`, so those are
   // declared here.
   const dir = join(root, "docs", ".reference-examples");
   const prelude = [
-    'import type { Device, SoundPlayer } from "../../src/device.ts";',
+    'import type { Device, Peripheral, SoundPlayer } from "../../src/device.ts";',
     "declare const device: Device;",
     "declare const player: SoundPlayer;",
+    "declare const peripheral: Peripheral;",
   ].join("\n");
   const files = new Map(result.examples.map((e, i) => [join(dir, `example-${i}.ts`), `${prelude}\n${e.code}\nexport {};\n`]));
   const options: ts.CompilerOptions = {

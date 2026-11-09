@@ -12,7 +12,9 @@ or a browser.
 checks for it first (`device?.clipboard.readText()`, or
 `if (device) …`). The examples skip that check, and the
 [`SoundPlayer`](#soundplayer) examples use a `player` from
-[`device.sound.player`](#device-sound-player-data-options).
+[`device.sound.player`](#device-sound-player-data-options), and the
+[`Peripheral`](#peripheral) examples a `peripheral` from
+[`device.bluetooth.connect`](#device-bluetooth-connect-id-options).
 
 For editor types, add this line once to a cell or a project file:
 
@@ -100,6 +102,12 @@ such API.
 | [`device.reminders.complete(id, options?)`](#device-reminders-complete-id-options) | Marks a reminder done. |
 | [`device.reminders.uncomplete(id, options?)`](#device-reminders-uncomplete-id-options) | Marks a reminder not done. |
 | [`device.reminders.delete(id, options?)`](#device-reminders-delete-id-options) | Deletes a reminder. |
+| [`device.bluetooth.authorizationStatus(options?)`](#device-bluetooth-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.bluetooth.isAuthorized(options?)`](#device-bluetooth-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.bluetooth.requestAuthorization(options?)`](#device-bluetooth-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.bluetooth.scan(options?)`](#device-bluetooth-scan-options) | Advertisements from nearby peripherals, for `for await`, until the loop ends or the cell is interrupted. |
+| [`device.bluetooth.known(ids, options?)`](#device-bluetooth-known-ids-options) | Peripherals the system knows by id, such as one a past scan found, to connect again without scanning. |
+| [`device.bluetooth.connect(id, options?)`](#device-bluetooth-connect-id-options) | Connects to a peripheral. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -107,6 +115,11 @@ such API.
 | [`player.setVolume(volume, options?)`](#player-setvolume-volume-options) | Sets the volume. |
 | [`player.state(options?)`](#player-state-options) | Reads the player's state, changing nothing. |
 | [`player.close()`](#player-close) | Stops the player and frees it; later calls fail `failed`. |
+| [`peripheral.services(options?)`](#peripheral-services-options) | Its services and their characteristics, discovered on the first call. |
+| [`peripheral.read(service, characteristic, options?)`](#peripheral-read-service-characteristic-options) | Reads a characteristic's value. |
+| [`peripheral.write(service, characteristic, data, options?)`](#peripheral-write-service-characteristic-data-options) | Writes a characteristic's value. |
+| [`peripheral.notify(service, characteristic, options?)`](#peripheral-notify-service-characteristic-options) | A characteristic's values as it notifies or indicates them, for `for await`, until the loop ends, the cell is interrupted, or the peripheral closes. |
+| [`peripheral.rssi(options?)`](#peripheral-rssi-options) | Reads the signal strength now. |
 
 ## `device`
 
@@ -307,6 +320,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `contacts` | `Contacts` | The person's contacts: see `Contacts`. |
 | `camera` | `Camera` | The system camera: see `Camera`. |
 | `reminders` | `Reminders` | The person's reminders: see `Reminders`. |
+| `bluetooth` | `Bluetooth` | Bluetooth LE peripherals: see `Bluetooth`. |
 
 ## `device.clipboard`
 
@@ -2004,6 +2018,177 @@ const id = await device.reminders.add({ title: "Test" });
 console.log(await device.reminders.delete(id)); // true
 ```
 
+## `device.bluetooth`
+
+A Bluetooth LE central, over Core Bluetooth: scan for peripherals,
+connect, and read, write and subscribe to their characteristics. On a
+Mac and an iPad or iPhone, in kernels in the app.
+
+`scan()`, `known()` and `connect()` need the bluetooth permission: the
+first call asks (the app's prompt for this notebook, then the
+system's) and a refusal rejects `denied`. They reject `unavailable`
+while Bluetooth is off.
+
+A Bluetooth LE central over Core Bluetooth, on the Mac, iPad and iPhone. `scan`, `known` and `connect` need the bluetooth permission and reject `unavailable` while Bluetooth is off. A connected peripheral is a [`Peripheral`](#peripheral). The permission methods work where the rest of the namespace does.
+
+### `device.bluetooth.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.bluetooth.authorizationStatus());
+```
+
+### `device.bluetooth.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.bluetooth.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.bluetooth.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.bluetooth.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.bluetooth.scan(options?)`
+
+```ts
+scan(options?: ScanOptions): DeviceStream<Advertisement>;
+```
+
+Advertisements from nearby peripherals, for `for await`, until the
+loop ends or the cell is interrupted. Keeps the newest 128 when the
+cell reads slower than they come.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `ScanOptions` | no | `services` to filter by, `allowDuplicates`, and the call's `signal`, which ends the stream. |
+
+**Returns** `DeviceStream<Advertisement>`: A stream of advertisements; leaving the loop stops scanning.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `failed` when a service isn't a UUID.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | bluetooth | no | no |
+
+Bluetooth LE only. A browser would need Web Bluetooth, which Safari doesn't have.
+
+```ts
+for await (const ad of device.bluetooth.scan({ services: ["180D"] })) {
+  console.log(ad.name, ad.rssi);
+  break;
+}
+```
+
+### `device.bluetooth.known(ids, options?)`
+
+```ts
+known(ids: string[], options?: CallOptions): Promise<KnownPeripheral[]>;
+```
+
+Peripherals the system knows by id, such as one a past scan found, to
+connect again without scanning.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ids` | `string[]` | yes | Peripheral ids from `scan()` on this device, at most 64. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<KnownPeripheral[]>`: The ones it knows; the others are left out.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `failed` when an id isn't a UUID.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | bluetooth | no | no |
+
+```ts
+const [strap] = await device.bluetooth.known(["6E400001-B5A3-F393-E0A9-E50E24DCCA9E"]);
+if (strap) {
+  await using peripheral = await device.bluetooth.connect(strap.id);
+  console.log(await peripheral.rssi());
+}
+```
+
+### `device.bluetooth.connect(id, options?)`
+
+```ts
+connect(id: string, options?: ConnectOptions): Promise<Peripheral>;
+```
+
+Connects to a peripheral.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | Its id, from `scan()` or `known()`. |
+| `options` | `ConnectOptions` | no | `timeout` in seconds (15 by default), and the call's `signal`. Cancel stops connecting and rejects `cancelled`. |
+
+**Returns** `Promise<Peripheral>`: The connected peripheral, a handle to close when done.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use Bluetooth; `unavailable` when Bluetooth is off; `timeout` when it doesn't answer in time; `failed` when it is unknown, already connected, or the kernel has 8 connected.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | bluetooth | no | no |
+
+Services, read, write, notify and RSSI; close it, or hold it with `await using`. At most 8 per kernel.
+
+```ts
+for await (const ad of device.bluetooth.scan({ services: ["180D"] })) {
+  await using strap = await device.bluetooth.connect(ad.id);
+  console.log(await strap.services());
+  break;
+}
+```
+
 ## `SoundPlayer`
 
 A loaded sound a cell controls, from `device.sound.player`: a
@@ -2151,6 +2336,138 @@ await player.close();
 | Property | Type | Description |
 | --- | --- | --- |
 | `duration` | `number` | The sound's length in seconds. |
+
+## `Peripheral`
+
+A connected Bluetooth LE peripheral, from `device.bluetooth.connect`: a
+`NativeHandle`. Close it to disconnect, or hold it with `await using`.
+The app closes a kernel's peripherals when that kernel restarts or
+shuts down; a kernel has at most 8 connected. When the peripheral goes
+away, waiting calls reject `disconnected`, `notify` streams end with
+it, and the handle closes. Services and characteristics are UUIDs:
+"180D", or the full form.
+
+Its methods work wherever [`device.bluetooth.connect`](#device-bluetooth-connect-id-options) does.
+
+### `peripheral.services(options?)`
+
+```ts
+services(options?: CallOptions): Promise<BluetoothService[]>;
+```
+
+Its services and their characteristics, discovered on the first call.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<BluetoothService[]>`: Each service with its characteristics and what they allow.
+
+**Throws** `DeviceError`: `disconnected` when it went away; `failed` when it is closed or discovery fails.
+
+```ts
+for (const service of await peripheral.services()) console.log(service.uuid, service.characteristics.map((c) => c.uuid));
+```
+
+### `peripheral.read(service, characteristic, options?)`
+
+```ts
+read(service: string, characteristic: string, options?: CallOptions): Promise<Uint8Array>;
+```
+
+Reads a characteristic's value.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | `string` | yes | The service's UUID. |
+| `characteristic` | `string` | yes | The characteristic's UUID. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Uint8Array>`: The value's bytes.
+
+**Throws** `DeviceError`: `disconnected` when it went away; `failed` when it is closed, there is no such characteristic, or it can't be read.
+
+```ts
+const [level] = await peripheral.read("180F", "2A19");
+console.log(`battery ${level}%`);
+```
+
+### `peripheral.write(service, characteristic, data, options?)`
+
+```ts
+write(service: string, characteristic: string, data: Bytes, options?: WriteOptions): Promise<void>;
+```
+
+Writes a characteristic's value.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | `string` | yes | The service's UUID. |
+| `characteristic` | `string` | yes | The characteristic's UUID. |
+| `data` | `Bytes` | yes | The bytes, at most what the link takes at once (512 with a response). |
+| `options` | `WriteOptions` | no | `withResponse` (true by default), and the call's `signal`. Cancel rejects `cancelled`; the write may already be sent. |
+
+**Returns** once the peripheral confirms it, or at once without a response.
+
+**Throws** `DeviceError`: `disconnected` when it went away; `failed` when it is closed, there is no such characteristic, it can't be written that way, or `data` is too long.
+
+```ts
+await peripheral.write("6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", new TextEncoder().encode("hi"));
+```
+
+### `peripheral.notify(service, characteristic, options?)`
+
+```ts
+notify(service: string, characteristic: string, options?: CallOptions): DeviceStream<Uint8Array>;
+```
+
+A characteristic's values as it notifies or indicates them, for
+`for await`, until the loop ends, the cell is interrupted, or the
+peripheral closes. Keeps the newest 256 when the cell reads slower
+than they come.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | `string` | yes | The service's UUID. |
+| `characteristic` | `string` | yes | The characteristic's UUID. |
+| `options` | `CallOptions` | no | The call's `signal`, which ends the stream. |
+
+**Returns** `DeviceStream<Uint8Array>`: A stream of values; leaving the loop unsubscribes.
+
+**Throws** `DeviceError`: `disconnected` when it went away; `failed` when it is closed, or there is no such characteristic or it doesn't notify.
+
+```ts
+for await (const value of peripheral.notify("180D", "2A37")) {
+  console.log(`heart rate ${value[1]}`);
+}
+```
+
+### `peripheral.rssi(options?)`
+
+```ts
+rssi(options?: CallOptions): Promise<number>;
+```
+
+Reads the signal strength now.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<number>`: dBm, such as -60.
+
+**Throws** `DeviceError`: `disconnected` when it went away; `failed` when it is closed.
+
+```ts
+console.log(await peripheral.rssi());
+```
+
+### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Its id on this device. |
+| `name` | `string \| null` | Its name when it connected, or `null`. |
 
 ## Errors
 
@@ -2610,6 +2927,77 @@ Options for `device.reminders.list`.
 | --- | --- | --- | --- |
 | `calendar` | `string` | no | A list's id from `calendars()`; every list when left out. |
 | `completed` | `boolean` | no | `true` for completed reminders only, `false` for incomplete ones only; both when left out. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `ScanOptions`
+
+Options for `device.bluetooth.scan`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `services` | `string[]` | no | Only peripherals that advertise one of these service UUIDs ("180D", or a full UUID). All by default. |
+| `allowDuplicates` | `boolean` | no | Every advertisement, not only each peripheral's first; for RSSI over time. False by default. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `Advertisement`
+
+One advertisement a scan heard.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The peripheral's id on this device, for `connect()` and `known()`. Another device sees a different id. |
+| `name` | `string \| null` | yes | Its advertised or cached name, or `null`. |
+| `rssi` | `number` | yes | Signal strength in dBm, such as -60; nearer is higher. |
+| `services` | `string[]` | yes | The service UUIDs it advertises. |
+| `manufacturerData` | `Uint8Array \| null` | yes | Its manufacturer data, the company id first, or `null`. |
+| `serviceData` | `Record<string, Uint8Array>` | yes | Service data by service UUID. |
+
+### `KnownPeripheral`
+
+A peripheral the system knows, from `device.bluetooth.known`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | Its id, for `connect()`. |
+| `name` | `string \| null` | yes | Its cached name, or `null`. |
+
+### `ConnectOptions`
+
+Options for `device.bluetooth.connect`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `timeout` | `number` | no | Seconds to wait for the peripheral, 1 to 120; 15 by default. Then the call rejects `timeout`. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `BluetoothService`
+
+A GATT service and its characteristics.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `uuid` | `string` | yes | Its UUID, as Core Bluetooth writes it ("180D", or the full form). |
+| `characteristics` | `BluetoothCharacteristic[]` | yes | Its characteristics. |
+
+### `BluetoothCharacteristic`
+
+A GATT characteristic and what it allows.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `uuid` | `string` | yes | Its UUID, as Core Bluetooth writes it ("2A37", or the full form). |
+| `properties` | `Array<"read" \| "write" \| "writeWithoutResponse" \| "notify" \| "indicate">` | yes | What it allows. |
+
+### `WriteOptions`
+
+Options for `Peripheral.write`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `withResponse` | `boolean` | no | Wait for the peripheral to confirm; true by default. False sends and resolves at once. |
 
 It also takes [`CallOptions`](#calloptions)'s properties.
 

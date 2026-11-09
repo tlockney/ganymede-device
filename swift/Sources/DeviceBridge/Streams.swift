@@ -81,7 +81,8 @@ final class Streams {
 
     struct Method {
         let capacity: Int
-        let start: StreamStarter
+        /// Gets the call's owner too, for sources tied to a kernel's handle.
+        let start: @MainActor (_ params: [String: Any], _ owner: Int, _ sink: StreamSink) throws -> StreamSource
     }
 
     fileprivate final class Open {
@@ -105,7 +106,11 @@ final class Streams {
     private var open: [Int: Open] = [:]
 
     func add(_ method: String, capacity: Int, start: @escaping StreamStarter) {
-        methods[method] = Method(capacity: max(1, capacity), start: start)
+        add(method, capacity: capacity) { params, _, sink in try start(params, sink) }
+    }
+
+    func add(_ method: String, capacity: Int, ownedStart: @escaping @MainActor ([String: Any], Int, StreamSink) throws -> StreamSource) {
+        methods[method] = Method(capacity: max(1, capacity), start: ownedStart)
     }
 
     /// Opens a stream for `method`. Its id is the call's.
@@ -126,7 +131,7 @@ final class Streams {
         // In place before the source starts, so a value it sends at once is kept.
         open[call] = stream
         do {
-            let source = try starter.start(params, StreamSink(streams: self, id: call, stream: stream))
+            let source = try starter.start(params, owner, StreamSink(streams: self, id: call, stream: stream))
             if stream.ended == nil, open[call] === stream {
                 stream.source = source
             }
