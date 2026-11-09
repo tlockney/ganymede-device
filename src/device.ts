@@ -1398,6 +1398,81 @@ export interface Bluetooth extends Authorization {
   connect(id: string, options?: ConnectOptions): Promise<Peripheral>;
 }
 
+/** A file a run was given, as plain bytes: engines without a web view have no `File`. */
+export interface RunFile {
+  /** The file's name. */
+  name: string;
+  /** Its MIME type, or `""`. */
+  type: string;
+  /** Its bytes. */
+  data: Uint8Array;
+}
+
+/** What a run started from the share sheet, Shortcuts or a widget was given. */
+export interface RunInput {
+  /** Shared or passed text. */
+  text?: string;
+  /** A shared link. */
+  url?: string;
+  /** Shared files, together at most 16 MiB. */
+  files: RunFile[];
+}
+
+/** What a run hands back: to the share sheet's host app, or as a Shortcut's result. */
+export interface RunOutput {
+  /** Text, such as a summary. */
+  text?: string;
+  /** A link. */
+  url?: string | URL;
+  /** Files, together at most 16 MiB. */
+  files?: NamedBytes[];
+}
+
+/** One row of a widget: text, or a number with an optional label and unit. */
+export type WidgetRow = { text: string } | { label?: string; value: number; unit?: string };
+
+/** The tints a widget may take. */
+export const WIDGET_TINTS = ["red", "orange", "yellow", "green", "mint", "teal", "cyan", "blue", "indigo", "purple", "pink", "brown", "gray"] as const;
+
+/** A widget's content: a small declarative layout. */
+export interface WidgetContent {
+  /** The heading, up to 64 characters. */
+  title?: string;
+  /** Up to six rows; text up to 128 characters, labels and units up to 32. */
+  rows?: WidgetRow[];
+  /** The accent colour. */
+  tint?: (typeof WIDGET_TINTS)[number];
+  /** Up to 64 finite numbers, drawn as a line. */
+  sparkline?: number[];
+}
+
+/**
+ * Widgets on the home screen, desktop or lock screen. A widget can't run
+ * a script itself, so it shows what a run last published: from a
+ * notebook or a headless run. No permission.
+ */
+export interface Widget {
+  /**
+   * Publishes `content` for this notebook's widget `kind`, in place of
+   * what it showed, and asks the system to redraw it.
+   *
+   * @param kind A name for the widget, 1 to 64 letters, digits, `.`, `_` or `-`; a widget configured for this notebook and kind shows it.
+   * @param content The layout: `title`, `rows`, `tint`, `sparkline`.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; content already published stays.
+   * @throws {DeviceError} `failed` when `kind` or `content` isn't valid; `denied` when the app hasn't said which notebook runs.
+   * @example
+   * ```ts
+   * await device.widget.update("weather", {
+   *   title: "Oslo",
+   *   rows: [{ label: "Now", value: 4, unit: "°C" }, { text: "Rain at 15:00" }],
+   *   tint: "blue",
+   *   sparkline: [3, 4, 4, 5, 6, 5],
+   * });
+   * ```
+   */
+  update(kind: string, content: WidgetContent, options?: CallOptions): Promise<void>;
+}
+
 /**
  * Strings this notebook saved, such as an API token, kept in the
  * system keychain on this device and never synced. Each notebook sees
@@ -1745,6 +1820,28 @@ export interface Device {
   readonly bluetooth: Bluetooth;
   /** Folders the person picked for this notebook: see `Folders`. */
   readonly folders: Folders;
+  /** Widgets that show what a run published: see `Widget`. */
+  readonly widget: Widget;
+  /**
+   * What this run was given, when the share sheet, Shortcuts or a widget
+   * started it; `null` in a notebook.
+   */
+  readonly input: RunInput | null;
+  /**
+   * Hands `result` back to whatever started this run: the share sheet's
+   * host app, or the Shortcut's next action. A later call replaces it.
+   * In a notebook there is nothing to hand it to.
+   *
+   * @param result `text`, `url` and `files` (together at most 16 MiB).
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @throws {DeviceError} `unavailable` in a notebook; `failed` when `result` has nothing in it or a file has no plain name.
+   * @example
+   * ```ts
+   * const page = device.input?.url;
+   * if (page) await device.output({ text: `Summary of ${page}: ...` });
+   * ```
+   */
+  output(result: RunOutput, options?: CallOptions): Promise<void>;
   /** Strings this notebook saved in the keychain: see `Secrets`. */
   readonly secrets: Secrets;
 }
@@ -1774,6 +1871,8 @@ export interface CreateDeviceOptions {
    * the cell isn't waiting on it.
    */
   cellSignal?: () => AbortSignal | undefined;
+  /** What the run was given (`input`), for `device.input`. */
+  input?: RunInput | null;
 }
 
 export function createDevice(transport: DeviceTransport, info: DeviceInfo, deviceOptions: CreateDeviceOptions = {}): Device {
@@ -2398,6 +2497,25 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return peripheral(reply.peripheral, reply.id, typeof reply.name === "string" ? reply.name : null);
       },
     },
+    input: deviceOptions.input ?? null,
+    async output(result, options) {
+      if (!isRecord(result)) throw new DeviceError("failed", "output needs { text, url, files }");
+      const { text, url, files } = result as RunOutput;
+      if (text === undefined && url === undefined && (files === undefined || files.length === 0)) {
+        throw new DeviceError("failed", "output needs text, a url or files");
+      }
+      requireMethod("output");
+      const params = {
+        ...defined({ text: text === undefined ? undefined : String(text), url: url === undefined ? undefined : String(url) }),
+        files: files === undefined ? [] : await namedFiles("output", files),
+      };
+      await call("output", params, options);
+    },
+    widget: {
+      async update(kind, content, options) {
+        await call("widget.update", { kind: widgetKind(kind), content: widgetContent(content) }, options);
+      },
+    },
     folders: {
       async pick(options = {}) {
         const { write, ...rest } = options;
@@ -2718,6 +2836,69 @@ function pickedFiles(method: string, result: unknown): File[] {
     const type = typeof item.type === "string" ? item.type : "";
     return new File([item.data as Uint8Array<ArrayBuffer>], item.name, { type });
   });
+}
+
+function widgetKind(kind: unknown): string {
+  if (typeof kind !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(kind)) {
+    throw new DeviceError("failed", "widget.update: kind must be 1 to 64 letters, digits, '.', '_' or '-'");
+  }
+  return kind;
+}
+
+/** `content` checked and copied with only the parts a widget draws. */
+function widgetContent(content: unknown): WidgetContent {
+  const bad = (why: string) => new DeviceError("failed", `widget.update: ${why}`);
+  if (!isRecord(content)) throw bad("content must be an object");
+  const text = (value: unknown, max: number, what: string): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || value.length > max) throw bad(`${what} must be text up to ${max} characters`);
+    return value;
+  };
+  const out: WidgetContent = {};
+  const title = text(content.title, 64, "title");
+  if (title !== undefined) out.title = title;
+  if (content.rows !== undefined) {
+    if (!Array.isArray(content.rows) || content.rows.length > 6) throw bad("rows must be a list of at most 6");
+    out.rows = content.rows.map((row): WidgetRow => {
+      if (!isRecord(row)) throw bad("each row is { text } or { label, value, unit }");
+      if (row.value === undefined) {
+        const value = text(row.text, 128, "a row's text");
+        if (value === undefined) throw bad("each row is { text } or { label, value, unit }");
+        return { text: value };
+      }
+      if (typeof row.value !== "number" || !Number.isFinite(row.value)) throw bad("a row's value must be a finite number");
+      return { value: row.value, ...defined({ label: text(row.label, 32, "a row's label"), unit: text(row.unit, 32, "a row's unit") }) };
+    });
+  }
+  if (content.tint !== undefined) {
+    if (!(WIDGET_TINTS as readonly unknown[]).includes(content.tint)) throw bad(`tint must be one of ${WIDGET_TINTS.join(", ")}`);
+    out.tint = content.tint as WidgetContent["tint"];
+  }
+  if (content.sparkline !== undefined) {
+    const line = content.sparkline;
+    if (!Array.isArray(line) || line.length > 64 || !line.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      throw bad("sparkline must be at most 64 finite numbers");
+    }
+    out.sparkline = [...line];
+  }
+  return out;
+}
+
+/** The host's `input` reply, checked; files as plain bytes. */
+export function runInput(value: unknown): RunInput {
+  if (!isRecord(value)) throw new DeviceError("failed", "the host's input reply is malformed");
+  const files = Array.isArray(value.files) ? value.files : [];
+  const input: RunInput = {
+    files: files.map((item) => {
+      if (!isRecord(item) || typeof item.name !== "string" || !(item.data instanceof Uint8Array)) {
+        throw new DeviceError("failed", "the host's input reply is malformed");
+      }
+      return { name: item.name, type: typeof item.type === "string" ? item.type : "", data: item.data };
+    }),
+  };
+  if (typeof value.text === "string") input.text = value.text;
+  if (typeof value.url === "string") input.url = value.url;
+  return input;
 }
 
 /** `fields` without its undefined values, so they aren't sent. */

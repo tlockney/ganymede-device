@@ -102,6 +102,13 @@ const sections: Section[] = [
     intro: "Folders the person picked, kept per notebook as bookmarks, on the Mac, iPad and iPhone. No permission: the picker is the consent, and Settings revokes. A picked folder is a [`Folder`](#folder).",
   },
   {
+    iface: "Widget",
+    prefix: "device.widget.",
+    heading: "device.widget",
+    support: "widget.",
+    intro: "Widgets show what a run last published, since a widget can't run a script itself. The content is a small layout (`WidgetContent`): a title, up to six rows, a tint and a sparkline. No permission.",
+  },
+  {
     iface: "Secrets",
     prefix: "device.secrets.",
     heading: "device.secrets",

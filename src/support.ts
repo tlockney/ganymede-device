@@ -471,6 +471,23 @@ export const SUPPORT = {
     browser: "no",
     note: "A `Folder` lists, reads, writes and removes inside the folder only; reads up to 16 MiB.",
   },
+  "output": {
+    call: "output({ text, url, files })",
+    returns: "nothing",
+    onDevice: "no",
+    headless: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Only in a run the share sheet, Shortcuts or a widget started, which also has `device.input`; a notebook has nothing to hand a result to.",
+  },
+  "widget.update": {
+    call: "widget.update(kind, content)",
+    returns: "nothing",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Stored in the app's App Group for its widgets; a widget can't run a script itself.",
+  },
   "secrets.get": {
     call: "secrets.get(name)",
     returns: "the value, or `null`",

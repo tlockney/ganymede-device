@@ -8,7 +8,7 @@
 //   const device = await installHostDevice(globalThis.__ganymedeDevice, { cellSignal: () => jupyter.signal });
 
 import { decodeBinary, encodeBinary } from "./binary.ts";
-import { type CallOptions, createDevice, type Device, type DeviceTransport, hello } from "./device.ts";
+import { type CallOptions, createDevice, type Device, type DeviceTransport, hello, type RunInput, runInput } from "./device.ts";
 import { DeviceError } from "./errors.ts";
 
 /** Swift's `__ganymedeDevice`: one message as JSON text in, the reply as JSON text out. */
@@ -117,7 +117,18 @@ export async function installHostDevice(post: HostPost | undefined, options: Ins
     if (error.code !== "unavailable") console.error(`device: no device API, hello failed (${error.code}): ${error.message}`);
     return undefined;
   }
-  const device = createDevice(transport, info, { cellSignal });
+  // A run from the share sheet, Shortcuts or a widget has input; a
+  // notebook's context doesn't answer input.
+  let input: RunInput | null = null;
+  if (info.capabilities.includes("input")) {
+    try {
+      input = runInput(await transport.call("input", {}));
+    } catch (err) {
+      const error = DeviceError.from(err);
+      console.error(`device: the run's input couldn't be read (${error.code}): ${error.message}`);
+    }
+  }
+  const device = createDevice(transport, info, { cellSignal, input });
   Object.defineProperty(globalThis, "device", { value: device, configurable: true, writable: false });
   return device;
 }
