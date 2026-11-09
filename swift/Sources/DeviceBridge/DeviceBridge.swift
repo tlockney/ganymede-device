@@ -167,11 +167,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// Adds a dialog method whose answer needs the caller, such as
     /// `folders.pick`, which keeps what was picked for the notebook:
     /// `prepare` runs before the dialog shows and may refuse the call, and
-    /// `finish` turns the dialog's `result` into the reply. Both throw a
-    /// `DeviceCallError` to reject it.
+    /// `finish` turns the person's answer, with the call's params, into
+    /// the reply. Both throw a `DeviceCallError` to reject it.
     func addDialog(
         _ method: String, prepare: @escaping @MainActor (CallContext) throws -> Void,
-        finish: @escaping @MainActor (_ result: Any, CallContext) throws -> Any
+        finish: @escaping @MainActor (_ answer: DialogResult, _ params: [String: Any], CallContext) throws -> Any
     ) {
         addedDialogs[method] = AddedDialog(permission: nil, prepare: prepare, finish: finish)
     }
@@ -526,11 +526,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             weak var weakHost = host
             authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
-                self?.showDialog(dialog, method, call: token, on: weakHost) { result in
+                self?.showDialog(dialog, method, call: token, on: weakHost) { result, answer in
                     guard let finish = entry.finish else { return result }
                     // The notebook as it is now: it may have moved while
                     // the dialog showed.
-                    return try finish(result, CallContext(owner: owner, notebook: self?.ledger.notebook(for: owner), call: id))
+                    return try finish(answer, params, CallContext(owner: owner, notebook: self?.ledger.notebook(for: owner), call: id))
                 }
             }
         } else if let entry = methods[method] {
@@ -637,16 +637,16 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// cancel of the call, or a release of its kernel, closes it.
     private func showDialog(
         _ dialog: Dialog, _ method: String, call token: PendingCall, on host: DialogHost?,
-        finish: @escaping @MainActor (Any) throws -> Any
+        finish: @escaping @MainActor (Any, DialogResult) throws -> Any
     ) {
         guard pending.isWaiting(token) else { return }
         dialogs.show(dialog, id: token.id, on: host) { [weak self] outcome in
             guard let self, self.pending.isWaiting(token) else { return }
-            guard case let .answered(result) = outcome else {
+            guard case let .answered(result, answer) = outcome else {
                 return self.pending.answer(token, Self.reply(outcome, method))
             }
             do {
-                self.pending.answer(token, ["result": try finish(result)])
+                self.pending.answer(token, ["result": try finish(result, answer)])
             } catch let error as DeviceCallError {
                 self.pending.answer(token, Self.error(error.code, error.message))
             } catch {
@@ -705,7 +705,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A dialog's outcome as the call's reply.
     private static func reply(_ outcome: DialogQueue.Outcome, _ method: String) -> [String: Any] {
         switch outcome {
-        case let .answered(result):
+        case let .answered(result, _):
             ["result": result]
         case .cancelled:
             error("cancelled", "\(method) was cancelled")
@@ -1020,5 +1020,5 @@ public struct SystemDeviceState: DeviceState {
 struct AddedDialog {
     var permission: String?
     var prepare: (@MainActor (CallContext) throws -> Void)?
-    var finish: (@MainActor (Any, CallContext) throws -> Any)?
+    var finish: (@MainActor (DialogResult, [String: Any], CallContext) throws -> Any)?
 }

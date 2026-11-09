@@ -126,8 +126,8 @@ public final class FolderGrants {
     }
 }
 
-/// Finding a granted folder, and paths in it. Nonisolated: the reads and
-/// writes run off the main thread.
+/// Finding a granted folder, and paths in it. Nonisolated: everything
+/// here but `bookmark` runs off the main thread.
 enum FolderAccess {
     /// A bookmark to `url`, which the picker just handed over.
     static func bookmark(_ url: URL) throws -> Data {
@@ -144,16 +144,42 @@ enum FolderAccess {
         return try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
+    /// Why a bookmark didn't find its folder.
+    enum Missing: Error {
+        /// The bookmark data itself is unusable: drop the grant.
+        case unusable
+        /// Not reachable now (a volume not mounted, a file provider not
+        /// ready, the folder moved away): keep the grant.
+        case unreachable
+    }
+
     /// Where `bookmark` points now, and whether it should be made again.
+    /// Never shows UI or mounts a volume, so an unreachable share fails
+    /// at once instead of waiting.
     static func resolve(_ bookmark: Data) throws -> (url: URL, stale: Bool) {
         var stale = false
+        let quiet: URL.BookmarkResolutionOptions = [.withoutUI, .withoutMounting]
         #if os(macOS)
-        if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale) {
+        if let url = try? URL(resolvingBookmarkData: bookmark, options: quiet.union(.withSecurityScope), relativeTo: nil, bookmarkDataIsStale: &stale) {
             return (url, stale)
         }
         #endif
-        let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
-        return (url, stale)
+        do {
+            let url = try URL(resolvingBookmarkData: bookmark, options: quiet, relativeTo: nil, bookmarkDataIsStale: &stale)
+            return (url, stale)
+        } catch CocoaError.fileReadCorruptFile {
+            throw Missing.unusable
+        } catch {
+            throw Missing.unreachable
+        }
+    }
+
+    /// The real path of `url`, symlinks resolved, inside its security
+    /// scope; nil when nothing is there.
+    static func realPath(of url: URL) -> String? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return realPath(url.path)
     }
 
     /// The real path of `path`, symlinks resolved, or nil when nothing is there.
@@ -163,21 +189,24 @@ enum FolderAccess {
         return String(cString: resolved)
     }
 
-    /// `path` in the folder at `root`, symlinks resolved: refused
-    /// `denied` when it is absolute, has a `..`, or resolves outside the
-    /// folder. A path that doesn't exist yet resolves through its nearest
-    /// ancestor that does.
-    static func target(root: URL, path: String) throws -> URL {
+    /// `path` in the folder at `root`: refused `denied` when it is
+    /// absolute, has a `..`, or resolves outside the folder. Symlinks are
+    /// resolved, all of them with `followLast`, or all but the last
+    /// component without it, so `remove` takes away a link and not what
+    /// it points to. A path that doesn't exist yet resolves through its
+    /// nearest ancestor that does.
+    static func target(root: URL, path: String, followLast: Bool = true) throws -> URL {
         guard !path.hasPrefix("/") else {
             throw DeviceCallError("denied", "\(path) is absolute; paths are relative to the folder")
         }
-        let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init).filter { $0 != "." }
+        var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init).filter { $0 != "." }
         guard !parts.contains("..") else {
             throw DeviceCallError("denied", "\(path) has a .., which could leave the folder")
         }
         guard let base = realPath(root.path) else {
             throw DeviceCallError("unavailable", "the folder isn't there any more")
         }
+        let last = followLast ? nil : parts.popLast()
         // The nearest ancestor that exists, resolved, with the rest after it.
         var existing = parts
         var rest: [String] = []
@@ -186,8 +215,8 @@ enum FolderAccess {
             let candidate = ([base] + existing).joined(separator: "/")
             if let real = realPath(candidate) {
                 resolved = real
-            } else if let last = existing.popLast() {
-                rest.insert(last, at: 0)
+            } else if let next = existing.popLast() {
+                rest.insert(next, at: 0)
             } else {
                 resolved = base
             }
@@ -196,72 +225,110 @@ enum FolderAccess {
         guard full == base || full.hasPrefix(base.hasSuffix("/") ? base : base + "/") else {
             throw DeviceCallError("denied", "\(path) leaves the folder")
         }
-        return URL(fileURLWithPath: full)
+        return URL(fileURLWithPath: last.map { full + "/" + $0 } ?? full)
     }
 
     static let maxRead = DeviceBridge.maxBinaryBytes
 
-    static func entries(_ url: URL) throws -> [[String: Any]] {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+    /// Runs `body` on `url` as a coordinated read, which also brings an
+    /// iCloud Drive file down when only its placeholder is here.
+    static func reading<T>(_ url: URL, _ body: (URL) throws -> T) throws -> T {
+        var coordinated: NSError?
+        var result: Result<T, Error>?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinated) { url in
+            result = Result { try body(url) }
+        }
+        if let coordinated { throw coordinated }
+        return try result!.get()
+    }
+
+    /// Runs `body` on `url` as a coordinated write (`.forDeleting` for a remove).
+    static func writing(_ url: URL, options: NSFileCoordinator.WritingOptions, _ body: (URL) throws -> Void) throws {
+        var coordinated: NSError?
+        var failure: Error?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: options, error: &coordinated) { url in
+            do { try body(url) } catch { failure = error }
+        }
+        if let coordinated { throw coordinated }
+        if let failure { throw failure }
+    }
+
+    /// An iCloud Drive placeholder's name for `name`: `.name.icloud`.
+    static func placeholder(_ name: String) -> String { "." + name + ".icloud" }
+
+    /// `url`, or when only its iCloud Drive placeholder is here, still
+    /// `url`: a coordinated read downloads it.
+    static func exists(_ url: URL) -> (exists: Bool, directory: Bool) {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)")
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+            return (true, isDirectory.boolValue)
         }
-        guard isDirectory.boolValue else {
-            throw DeviceCallError("failed", "\(url.lastPathComponent) isn't a directory")
-        }
-        let found = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [])
-        return found.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { item in
+        let stub = url.deletingLastPathComponent().appendingPathComponent(placeholder(url.lastPathComponent))
+        return (FileManager.default.fileExists(atPath: stub.path), false)
+    }
+
+    static func entries(_ url: URL) throws -> [[String: Any]] {
+        let found = exists(url)
+        guard found.exists else { throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)") }
+        guard found.directory else { throw DeviceCallError("failed", "\(url.lastPathComponent) isn't a directory") }
+        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+        let items = try reading(url) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: keys, options: []) }
+        var entries: [String: [String: Any]] = [:]
+        for item in items {
             let values = try? item.resourceValues(forKeys: Set(keys))
             let directory = values?.isDirectory ?? false
-            var entry: [String: Any] = ["name": item.lastPathComponent, "kind": directory ? "directory" : "file"]
+            var name = item.lastPathComponent
+            // An iCloud Drive file not downloaded yet: list it by its own
+            // name, without a size, unless the file is here too.
+            if name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".x.icloud".count - 1 {
+                name = String(name.dropFirst().dropLast(".icloud".count))
+                guard entries[name] == nil else { continue }
+                entries[name] = ["name": name, "kind": "file"]
+                continue
+            }
+            var entry: [String: Any] = ["name": name, "kind": directory ? "directory" : "file"]
             if !directory, let size = values?.fileSize { entry["size"] = size }
             if let modified = values?.contentModificationDate { entry["modified"] = Dialog.formatDate(modified) }
-            return entry
+            entries[name] = entry
         }
+        return entries.keys.sorted().map { entries[$0]! }
     }
 
     static func read(_ url: URL) throws -> Data {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)")
+        let found = exists(url)
+        guard found.exists else { throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)") }
+        guard !found.directory else { throw DeviceCallError("failed", "\(url.lastPathComponent) is a directory; use entries()") }
+        return try reading(url) { url in
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= maxRead else {
+                throw DeviceCallError("failed", "\(url.lastPathComponent) is \(size) bytes; reads are limited to \(maxRead)")
+            }
+            return try Data(contentsOf: url)
         }
-        guard !isDirectory.boolValue else {
-            throw DeviceCallError("failed", "\(url.lastPathComponent) is a directory; use entries()")
-        }
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= maxRead else {
-            throw DeviceCallError("failed", "\(url.lastPathComponent) is \(size) bytes; reads are limited to \(maxRead)")
-        }
-        return try Data(contentsOf: url)
     }
 
+    /// Replaces what is at `url` (a symlink there is replaced, not
+    /// followed), making the directories on the way.
     static func write(_ data: Data, to url: URL) throws {
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+        if (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeDirectory {
             throw DeviceCallError("failed", "\(url.lastPathComponent) is a directory")
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+        try writing(url, options: .forReplacing) { try data.write(to: $0, options: .atomic) }
     }
 
-    /// A file, or an empty directory: nothing that takes more with it.
+    /// A file, a symlink (not what it points to), or an empty directory:
+    /// nothing that takes more with it.
     static func remove(_ url: URL) throws {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+        let type = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType
+        guard let type else {
             throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)")
         }
-        if isDirectory.boolValue, !(try FileManager.default.contentsOfDirectory(atPath: url.path)).isEmpty {
+        if type == .typeDirectory, !(try FileManager.default.contentsOfDirectory(atPath: url.path)).isEmpty {
             throw DeviceCallError("failed", "\(url.lastPathComponent) isn't empty; remove what is in it first")
         }
-        try FileManager.default.removeItem(at: url)
+        try writing(url, options: .forDeleting) { try FileManager.default.removeItem(at: $0) }
     }
-}
-
-/// What `folders.pick`'s dialog handed over.
-struct PickedFolder {
-    let url: URL
-    let writable: Bool
 }
 
 extension DeviceBridge {
@@ -275,10 +342,11 @@ extension DeviceBridge {
         folderGrants = grants
         addDialog("folders.pick", prepare: { context in
             _ = try Self.notebook(context, "folders.pick")
-        }, finish: { result, context in
-            guard let picked = result as? PickedFolder else { return NSNull() }
+        }, finish: { answer, params, context in
+            guard case let .folder(url) = answer else { return NSNull() }
             let notebook = try Self.notebook(context, "folders.pick")
-            return Self.folderReply(try Self.keep(picked, notebook: notebook, grants: grants))
+            let writable = params["write"] as? Bool ?? false
+            return Self.folderReply(try Self.keep(url, writable: writable, notebook: notebook, grants: grants))
         })
         addMethod("folders.list", contextHandler: { _, context, reply in
             do {
@@ -289,125 +357,134 @@ extension DeviceBridge {
             }
             return nil
         })
-        addFolderMethod("folders.entries", grants: grants, writes: false) { url, _ in
-            try FolderAccess.entries(url)
+        addFolderMethod("folders.entries", grants: grants, writes: false, needsPath: false) { root, path, _ in
+            try FolderAccess.entries(try FolderAccess.target(root: root, path: path))
         }
-        addFolderMethod("folders.read", grants: grants, writes: false) { url, _ in
-            try DeviceBridge.binary(try FolderAccess.read(url))
+        addFolderMethod("folders.read", grants: grants, writes: false) { root, path, _ in
+            try DeviceBridge.binary(try FolderAccess.read(try FolderAccess.target(root: root, path: path)))
         }
         addFolderMethod("folders.write", grants: grants, writes: true, check: { params in
+            // The shape and size only: the bytes are decoded off the main thread.
+            guard let data = params["data"] as? [String: Any], let text = data["base64"] as? String else {
+                throw DeviceCallError("failed", "folders.write needs data as bytes ({ base64 })")
+            }
+            guard text.utf8.count <= (DeviceBridge.maxBinaryBytes + 2) / 3 * 4 else {
+                throw DeviceCallError("failed", "folders.write: data is over \(DeviceBridge.maxBinaryBytes) bytes")
+            }
+        }) { root, path, params in
+            let data: Data
             do {
-                _ = try DeviceBridge.bytes(params["data"])
+                data = try DeviceBridge.bytes(params["data"])
             } catch {
                 throw DeviceCallError("failed", "folders.write: \(error)")
             }
-        }) { url, params in
-            try FolderAccess.write(try DeviceBridge.bytes(params["data"]), to: url)
+            try FolderAccess.write(data, to: try FolderAccess.target(root: root, path: path, followLast: false))
             return NSNull()
         }
-        addFolderMethod("folders.remove", grants: grants, writes: true) { url, _ in
-            try FolderAccess.remove(url)
+        addFolderMethod("folders.remove", grants: grants, writes: true) { root, path, _ in
+            try FolderAccess.remove(try FolderAccess.target(root: root, path: path, followLast: false))
             return NSNull()
         }
     }
 
     /// A call on one granted folder: `{ folder, path }`. It finds the
-    /// grant for the caller's notebook, resolves its bookmark (making it
-    /// again when stale, dropping it when it no longer resolves), and runs
-    /// `body` off the main thread on the path in it, inside the folder's
-    /// security scope.
+    /// grant for the caller's notebook, then off the main thread resolves
+    /// its bookmark and runs `body` with the folder and the path, inside
+    /// the folder's security scope. A stale bookmark is made again; one
+    /// whose data is unusable is dropped; an unreachable folder fails
+    /// `unavailable` and keeps its grant.
     private func addFolderMethod(
-        _ method: String, grants: FolderGrants, writes: Bool, check: ParamsCheck? = nil,
-        body: @escaping @Sendable (URL, [String: Any]) throws -> Any
+        _ method: String, grants: FolderGrants, writes: Bool, needsPath: Bool = true, check: ParamsCheck? = nil,
+        body: @escaping @Sendable (_ root: URL, _ path: String, _ params: [String: Any]) throws -> Any
     ) {
-        let needsPath = method != "folders.entries"
         addMethod(method, check: { params in
             guard let id = params["folder"] as? String, !id.isEmpty else {
                 throw DeviceCallError("failed", "\(method) needs a folder id")
             }
             let path = params["path"]
             if needsPath || !(path == nil || path is NSNull) {
-                guard let path = path as? String, !needsPath || !path.isEmpty else {
+                guard let text = path as? String, !needsPath || !text.isEmpty else {
                     throw DeviceCallError("failed", "\(method) needs a path in the folder")
                 }
             }
             try check?(params)
         }, contextHandler: { params, context, reply in
-            let root: URL
+            let grant: FolderGrant
             let path = params["path"] as? String ?? ""
             do {
                 let notebook = try Self.notebook(context, method)
-                guard let id = params["folder"] as? String, let grant = grants.grant(id, notebook: notebook) else {
+                guard let id = params["folder"] as? String, let found = grants.grant(id, notebook: notebook) else {
                     throw DeviceCallError("denied", "\(method): this notebook has no such folder (it was revoked, or picked by another notebook)")
                 }
-                if writes, !grant.writable {
-                    throw DeviceCallError("denied", "\(method): \(grant.name) was picked for reading only; pick it again with write: true")
+                if writes, !found.writable {
+                    throw DeviceCallError("denied", "\(method): \(found.name) was picked for reading only; pick it again with write: true")
                 }
-                if writes, needsPath, path.split(separator: "/").allSatisfy({ $0 == "." }) {
+                if writes, path.split(separator: "/").allSatisfy({ $0 == "." }) {
                     throw DeviceCallError("denied", "\(method): that is the folder itself")
                 }
-                root = try Self.openGrant(grant, grants: grants)
+                grant = found
             } catch {
                 reply(.failure(Self.callError(error, method)))
                 return nil
             }
             // `params` crosses to the work queue as what it holds: strings
             // and `{ base64 }` bytes.
-            let sendable = SendableParams(params)
+            let sent = Unchecked(params)
             DispatchQueue.global(qos: .userInitiated).async {
-                let scoped = root.startAccessingSecurityScopedResource()
-                defer { if scoped { root.stopAccessingSecurityScopedResource() } }
-                let result: Result<SendableValue, DeviceCallError> = Result {
-                    SendableValue(try body(try FolderAccess.target(root: root, path: path), sendable.params))
+                var fresh: Data?
+                var drop = false
+                let result: Result<Unchecked, DeviceCallError> = Result {
+                    let resolved: (url: URL, stale: Bool)
+                    do {
+                        resolved = try FolderAccess.resolve(grant.bookmark)
+                    } catch FolderAccess.Missing.unusable {
+                        drop = true
+                        throw DeviceCallError("unavailable", "\(grant.name)'s bookmark can't be read; pick it again")
+                    } catch {
+                        throw DeviceCallError("unavailable", "\(grant.name) can't be reached now (a disconnected drive or share, or a file provider not ready)")
+                    }
+                    let root = resolved.url
+                    let scoped = root.startAccessingSecurityScopedResource()
+                    defer { if scoped { root.stopAccessingSecurityScopedResource() } }
+                    guard FolderAccess.exists(root).directory else {
+                        throw DeviceCallError("unavailable", "\(grant.name) isn't there now; pick it again if it moved")
+                    }
+                    if resolved.stale { fresh = try? FolderAccess.bookmark(root) }
+                    return Unchecked(try body(root, path, sent.value as! [String: Any]))
                 }.mapError { Self.callError($0, method) }
+                let refreshed = fresh
+                let dropped = drop
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated { reply(result.map(\.value)) }
+                    MainActor.assumeIsolated {
+                        if dropped { grants.revoke(grant.id) }
+                        if let refreshed, let current = grants.grant(grant.id, notebook: grant.notebook) {
+                            grants.keep(current.with(bookmark: refreshed))
+                        }
+                        reply(result.map(\.value))
+                    }
                 }
             }
             return nil
         })
     }
 
-    /// Where `grant` points now: a stale bookmark is made again, and one
-    /// that no longer finds a folder is dropped.
-    private static func openGrant(_ grant: FolderGrant, grants: FolderGrants) throws -> URL {
-        let resolved: (url: URL, stale: Bool)
-        do {
-            resolved = try FolderAccess.resolve(grant.bookmark)
-        } catch {
-            grants.revoke(grant.id)
-            throw DeviceCallError("unavailable", "\(grant.name) can't be found any more; pick it again")
-        }
-        var isDirectory: ObjCBool = false
-        let scoped = resolved.url.startAccessingSecurityScopedResource()
-        defer { if scoped { resolved.url.stopAccessingSecurityScopedResource() } }
-        guard FileManager.default.fileExists(atPath: resolved.url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            grants.revoke(grant.id)
-            throw DeviceCallError("unavailable", "\(grant.name) isn't there any more; pick it again")
-        }
-        if resolved.stale, let fresh = try? FolderAccess.bookmark(resolved.url) {
-            grants.keep(grant.with(bookmark: fresh))
-        }
-        return resolved.url
-    }
-
-    /// Keeps `picked` for `notebook`, in place of the notebook's earlier
-    /// grant of the same folder, which keeps its id.
-    private static func keep(_ picked: PickedFolder, notebook: String, grants: FolderGrants) throws -> FolderGrant {
+    /// Keeps the picked `url` for `notebook`, in place of the notebook's
+    /// earlier grant of the same folder, which keeps its id.
+    private static func keep(_ url: URL, writable: Bool, notebook: String, grants: FolderGrants) throws -> FolderGrant {
         let bookmark: Data
         do {
-            bookmark = try FolderAccess.bookmark(picked.url)
+            bookmark = try FolderAccess.bookmark(url)
         } catch {
-            throw DeviceCallError("failed", "folders.pick: couldn't keep access to \(picked.url.lastPathComponent): \(error.localizedDescription)")
+            throw DeviceCallError("failed", "folders.pick: couldn't keep access to \(url.lastPathComponent): \(error.localizedDescription)")
         }
-        let path = FolderAccess.realPath(picked.url.path) ?? picked.url.standardizedFileURL.path
+        let path = FolderAccess.realPath(of: url) ?? url.standardizedFileURL.path
         let earlier = grants.grants(for: notebook).first { grant in
-            guard let url = (try? FolderAccess.resolve(grant.bookmark))?.url else { return false }
-            return (FolderAccess.realPath(url.path) ?? url.standardizedFileURL.path) == path
+            guard let other = (try? FolderAccess.resolve(grant.bookmark))?.url else { return false }
+            return (FolderAccess.realPath(of: other) ?? other.standardizedFileURL.path) == path
         }
         let grant = FolderGrant(
-            id: earlier?.id ?? UUID().uuidString, notebook: notebook, name: picked.url.lastPathComponent,
-            writable: picked.writable, bookmark: bookmark)
+            id: earlier?.id ?? UUID().uuidString, notebook: notebook, name: url.lastPathComponent,
+            writable: writable, bookmark: bookmark)
         grants.keep(grant)
         return grant
     }
@@ -433,12 +510,7 @@ extension DeviceBridge {
 
 /// A call's params or a reply value, which hold only property-list values
 /// (strings, numbers, arrays, dictionaries), handed between queues.
-private struct SendableParams: @unchecked Sendable {
-    let params: [String: Any]
-    init(_ params: [String: Any]) { self.params = params }
-}
-
-private struct SendableValue: @unchecked Sendable {
+private struct Unchecked: @unchecked Sendable {
     let value: Any
     init(_ value: Any) { self.value = value }
 }

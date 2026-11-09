@@ -376,8 +376,8 @@ shares the bridge's store.
 | `folders.list` | `{}` | `[{ id, name, writable }]`, the notebook's grants in the order they were picked |
 | `folders.entries` | `{ folder, path? }`: the folder itself without `path` | `[{ name, kind, size?, modified? }]` sorted by name; `kind` is `file` or `directory`, `modified` ISO 8601 |
 | `folders.read` | `{ folder, path }` | the file's bytes, at most 16 MiB |
-| `folders.write` | `{ folder, path, data }` | `null` once written; makes the directories on the way |
-| `folders.remove` | `{ folder, path }` | `null`; a file or an empty directory only |
+| `folders.write` | `{ folder, path, data }` | `null` once written; makes the directories on the way, and replaces a symlink at `path` rather than following it |
+| `folders.remove` | `{ folder, path }` | `null`; a file, a symlink (not its target) or an empty directory only |
 
 - No permission and no ledger prompt: the system folder picker is the
   consent, as for `files.pick`. A grant is a bookmark kept per notebook
@@ -389,11 +389,17 @@ shares the bridge's store.
   `denied`.
 - `path` is relative to the folder. An absolute path, a `..`, or a path
   whose symlinks resolve outside the folder fails `denied`; so does
-  removing the folder itself.
-- Each call resolves the bookmark: a stale one is made again, and one
-  that no longer finds a directory is dropped and the call fails
-  `unavailable`. The I/O runs off the main thread, inside the folder's
-  security scope.
+  removing the folder itself. `write` and `remove` resolve every
+  component but the last, so they act on a link, not on what it points to.
+- Each call resolves the bookmark off the main thread, without UI or
+  mounting a volume: a stale one is made again; one whose data can't be
+  read is dropped and the call fails `unavailable`; a folder that can't
+  be reached now (a drive or share not connected, a file provider not
+  ready, the folder moved away) fails `unavailable` and keeps its grant,
+  for Settings to revoke.
+- Reads and writes are coordinated (`NSFileCoordinator`), so an iCloud
+  Drive file that isn't downloaded comes down on `read`; `entries` lists
+  it by its own name, without a size.
 - A `Folder` is not a handle ("Handles" above): it outlives the kernel,
   so there is nothing to close.
 - On-device only: none of these is in the remote subset.

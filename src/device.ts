@@ -1439,7 +1439,7 @@ export interface Folder {
    * @param path A directory in the folder; the folder itself when left out.
    * @param options The call's `signal`. Cancel rejects `cancelled`.
    * @returns Its files and directories, hidden ones included.
-   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no directory there.
+   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when there is no directory there.
    * @example
    * ```ts
    * const [folder] = await device.folders.list();
@@ -1453,7 +1453,7 @@ export interface Folder {
    * @param path The file, relative to the folder.
    * @param options The call's `signal`. Cancel rejects `cancelled`.
    * @returns Its bytes.
-   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no file there or it is over 16 MiB.
+   * @throws {DeviceError} `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when there is no file there or it is over 16 MiB.
    * @example
    * ```ts
    * const [folder] = await device.folders.list();
@@ -1469,7 +1469,7 @@ export interface Folder {
    * @param data The bytes, at most 16 MiB, or a string written as UTF-8.
    * @param options The call's `signal`. Cancel rejects `cancelled`; the write may already be done.
    * @returns Once the file is written.
-   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when the path is a directory or `data` is over 16 MiB.
+   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when the path is a directory or `data` is over 16 MiB.
    * @example
    * ```ts
    * const folder = await device.folders.pick({ write: true });
@@ -1478,12 +1478,12 @@ export interface Folder {
    */
   write(path: string, data: Bytes | string, options?: CallOptions): Promise<void>;
   /**
-   * Removes a file, or an empty directory, in the folder.
+   * Removes a file, a symlink (not what it points to), or an empty directory, in the folder.
    *
    * @param path What to remove, relative to the folder.
    * @param options The call's `signal`. Cancel rejects `cancelled`; it may already be removed.
    * @returns Once it is gone.
-   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when nothing is there or a directory isn't empty.
+   * @throws {DeviceError} `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when nothing is there or a directory isn't empty.
    * @example
    * ```ts
    * const folder = await device.folders.pick({ write: true });

@@ -189,13 +189,42 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(code(r27), "denied")
     }
 
-    func testAFolderThatIsGoneIsDropped() async throws {
-        let r28 = await pick()
-        let id = try XCTUnwrap(r28)
+    func testAFolderThatIsGoneFailsAndKeepsItsGrant() async throws {
+        let picked = await pick()
+        let id = try XCTUnwrap(picked)
         try FileManager.default.removeItem(at: root)
-        let r29 = await call("folders.entries", ["folder": id])
-        XCTAssertEqual(code(r29), "unavailable")
+        let reply = await call("folders.entries", ["folder": id])
+        XCTAssertEqual(code(reply), "unavailable")
+        XCTAssertEqual(store.saved.count, 1, "a drive or share may come back")
+    }
+
+    func testAnUnusableBookmarkIsDropped() async throws {
+        let picked = await pick()
+        let id = try XCTUnwrap(picked)
+        let grant = try XCTUnwrap(store.saved.first)
+        store.saved = [FolderGrant(id: id, notebook: grant.notebook, name: grant.name, writable: false, bookmark: Data([1, 2, 3]))]
+        let reply = await call("folders.entries", ["folder": id])
+        XCTAssertEqual(code(reply), "unavailable")
         XCTAssertTrue(store.saved.isEmpty)
+    }
+
+    func testRemoveAndWriteActOnALinkNotItsTarget() async throws {
+        let picked = await pick(write: true)
+        let id = try XCTUnwrap(picked)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("latest.txt"), withDestinationURL: root.appendingPathComponent("a.txt"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("out.txt"), withDestinationURL: outside.appendingPathComponent("secret.txt"))
+        let read = await call("folders.read", ["folder": id, "path": "latest.txt"])
+        XCTAssertEqual(text(read), "hi", "a link inside the folder reads through")
+        let removed = await call("folders.remove", ["folder": id, "path": "latest.txt"])
+        XCTAssertTrue(removed["result"] is NSNull)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("a.txt").path), "the target stays")
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: root.appendingPathComponent("latest.txt").path))
+        let data = ["base64": Data("mine".utf8).base64EncodedString()]
+        let written = await call("folders.write", ["folder": id, "path": "out.txt", "data": data])
+        XCTAssertTrue(written["result"] is NSNull)
+        XCTAssertEqual(try String(contentsOf: outside.appendingPathComponent("secret.txt"), encoding: .utf8), "secret", "the link is replaced, not followed")
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("out.txt"), encoding: .utf8), "mine")
     }
 
     func testBadArgumentsFail() async throws {

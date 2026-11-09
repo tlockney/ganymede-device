@@ -208,8 +208,10 @@ interface Folder {
   in this phase.
 - As built (#102): a `Folder` is a plain object named by its grant id,
   not a native handle, since it outlives the kernel and needs no close.
-  `remove` takes a file or an empty directory only. `write` makes the
-  directories on the way. Grants live in their own store
+  `remove` takes a file, a symlink (not its target) or an empty
+  directory only. `write` makes the directories on the way. A bookmark
+  that no longer finds its folder fails `unavailable` and is kept (a
+  drive may come back); only unreadable bookmark data drops the grant. Grants live in their own store
   (`FolderGrants`), beside the ledger's, so a Settings screen reads both.
 
 **Acceptance**: a notebook picks a folder on a Mac and an iPad (Files,

@@ -125,7 +125,7 @@ such API.
 | [`folder.entries(path?, options?)`](#folder-entries-path-options) | Lists a directory in the folder, sorted by name. |
 | [`folder.read(path, options?)`](#folder-read-path-options) | Reads a file in the folder. |
 | [`folder.write(path, data, options?)`](#folder-write-path-data-options) | Writes a file in the folder, replacing what is there and making the directories on the way. |
-| [`folder.remove(path, options?)`](#folder-remove-path-options) | Removes a file, or an empty directory, in the folder. |
+| [`folder.remove(path, options?)`](#folder-remove-path-options) | Removes a file, a symlink (not what it points to), or an empty directory, in the folder. |
 
 ## `device`
 
@@ -2574,7 +2574,7 @@ Lists a directory in the folder, sorted by name.
 
 **Returns** `Promise<FolderEntry[]>`: Its files and directories, hidden ones included.
 
-**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no directory there.
+**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when there is no directory there.
 
 ```ts
 const [folder] = await device.folders.list();
@@ -2596,7 +2596,7 @@ Reads a file in the folder.
 
 **Returns** `Promise<Uint8Array>`: Its bytes.
 
-**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when there is no file there or it is over 16 MiB.
+**Throws** `DeviceError`: `denied` when the path leaves the folder or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when there is no file there or it is over 16 MiB.
 
 ```ts
 const [folder] = await device.folders.list();
@@ -2620,7 +2620,7 @@ directories on the way.
 
 **Returns** once the file is written.
 
-**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when the path is a directory or `data` is over 16 MiB.
+**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder, or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when the path is a directory or `data` is over 16 MiB.
 
 ```ts
 const folder = await device.folders.pick({ write: true });
@@ -2633,7 +2633,7 @@ if (folder) await folder.write("notes/today.txt", "Written from a notebook");
 remove(path: string, options?: CallOptions): Promise<void>;
 ```
 
-Removes a file, or an empty directory, in the folder.
+Removes a file, a symlink (not what it points to), or an empty directory, in the folder.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2642,7 +2642,7 @@ Removes a file, or an empty directory, in the folder.
 
 **Returns** once it is gone.
 
-**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be found any more; `failed` when nothing is there or a directory isn't empty.
+**Throws** `DeviceError`: `denied` when the folder was picked for reading only, the path leaves the folder or is the folder itself, or the grant was revoked; `unavailable` when the folder can't be reached now (a disconnected drive, say); `failed` when nothing is there or a directory isn't empty.
 
 ```ts
 const folder = await device.folders.pick({ write: true });

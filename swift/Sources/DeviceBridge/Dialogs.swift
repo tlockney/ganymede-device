@@ -193,9 +193,6 @@ public enum Dialog: Equatable, Sendable {
             return false
         case let (.capturePhoto, .photo(jpeg)):
             return ["base64": jpeg.base64EncodedString()]
-        case let (.pickFolder(write), .folder(url)):
-            // For `addFolders`' finish, which keeps it and answers.
-            return PickedFolder(url: url, writable: write)
         default:
             return NSNull()
         }
@@ -346,7 +343,8 @@ public typealias Close = (_ gone: @escaping () -> Void) -> Void
 @MainActor
 final class DialogQueue {
     enum Outcome {
-        case answered(Any)
+        /// The reply's result, and the person's answer as the presenter gave it.
+        case answered(Any, DialogResult)
         case cancelled
         case failed(String, String)
     }
@@ -415,7 +413,7 @@ final class DialogQueue {
                 if case let .failed(message) = answer {
                     self?.finish(current, .failed("failed", message))
                 } else {
-                    self?.finish(current, .answered(call.dialog.result(answer)))
+                    self?.finish(current, .answered(call.dialog.result(answer), answer))
                 }
             }
             current.close = close
