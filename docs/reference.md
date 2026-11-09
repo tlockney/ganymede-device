@@ -57,21 +57,21 @@ such API.
 | [`device.sound.player(data, options?)`](#device-sound-player-data-options) | Loads a sound into a player, paused at the start, for a cell to play, pause, seek and close. |
 | [`device.notifications.authorizationStatus(options?)`](#device-notifications-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.notifications.isAuthorized(options?)`](#device-notifications-isauthorized-options) | Whether the permission is granted, without asking. |
-| [`device.notifications.requestAuthorization(options?)`](#device-notifications-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.notifications.requestAuthorization(options?)`](#device-notifications-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.notifications.schedule(body, options)`](#device-notifications-schedule-body-options) | Schedules a notification to show after a delay, even if the notebook or the app has closed by then. |
 | [`device.notifications.pending(options?)`](#device-notifications-pending-options) | Lists this notebook's notifications that haven't been delivered yet. |
 | [`device.notifications.cancel(id, options?)`](#device-notifications-cancel-id-options) | Takes one of this notebook's notifications off the schedule. |
 | [`device.notifications.cancelAll(options?)`](#device-notifications-cancelall-options) | Takes all of this notebook's notifications off the schedule. |
 | [`device.location.authorizationStatus(options?)`](#device-location-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.location.isAuthorized(options?)`](#device-location-isauthorized-options) | Whether the permission is granted, without asking. |
-| [`device.location.requestAuthorization(options?)`](#device-location-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.location.requestAuthorization(options?)`](#device-location-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.location.current(options?)`](#device-location-current-options) | One fix, at the accuracy asked for. |
 | [`device.location.watch(options?)`](#device-location-watch-options) | Fixes as the device moves, for `for await`, until the loop ends or the cell is interrupted. |
 | [`device.location.geocode(address, options?)`](#device-location-geocode-address-options) | The places an address may be. |
 | [`device.location.reverseGeocode(position, options?)`](#device-location-reversegeocode-position-options) | What is at a position, such as a fix from `current()`. |
 | [`device.motion.authorizationStatus(options?)`](#device-motion-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.motion.isAuthorized(options?)`](#device-motion-isauthorized-options) | Whether the permission is granted, without asking. |
-| [`device.motion.requestAuthorization(options?)`](#device-motion-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.motion.requestAuthorization(options?)`](#device-motion-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.motion.watch(options?)`](#device-motion-watch-options) | Samples every `interval` seconds, for `for await`, until the loop ends or the cell is interrupted. |
 | [`device.motion.latest(options?)`](#device-motion-latest-options) | The newest sample. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
@@ -804,7 +804,7 @@ Whether the permission is granted, without asking.
 **Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
 
 ```ts
-if (!(await device.notifications.isAuthorized())) console.log("notifications are off");
+if (!(await device.notifications.isAuthorized())) console.log("not allowed yet");
 ```
 
 ### `device.notifications.requestAuthorization(options?)`
@@ -813,7 +813,8 @@ if (!(await device.notifications.isAuthorized())) console.log("notifications are
 requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 ```
 
-Shows the system prompt when the person hasn't been asked, and
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
 resolves with the status after it; otherwise resolves with the status
 as it is. The namespace's methods ask on their own, so calling this
 first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -827,7 +828,7 @@ up stays, and its answer still counts for later calls.
 
 ```ts
 const status = await device.notifications.requestAuthorization();
-if (status === "denied") console.log("turn notifications on in Settings");
+if (status === "denied") console.log("allow it in Settings to go on");
 ```
 
 ### `device.notifications.schedule(body, options)`
@@ -993,7 +994,7 @@ Whether the permission is granted, without asking.
 **Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
 
 ```ts
-if (!(await device.location.isAuthorized())) console.log("notifications are off");
+if (!(await device.location.isAuthorized())) console.log("not allowed yet");
 ```
 
 ### `device.location.requestAuthorization(options?)`
@@ -1002,7 +1003,8 @@ if (!(await device.location.isAuthorized())) console.log("notifications are off"
 requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 ```
 
-Shows the system prompt when the person hasn't been asked, and
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
 resolves with the status after it; otherwise resolves with the status
 as it is. The namespace's methods ask on their own, so calling this
 first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -1016,7 +1018,7 @@ up stays, and its answer still counts for later calls.
 
 ```ts
 const status = await device.location.requestAuthorization();
-if (status === "denied") console.log("turn notifications on in Settings");
+if (status === "denied") console.log("allow it in Settings to go on");
 ```
 
 ### `device.location.current(options?)`
@@ -1189,7 +1191,7 @@ Whether the permission is granted, without asking.
 **Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
 
 ```ts
-if (!(await device.motion.isAuthorized())) console.log("notifications are off");
+if (!(await device.motion.isAuthorized())) console.log("not allowed yet");
 ```
 
 ### `device.motion.requestAuthorization(options?)`
@@ -1198,7 +1200,8 @@ if (!(await device.motion.isAuthorized())) console.log("notifications are off");
 requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 ```
 
-Shows the system prompt when the person hasn't been asked, and
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
 resolves with the status after it; otherwise resolves with the status
 as it is. The namespace's methods ask on their own, so calling this
 first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -1212,7 +1215,7 @@ up stays, and its answer still counts for later calls.
 
 ```ts
 const status = await device.motion.requestAuthorization();
-if (status === "denied") console.log("turn notifications on in Settings");
+if (status === "denied") console.log("allow it in Settings to go on");
 ```
 
 ### `device.motion.watch(options?)`

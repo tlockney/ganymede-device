@@ -168,11 +168,14 @@ nothing where Core Motion has no device motion, so a Mac never lists it.
 The system has no prompt for these sensors, so the permission is the
 app's ledger alone: `motion.authorizationStatus` reads `authorized`
 unless the ledger refuses. `watch` and `latest` share one Core Motion
-source that runs at the shortest interval anyone wants: each watch gets a
-sample about every `interval`, and `latest` keeps the source at 0.1 s
-for 10 seconds after its last call, answering a waiting call with the
-next sample and a later one with the newest. With no watch and `latest`
-cold, the source stops.
+source, shared by every bridge in the app, that runs at the shortest
+interval anyone wants: each watch gets the sample nearest each
+`interval`, so about one per `interval` on average even when it isn't a
+multiple of the source's, and `latest` keeps the source at 0.1 s for 10
+seconds after its last call. A call while `latest` is warm gets the
+newest sample; any other waits for the next. With no watch and `latest`
+cold, the source stops. If Core Motion stops with an error, waiting
+calls fail `failed` and watches end with it.
 
 ## Streams
 

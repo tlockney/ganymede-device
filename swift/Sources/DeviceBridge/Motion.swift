@@ -14,14 +14,17 @@ import CoreMotion
 public struct MotionSample: Sendable, Equatable {
     /// Radians.
     public var roll, pitch, yaw: Double
-    /// Radians per second.
-    public var rotationRate: [Double]
-    /// In g, x, y, z.
-    public var gravity: [Double]
-    public var userAcceleration: [Double]
+    /// Radians per second around x, y and z.
+    public var rotationRate: SIMD3<Double>
+    /// In g, along x, y and z.
+    public var gravity: SIMD3<Double>
+    public var userAcceleration: SIMD3<Double>
     public var timestamp: Date
 
-    public init(roll: Double, pitch: Double, yaw: Double, rotationRate: [Double], gravity: [Double], userAcceleration: [Double], timestamp: Date) {
+    public init(
+        roll: Double, pitch: Double, yaw: Double, rotationRate: SIMD3<Double>, gravity: SIMD3<Double>,
+        userAcceleration: SIMD3<Double>, timestamp: Date
+    ) {
         self.roll = roll
         self.pitch = pitch
         self.yaw = yaw
@@ -38,8 +41,12 @@ public protocol MotionProvider: AnyObject {
     /// Whether the device has the sensors.
     var isAvailable: Bool { get }
     /// Delivers samples about every `interval` seconds, replacing any
-    /// earlier start's interval and handler.
-    func start(interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void)
+    /// earlier start's interval and handlers. `failed` means updates have
+    /// stopped: the hub ends every call waiting on them.
+    func start(
+        interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void,
+        failed: @escaping @MainActor (DeviceCallError) -> Void
+    )
     func stop()
 }
 
@@ -61,13 +68,21 @@ public final class SystemMotionProvider: MotionProvider {
 
     public var isAvailable: Bool { manager.isDeviceMotionAvailable }
 
-    public func start(interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void) {
+    public func start(
+        interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void,
+        failed: @escaping @MainActor (DeviceCallError) -> Void
+    ) {
         manager.deviceMotionUpdateInterval = interval
         // Uptime to wall clock: Core Motion stamps samples since boot.
         let offset = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
-        manager.startDeviceMotionUpdates(to: .main) { motion, _ in
-            guard let motion else { return }
+        manager.startDeviceMotionUpdates(to: .main) { [manager] motion, error in
             MainActor.assumeIsolated {
+                if let error {
+                    manager.stopDeviceMotionUpdates()
+                    failed(DeviceCallError("failed", "motion: \(error.localizedDescription)"))
+                    return
+                }
+                guard let motion else { return }
                 handler(MotionSample(
                     roll: motion.attitude.roll, pitch: motion.attitude.pitch, yaw: motion.attitude.yaw,
                     rotationRate: [motion.rotationRate.x, motion.rotationRate.y, motion.rotationRate.z],
@@ -92,14 +107,21 @@ final class MotionHub {
     /// How long `latest` keeps the sensors running after its last call.
     static let keepWarm: TimeInterval = 10
 
-    private let provider: MotionProvider
+    let provider: MotionProvider
     private let now: () -> Date
+
+    #if os(iOS)
+    /// Core Motion's hub, shared by every window's bridge: Apple asks for
+    /// one CMMotionManager per app, and one source serves every caller.
+    static let system = MotionHub(provider: SystemMotionProvider())
+    #endif
 
     final class Watch: StreamSource {
         let interval: TimeInterval
         let sink: StreamSink
         weak var hub: MotionHub?
-        var lastSent: Date?
+        /// When the next sample is due; nil before the first.
+        var due: Date?
 
         init(interval: TimeInterval, sink: StreamSink, hub: MotionHub) {
             self.interval = interval
@@ -113,7 +135,7 @@ final class MotionHub {
     private var watches: [Watch] = []
     private(set) var newest: MotionSample?
     private var warmUntil: Date?
-    private var waiting: [Int: (MotionSample) -> Void] = [:]
+    private var waiting: [Int: (Result<MotionSample, DeviceCallError>) -> Void] = [:]
     private var nextWaiter = 0
     /// The interval the provider runs at, nil while stopped.
     private(set) var running: TimeInterval?
@@ -135,12 +157,15 @@ final class MotionHub {
         update()
     }
 
-    /// The newest sample, now when fresh, or once the next one comes.
-    /// Returns a cancel.
-    func latest(_ done: @escaping (MotionSample) -> Void) -> () -> Void {
+    /// The newest sample, now while `latest` is warm, or once the next one
+    /// comes. Returns a cancel.
+    func latest(_ done: @escaping (Result<MotionSample, DeviceCallError>) -> Void) -> () -> Void {
+        // Only `latest`'s own rate keeps `newest` fresh: a slow watch's
+        // last sample may be a second old.
+        let warm = latestWanted
         warmUntil = now().addingTimeInterval(Self.keepWarm)
-        if running != nil, let newest {
-            done(newest)
+        if warm, running != nil, let newest {
+            done(.success(newest))
             // A slower watch's interval may be all that runs now.
             update()
             return {}
@@ -174,18 +199,44 @@ final class MotionHub {
         }
         guard interval != running else { return }
         running = interval
-        provider.start(interval: interval) { [weak self] sample in self?.received(sample) }
+        provider.start(
+            interval: interval, handler: { [weak self] sample in self?.received(sample) },
+            failed: { [weak self] error in self?.failed(error) })
+    }
+
+    /// Updates stopped: every waiting call and watch ends with `error`.
+    private func failed(_ error: DeviceCallError) {
+        let answers = waiting.values
+        let ended = watches
+        waiting = [:]
+        watches = []
+        warmUntil = nil
+        newest = nil
+        running = nil
+        provider.stop()
+        for answer in answers { answer(.failure(error)) }
+        for watch in ended { watch.sink.finish(error) }
     }
 
     private func received(_ sample: MotionSample) {
         newest = sample
         let answers = waiting.values
         waiting = [:]
-        for answer in answers { answer(sample) }
+        for answer in answers { answer(.success(sample)) }
+        let step = running ?? 0
         for watch in watches {
-            // A slower watch skips samples, with a little slack for jitter.
-            if let last = watch.lastSent, sample.timestamp.timeIntervalSince(last) < watch.interval * 0.9 { continue }
-            watch.lastSent = sample.timestamp
+            // A slower watch takes the sample nearest each due time, so
+            // over time it gets one every `interval` even when that isn't
+            // a multiple of the source's.
+            if let due = watch.due {
+                if sample.timestamp < due.addingTimeInterval(-step / 2 - 0.000_1) { continue }
+                // Fell more than an interval behind (a gap in samples):
+                // start again from this one.
+                let next = due.addingTimeInterval(watch.interval)
+                watch.due = next < sample.timestamp ? sample.timestamp.addingTimeInterval(watch.interval) : next
+            } else {
+                watch.due = sample.timestamp.addingTimeInterval(watch.interval)
+            }
             watch.sink.send(DeviceBridge.motionReply(sample))
         }
         // `latest` went cold: run slower for the watches, or stop.
@@ -196,22 +247,23 @@ final class MotionHub {
 extension DeviceBridge {
     /// Turns on `device.motion` where the device has the sensors: `hello`
     /// lists the trio, `motion.watch` and `motion.latest`. `provider` is
-    /// Core Motion by default; a Mac has none, so this does nothing there.
+    /// Core Motion by default, through one source every bridge in the app
+    /// shares; a Mac has none, so this does nothing there.
     public func addMotion(_ provider: MotionProvider? = nil) {
         #if os(iOS)
-        let provider = provider ?? SystemMotionProvider()
+        let hub = provider.map { MotionHub(provider: $0) } ?? MotionHub.system
         #else
         guard let provider else { return }
-        #endif
-        guard provider.isAvailable else { return }
         let hub = MotionHub(provider: provider)
+        #endif
+        guard hub.provider.isAvailable else { return }
         addPermission("motion", LedgerOnlyPermission())
         // A bad interval fails before the permission prompt.
         addStream("motion.watch", permission: "motion", check: { _ = try Self.motionInterval($0) }) { params, sink in
             hub.watch(interval: try Self.motionInterval(params), sink: sink)
         }
         addMethod("motion.latest", permission: "motion") { _, reply in
-            hub.latest { reply(.success(Self.motionReply($0))) }
+            hub.latest { reply($0.map { Self.motionReply($0) as Any }) }
         }
     }
 
@@ -226,7 +278,7 @@ extension DeviceBridge {
 
     /// A sample as the cell reads it (src/device.ts `MotionSample`).
     static func motionReply(_ sample: MotionSample) -> [String: Any] {
-        func xyz(_ v: [Double]) -> [String: Any] { ["x": v[0], "y": v[1], "z": v[2]] }
+        func xyz(_ v: SIMD3<Double>) -> [String: Any] { ["x": v.x, "y": v.y, "z": v.z] }
         return [
             "attitude": ["roll": sample.roll, "pitch": sample.pitch, "yaw": sample.yaw],
             "rotationRate": xyz(sample.rotationRate),

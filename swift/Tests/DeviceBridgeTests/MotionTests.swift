@@ -8,16 +8,26 @@ private final class FakeMotion: MotionProvider {
     var intervals: [TimeInterval] = []
     var stops = 0
     var handler: (@MainActor (MotionSample) -> Void)?
+    var failed: (@MainActor (DeviceCallError) -> Void)?
     var running: Bool { handler != nil }
 
-    func start(interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void) {
+    func start(
+        interval: TimeInterval, handler: @escaping @MainActor (MotionSample) -> Void,
+        failed: @escaping @MainActor (DeviceCallError) -> Void
+    ) {
         intervals.append(interval)
         self.handler = handler
+        self.failed = failed
     }
 
     func stop() {
         stops += 1
         handler = nil
+        failed = nil
+    }
+
+    func fail() {
+        failed?(DeviceCallError("failed", "motion: the sensors stopped"))
     }
 
     func send(at seconds: TimeInterval, yaw: Double = 0) {
@@ -172,6 +182,47 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(motion.intervals, [0.1], "0.1 s by default")
         bridge.dropPage()
         XCTAssertFalse(motion.running)
+    }
+
+    func testAWatchOffTheSourcesRateKeepsItsOwnOnAverage() throws {
+        let motion = FakeMotion()
+        let bridge = bridge(motion)
+        // `latest` keeps the source at 0.1 s; the watch wants 0.15 s.
+        _ = call(bridge, "motion.latest")
+        let stream = try XCTUnwrap(((call(bridge, "motion.watch", ["interval": 0.15], id: 50))?["result"] as? [String: Any])?["stream"] as? Int)
+        XCTAssertEqual(motion.intervals, [0.1])
+        for i in 0...30 { motion.send(at: Double(i) / 10) }
+        let got = values(call(bridge, "stream.next", ["stream": stream])).count
+        XCTAssertEqual(got, 21, "3 s at 0.15 s is 20 gaps, so 21 samples, not 16 at 0.2 s")
+    }
+
+    func testLatestWaitsForAFreshSampleWhileOnlyASlowWatchRuns() throws {
+        let motion = FakeMotion()
+        let bridge = bridge(motion)
+        _ = call(bridge, "motion.watch", ["interval": 1], id: 1)
+        motion.send(at: 0, yaw: 0.1)
+        var answer: [String: Any]?
+        bridge.respond(to: ["id": 2, "owner": 1, "method": "motion.latest", "params": [:]]) { answer = $0 }
+        XCTAssertNil(answer, "the watch's sample may be a second old")
+        XCTAssertEqual(motion.intervals.last, 0.1)
+        motion.send(at: 0.1, yaw: 0.2)
+        let sample = try XCTUnwrap(answer?["result"] as? [String: Any])
+        XCTAssertEqual((sample["attitude"] as? [String: Any])?["yaw"] as? Double, 0.2)
+    }
+
+    func testAFailureEndsWaitingCallsAndWatches() throws {
+        let motion = FakeMotion()
+        let bridge = bridge(motion)
+        let stream = try XCTUnwrap(((call(bridge, "motion.watch", id: 1))?["result"] as? [String: Any])?["stream"] as? Int)
+        var answer: [String: Any]?
+        bridge.respond(to: ["id": 2, "owner": 1, "method": "motion.latest", "params": [:]]) { answer = $0 }
+        motion.fail()
+        XCTAssertEqual(errorCode(answer), "failed")
+        XCTAssertEqual(errorCode(call(bridge, "stream.next", ["stream": stream])), "failed")
+        XCTAssertFalse(motion.running)
+        // The next call starts the sensors again.
+        _ = call(bridge, "motion.latest")
+        XCTAssertTrue(motion.running)
     }
 
     func testWatchChecksTheInterval() {
