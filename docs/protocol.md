@@ -452,6 +452,9 @@ Settings screen lists names (never values) and deletes them with its own
   without a group sit in the app's default one and queries with a group
   don't find them, so an app that starts passing the group copies its
   existing items into it once, as for the ledger's App Group suite.
+  Pass the same suite as `NotebookSecrets(defaults:)` then, so an
+  extension sees the app's pending renames and doesn't read under a path
+  the app hasn't settled.
 - On-device only: none of these is in the remote subset.
 
 ## Permissions
