@@ -213,6 +213,15 @@ export const SUPPORT = {
     browserClick: true,
     note: "The system photo picker, which needs no photo library permission. A browser shows a file picker for images, and keeps the first `limit` picked.",
   },
+  "photos.save": {
+    call: "photos.save(image)",
+    returns: "nothing",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "photos",
+    note: "Add-only access: the app may add photos, never read the library.",
+  },
   "notifications.schedule": {
     call: "notifications.schedule(body, { delay, title })",
     returns: "the notification's id",

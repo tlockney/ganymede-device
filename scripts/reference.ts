@@ -37,7 +37,13 @@ const sections: Section[] = [
   { iface: "Haptics", prefix: "device.haptics.", heading: "device.haptics", support: "haptics." },
   { iface: "UI", prefix: "device.ui.", heading: "device.ui", support: "ui." },
   { iface: "Files", prefix: "device.files.", heading: "device.files", support: "files." },
-  { iface: "Photos", prefix: "device.photos.", heading: "device.photos", support: "photos." },
+  {
+    iface: "Photos",
+    prefix: "device.photos.",
+    heading: "device.photos",
+    support: "photos.",
+    intro: "The permission methods (`authorizationStatus`, `isAuthorized`, `requestAuthorization`) are about `save`'s add-only access, and work where `save` does: in the app, not from a remote kernel or a browser.",
+  },
   { iface: "Sound", prefix: "device.sound.", heading: "device.sound", support: "sound." },
   {
     iface: "Notifications",

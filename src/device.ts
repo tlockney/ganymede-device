@@ -587,8 +587,15 @@ export interface DeviceMotion extends Authorization {
   latest(options?: CallOptions): Promise<MotionSample>;
 }
 
-/** The photo library, through the system photo picker. */
-export interface Photos {
+/**
+ * The photo library: the system photo picker to read photos, which needs
+ * no permission, and `save` to add one, which needs add-only access. The
+ * permission methods are about that add-only access: the first `save`
+ * asks (the app's prompt for this notebook, then the system's), and a
+ * refusal rejects `denied`. Granted, `authorizationStatus()` reads
+ * `writeOnly`: the app may add photos, never read the library.
+ */
+export interface Photos extends Authorization {
   /**
    * Shows the system photo picker and reads the photos the person picks.
    * The picker shows the library without the app being let in, so no
@@ -604,6 +611,22 @@ export interface Photos {
    * ```
    */
   pick(options?: PickPhotosOptions): Promise<File[]>;
+  /**
+   * Adds an image to the photo library, as a new photo.
+   *
+   * @param image PNG, JPEG, GIF, HEIC or TIFF bytes, or a `Blob` of them, at most 16 MiB.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; the photo may already have been added.
+   * @throws {DeviceError} `denied` when the notebook or the system may not add photos; `failed` when the bytes aren't an image the device reads, or the library refuses it.
+   * @example
+   * ```ts
+   * const canvas = new OffscreenCanvas(256, 256);
+   * const g = canvas.getContext("2d")!;
+   * g.fillStyle = "teal";
+   * g.fillRect(0, 0, 256, 256);
+   * await device.photos.save(await canvas.convertToBlob({ type: "image/png" }));
+   * ```
+   */
+  save(image: Bytes, options?: CallOptions): Promise<void>;
 }
 
 /** Options for `device.sound.play`. */
@@ -1234,6 +1257,12 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       },
     },
     photos: {
+      ...permission("photos"),
+      async save(image, options) {
+        // Checked first, so a host without it fails `unavailable` before a Blob is read.
+        requireMethod("photos.save");
+        await call("photos.save", { image: await toBytes(image) }, options);
+      },
       async pick(options = {}) {
         const { signal, limit = 1 } = options;
         if (!Number.isInteger(limit) || limit < 0) throw new DeviceError("failed", "photos.pick: limit must be a whole number, 0 for no limit");

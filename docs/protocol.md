@@ -118,6 +118,7 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `files.pick` | `{ types?: string[], multiple?: boolean }`; types are MIME types, wildcards (`image/*`, `audio/*`, `video/*`, `text/*`, `font/*`, `model/*`, `message/*`, `application/*`, which allows any file), type identifiers such as `public.json`, or extensions such as `.csv` | `[{ name, type, data }]`, `[]` when cancelled; together at most 16 MiB, or it fails `failed`. Shown through the dialog queue |
 | `files.export` | `{ name, data }`, a plain file name | `true` when saved, `false` when cancelled. Shown through the dialog queue |
 | `photos.pick` | `{ limit?: number }`, 1 by default, 0 for no limit | `[{ name, type, data }]` images in their stored format, `[]` when cancelled; together at most 16 MiB. Shown through the dialog queue |
+| `photos.save` | `{ image }`: PNG, JPEG, GIF, HEIC or TIFF bytes, at most 16 MiB | `null` once the photo is in the library. Needs the photos (add-only) permission |
 | `sound.play` | `{ data, volume? }`, volume 0 to 1 | `null` once it starts; it plays to its end; at most 32 playing per kernel (one an audio interruption paused no longer counts) |
 | `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per kernel; `sound.control` and `sound.close` reach only the calling kernel's players |
 | `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change; a bad `action` or `time` fails `failed` and changes nothing, and `play` fails `failed` when the sound can't start |
@@ -176,6 +177,16 @@ seconds after its last call. A call while `latest` is warm gets the
 newest sample; any other waits for the next. With no watch and `latest`
 cold, the source stops. If Core Motion stops with an error, waiting
 calls fail `failed` and watches end with it.
+
+Saving a photo needs add-only access (`PHAccessLevel.addOnly`): the app
+can add to the library but never read it, so a grant reads `writeOnly`.
+`photos.pick` needs no permission, since the system picker shows the
+library without letting the app in; the `photos` trio is about saving.
+Bytes ImageIO doesn't read as an image fail `failed` before any prompt.
+The app turns `save` on with `DeviceBridge.addPhotoSaving()`, and needs
+`NSPhotoLibraryAddUsageDescription` in its Info.plist and, on a
+sandboxed Mac, the `com.apple.security.personal-information.photos-library`
+entitlement.
 
 ## Streams
 

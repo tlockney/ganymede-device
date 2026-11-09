@@ -584,6 +584,8 @@ Done:
    `latest` (a snapshot) over one Core Motion source, iPad and iPhone
    only; the permission is the ledger's alone (docs/protocol.md,
    "Methods").
+13. **Phase 2's photo saving** (#64): `device.photos.save` with add-only
+   access, through PhotoKit (docs/protocol.md, "Methods").
 
 Next:
 
