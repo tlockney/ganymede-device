@@ -298,7 +298,7 @@ enum FilePicker {
             // Handlers run once the alert has gone, so its presenter is
             // free to show the picker.
             guard let alert, !alert.closed, let host = alert.host else { return done(.dismissed) }
-            alert.next = picker
+            alert.picker = picker
             host.present(picker, animated: true)
         })
         return alert
@@ -369,14 +369,14 @@ enum PhotoPicker {
 /// the picker it led to, so the presenter's close reaches the picker.
 final class ConsentAlert: UIAlertController {
     weak var host: UIViewController?
-    var next: UIViewController?
+    var picker: UIViewController?
     /// Set when the dialog is closed from code, so Choose Folder shows
     /// nothing after.
     var closed = false
 
     /// What is on screen for this dialog: the picker once it is up.
     var shown: UIViewController {
-        if let next, next.presentingViewController != nil { return next }
+        if let picker, picker.presentingViewController != nil { return picker }
         return self
     }
 
