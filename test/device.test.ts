@@ -180,6 +180,10 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.bluetooth.connect("6E400001-B5A3-F393-E0A9-E50E24DCCA9E").catch(() => {}); // null isn't a peripheral
   await device.folders.pick(); // null: cancelled
   await device.folders.list().catch(() => {}); // null isn't a list
+  await device.secrets.get("a");
+  await device.secrets.set("a", "b");
+  await device.secrets.delete("a").catch(() => {}); // null isn't a boolean
+  await device.secrets.list().catch(() => {}); // null isn't a list
   const quiet = console.error;
   console.error = () => {}; // null isn't a stream
   device.on("locale", () => {});

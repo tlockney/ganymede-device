@@ -102,6 +102,13 @@ const sections: Section[] = [
     intro: "Folders the person picked, kept per notebook as bookmarks, on the Mac, iPad and iPhone. No permission: the picker is the consent, and Settings revokes. A picked folder is a [`Folder`](#folder).",
   },
   {
+    iface: "Secrets",
+    prefix: "device.secrets.",
+    heading: "device.secrets",
+    support: "secrets.",
+    intro: "Strings a notebook keeps in the system keychain, on this device only and per notebook. Every method needs the secrets permission, which is the app's prompt alone: there is no system one. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
