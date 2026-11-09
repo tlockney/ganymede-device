@@ -4,7 +4,7 @@ import Foundation
 import UIKit
 #endif
 
-// `device.camera.capture` (docs/protocol.md, "Camera"): the system camera
+// `device.camera.capture` (docs/protocol.md, "Dialogs"): the system camera
 // screen, for one photo. It is a dialog that asks for the camera
 // permission first: it queues with the other dialogs, and a cancel or an
 // interrupt closes it. The app turns it on with
@@ -79,6 +79,9 @@ enum CameraPicker {
         picker.sourceType = .camera
         picker.cameraCaptureMode = .photo
         picker.mediaTypes = ["public.image"]
+        // Full screen, so a swipe can't close it without an answer: a sheet
+        // swiped away never calls the delegate, and the call would hang.
+        picker.modalPresentationStyle = .fullScreen
         let delegate = CameraDelegate(done: done)
         picker.delegate = delegate
         retain(delegate, by: picker)
@@ -112,15 +115,22 @@ private final class CameraDelegate: NSObject, UIImagePickerControllerDelegate, U
     }
 
     /// Closes the camera, then answers: the next dialog shows only once it
-    /// has gone.
+    /// has gone. `result` runs off the main thread, since a JPEG encode of
+    /// a large photo takes a moment.
     private func answer(_ picker: UIImagePickerController, _ result: @escaping () -> DialogResult) {
         guard !answered else { return }
         answered = true
         let done = self.done
+        let finish = {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let answer = result()
+                DispatchQueue.main.async { done(answer) }
+            }
+        }
         if picker.presentingViewController != nil {
-            picker.dismiss(animated: true) { done(result()) }
+            picker.dismiss(animated: true, completion: finish)
         } else {
-            done(result())
+            finish()
         }
     }
 }

@@ -361,9 +361,10 @@ view controller.
   open and save panels need the app's
   `com.apple.security.files.user-selected.read-write` entitlement; the
   photo picker shows on the window's content view controller.
-- `camera.capture` asks for the camera permission (the app's ledger,
-  then the system) before it queues, and is refused `denied` without a
-  grant. It then shows the system camera screen
+- `camera.capture` is there once the app calls
+  `DeviceBridge.addCameraCapture()`. It asks for the camera permission
+  (the app's ledger, then the system) before it queues, and is refused
+  `denied` without a grant. It then shows the system camera screen
   (`UIImagePickerController`) over the window's top view controller.
   The photo comes back as JPEG. The app needs `NSCameraUsageDescription`;
   without it the request answers the status as it is, rather than the

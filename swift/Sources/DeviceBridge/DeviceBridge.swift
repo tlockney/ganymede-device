@@ -193,14 +193,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         dialogs.show(dialog, id: id, on: host) { outcome in
-            switch outcome {
-            case let .answered(result):
-                reply(["result": result])
-            case .cancelled:
-                reply(Self.error("cancelled", "\(method) was cancelled"))
-            case let .failed(code, message):
-                reply(Self.error(code, message))
-            }
+            reply(Self.reply(outcome, method))
         }
     }
 
@@ -419,8 +412,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     // MARK: Calls that answer later
 
-    /// `<namespace>.requestAuthorization`, an `addMethod` method, or a
-    /// streaming method that needs a permission.
+    /// `<namespace>.requestAuthorization`, an `addMethod` method, a
+    /// streaming method that needs a permission, or a dialog that needs one
+    /// (`addPermissionedDialog`).
     private func answersLater(_ method: String) -> Bool {
         methods[method] != nil || streamPermissions[method] != nil || dialogPermissions[method] != nil
             || requestedNamespace(method) != nil
@@ -587,14 +581,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private func showDialog(_ dialog: Dialog, _ method: String, call token: PendingCall, on host: DialogHost?) {
         guard pending.isWaiting(token) else { return }
         dialogs.show(dialog, id: token.id, on: host) { [weak self] outcome in
-            switch outcome {
-            case let .answered(result):
-                self?.pending.answer(token, ["result": result])
-            case .cancelled:
-                self?.pending.answer(token, Self.error("cancelled", "\(method) was cancelled"))
-            case let .failed(code, message):
-                self?.pending.answer(token, Self.error(code, message))
-            }
+            self?.pending.answer(token, Self.reply(outcome, method))
         }
         if pending.isWaiting(token) {
             pending.setCancel(token) { [weak self] in self?.dialogs.cancel(token.id) }
@@ -644,6 +631,18 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// Checks a call's arguments; throws a `DeviceCallError` to reject it.
     public typealias ParamsCheck = @MainActor ([String: Any]) throws -> Void
+
+    /// A dialog's outcome as the call's reply.
+    private static func reply(_ outcome: DialogQueue.Outcome, _ method: String) -> [String: Any] {
+        switch outcome {
+        case let .answered(result):
+            ["result": result]
+        case .cancelled:
+            error("cancelled", "\(method) was cancelled")
+        case let .failed(code, message):
+            error(code, message)
+        }
+    }
 
     static func error(_ code: String, _ message: String) -> [String: Any] {
         ["error": ["code": code, "message": message]]

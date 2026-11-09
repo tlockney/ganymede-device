@@ -644,6 +644,12 @@ public struct SystemDialogPresenter: DialogPresenter {
         return { [weak controller] gone in
             state.closed = true
             if state.presented, let controller, controller.presentingViewController != nil {
+                // Already going away (the person answered): wait for that
+                // transition instead of dismissing a second time.
+                if controller.isBeingDismissed, let coordinator = controller.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in gone() }
+                    return
+                }
                 controller.dismiss(animated: true, completion: gone)
             } else {
                 gone()
