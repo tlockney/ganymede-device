@@ -286,7 +286,7 @@ export interface Files {
   export(data: Bytes, options: ExportFileOptions): Promise<boolean>;
 }
 
-/** The photo library, through the system photo picker. */
+/** Options for `device.notifications.schedule`. */
 export interface ScheduleNotificationOptions extends CallOptions {
   /** Seconds from now, more than 0. */
   delay: number;
@@ -298,7 +298,9 @@ export interface ScheduleNotificationOptions extends CallOptions {
 export interface PendingNotification {
   /** What `schedule()` returned. */
   id: string;
+  /** The title it was scheduled with. */
   title?: string;
+  /** The text it shows. */
   body: string;
   /** When it is due, when the host knows. */
   date?: Date;
@@ -312,24 +314,68 @@ export interface PendingNotification {
  *
  * Needs the notifications permission, for `schedule()`: the first call
  * asks (the app's prompt for this notebook, then the system's) and a
- * refusal rejects `denied`. On-device: Mac, iPad and iPhone. Remote
- * kernels and the browser: no.
+ * refusal rejects `denied`. `authorizationStatus()`, `isAuthorized()` and
+ * `requestAuthorization()` read and ask for it.
  */
 export interface Notifications extends Authorization {
   /**
-   * Schedules `body` to show `delay` seconds from now; resolves with its
-   * id. iOS and iPadOS keep at most 64 per app, dropping the soonest
-   * beyond that. Cancel rejects `cancelled`; it may already be scheduled.
+   * Schedules a notification to show after a delay, even if the notebook
+   * or the app has closed by then. iOS and iPadOS keep at most 64 per
+   * app, dropping the soonest beyond that.
+   *
+   * @param body The text it shows.
+   * @param options `delay` in seconds (more than 0), an optional `title`, and the call's `signal`. Cancel rejects `cancelled`; it may already be scheduled.
+   * @returns Its id, for `cancel()`.
+   * @throws {DeviceError} `denied` when the notifications permission is refused; `failed` when `body` is empty or `delay` isn't more than 0.
+   * @example
+   * ```ts
+   * const id = await device.notifications.schedule("The training run should be done.", {
+   *   title: "Check the notebook",
+   *   delay: 30 * 60,
+   * });
+   * ```
    */
   schedule(body: string, options: ScheduleNotificationOptions): Promise<string>;
-  /** This notebook's notifications not yet delivered. Cancel rejects `cancelled`. */
+  /**
+   * Lists this notebook's notifications that haven't been delivered yet.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns This notebook's pending notifications; other notebooks' aren't listed.
+   * @example
+   * ```ts
+   * for (const n of await device.notifications.pending()) {
+   *   console.log(n.id, n.body, n.date?.toLocaleTimeString());
+   * }
+   * ```
+   */
   pending(options?: CallOptions): Promise<PendingNotification[]>;
-  /** Takes one of this notebook's off the schedule; an id that's gone, or another notebook's, changes nothing. */
+  /**
+   * Takes one of this notebook's notifications off the schedule. An id
+   * that's gone, or another notebook's, changes nothing.
+   *
+   * @param id What `schedule()` returned.
+   * @param options The call's `signal`.
+   * @throws {DeviceError} `failed` when `id` is empty.
+   * @example
+   * ```ts
+   * const id = await device.notifications.schedule("Stretch", { delay: 3600 });
+   * await device.notifications.cancel(id);
+   * ```
+   */
   cancel(id: string, options?: CallOptions): Promise<void>;
-  /** Takes all of this notebook's off the schedule. */
+  /**
+   * Takes all of this notebook's notifications off the schedule.
+   *
+   * @param options The call's `signal`.
+   * @example
+   * ```ts
+   * await device.notifications.cancelAll();
+   * ```
+   */
   cancelAll(options?: CallOptions): Promise<void>;
 }
 
+/** The photo library, through the system photo picker. */
 export interface Photos {
   /**
    * Shows the system photo picker and reads the photos the person picks.
@@ -665,6 +711,7 @@ export interface Device {
   readonly photos: Photos;
   /** Sound playback: see `Sound`. */
   readonly sound: Sound;
+  /** Local notifications after a delay: see `Notifications`. */
   readonly notifications: Notifications;
 }
 

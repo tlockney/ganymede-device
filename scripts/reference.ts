@@ -40,12 +40,26 @@ const sections: Section[] = [
   { iface: "Photos", prefix: "device.photos.", heading: "device.photos", support: "photos." },
   { iface: "Sound", prefix: "device.sound.", heading: "device.sound", support: "sound." },
   {
+    iface: "Notifications",
+    prefix: "device.notifications.",
+    heading: "device.notifications",
+    support: "notifications.",
+    intro: "The permission methods (`authorizationStatus`, `isAuthorized`, `requestAuthorization`) work where the rest of the namespace does: in the app, not from a remote kernel or a browser.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
     intro: "Its methods work wherever [`device.sound.player`](#device-sound-player-data-options) does.",
   },
 ];
+
+/**
+ * Interfaces a section's interface extends whose members it documents
+ * too: the permission trio. They have no `SUPPORT` rows of their own; they
+ * work wherever the namespace does.
+ */
+const INHERITED: Record<string, string> = { Authorization: "src/permission.ts" };
 
 /** Members that are answered in the kernel, so have no `SUPPORT` row. */
 const LOCAL = new Set(["has"]);
@@ -70,6 +84,9 @@ const types: { name: string; file: string }[] = [
   { name: "PickPhotosOptions", file: DEVICE },
   { name: "PlaySoundOptions", file: DEVICE },
   { name: "SoundState", file: DEVICE },
+  { name: "ScheduleNotificationOptions", file: DEVICE },
+  { name: "PendingNotification", file: DEVICE },
+  { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 
 const ERRORS = "src/errors.ts";
@@ -233,7 +250,15 @@ function renderDoc(out: string[], doc: Doc, sigs: ts.SignatureDeclarationBase[],
   }
 }
 
-function renderSection(out: string[], index: string[], section: Section, sf: ts.SourceFile, covered: Set<string>, r: Result) {
+function renderSection(
+  out: string[],
+  index: string[],
+  section: Section,
+  sourceFile: (file: string) => ts.SourceFile,
+  covered: Set<string>,
+  r: Result,
+) {
+  const sf = sourceFile(DEVICE);
   const decl = sf.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === section.iface);
   if (!decl) {
     r.problems.push(`${DEVICE}: no interface ${section.iface}`);
@@ -245,8 +270,21 @@ function renderSection(out: string[], index: string[], section: Section, sf: ts.
   else out.push(ifaceDoc.summary, "");
   if (section.intro) out.push(section.intro, "");
 
+  // Inherited members (the permission trio) first, from their own file.
+  const members: { m: ts.TypeElement; sf: ts.SourceFile; inherited: boolean }[] = [];
+  for (const clause of decl.heritageClauses ?? []) {
+    for (const base of clause.types) {
+      const file = INHERITED[base.expression.getText(sf)];
+      if (!file) continue;
+      const bsf = sourceFile(file);
+      const b = bsf.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === base.expression.getText(sf));
+      if (!b) r.problems.push(`${file}: no interface ${base.expression.getText(sf)}`);
+      for (const m of b?.members ?? []) members.push({ m, sf: bsf, inherited: true });
+    }
+  }
+  for (const m of decl.members) members.push({ m, sf, inherited: false });
   const props: string[] = [];
-  for (const m of decl.members) {
+  for (const { m, sf, inherited } of members) {
     const name = memberName(m);
     const where = `${section.iface}.${name ?? m.name?.getText(sf)}`;
     const doc = readDoc(m);
@@ -259,7 +297,7 @@ function renderSection(out: string[], index: string[], section: Section, sf: ts.
       props.push(`| \`${name}\` | \`${cell(p.type?.getText() ?? "")}\` | ${cell(oneLine(doc.summary))} |`);
       continue;
     }
-    const key = section.support === undefined ? undefined : `${section.support}${name}`;
+    const key = section.support === undefined || inherited ? undefined : `${section.support}${name}`;
     const row = key === undefined ? undefined : (SUPPORT as Record<string, SupportRow>)[key];
     if (key !== undefined) {
       if (row) covered.add(key);
@@ -358,7 +396,7 @@ export function generate(): Result {
   const body: string[] = [];
   const index: string[] = [];
   const covered = new Set<string>();
-  for (const section of sections) renderSection(body, index, section, sourceFile(DEVICE), covered, r);
+  for (const section of sections) renderSection(body, index, section, sourceFile, covered, r);
   for (const key of Object.keys(SUPPORT)) {
     if (!covered.has(key)) r.problems.push(`SUPPORT row ${key} is on no method in the reference`);
   }
