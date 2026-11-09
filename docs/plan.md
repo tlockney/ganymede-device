@@ -599,6 +599,10 @@ Done:
    a call opens that outlives it, with streams' lifetime; `sound.player`
    runs on it, and cells get `NativeHandle` (docs/protocol.md,
    "Handles").
+18. **Phase 3's host events** (#98): `device.on(event, handler)` over
+   one `events.watch` stream (appearance, foreground, background,
+   battery, locale), which an interrupt leaves running (docs/protocol.md,
+   "Host events").
 
 Next:
 

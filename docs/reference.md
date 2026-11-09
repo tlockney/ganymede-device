@@ -35,6 +35,7 @@ such API.
 | --- | --- |
 | [`device.info(options?)`](#device-info-options) | Reads what the host is and the device's current state. |
 | [`device.has(method)`](#device-has-method) | Whether the host answers a method. |
+| [`device.on(event, handler, options?)`](#device-on-event-handler-options) | Calls `handler` each time the device changes in the way `event` names, until it is removed: by calling the function `on` answers, by aborting `options.signal`, or by a kernel restart. |
 | [`device.openURL(url, options?)`](#device-openurl-url-options) | Opens a link: in the browser, or the mail app for `mailto`. |
 | [`device.share(options)`](#device-share-options) | Shows the system share sheet (`NSSharingServicePicker` on the Mac). |
 | [`device.preview(files, options?)`](#device-preview-files-options) | Shows files in Quick Look. |
@@ -157,6 +158,46 @@ said when the kernel started, so it can't be cancelled.
 ```ts
 if (device.has("haptics.impact")) await device.haptics.impact();
 else console.log("no haptics on", (await device.info()).platform);
+```
+
+### `device.on(event, handler, options?)`
+
+```ts
+on<E extends HostEvent>(event: E, handler: (value: HostEvents[E]) => void, options?: OnOptions): () => void;
+```
+
+Calls `handler` each time the device changes in the way `event`
+names, until it is removed: by calling the function `on` answers, by
+aborting `options.signal`, or by a kernel restart. Unlike other calls,
+an interrupt leaves it running, since it outlives the cell that added
+it. A handler that runs after its cell finished writes its output
+where the kernel sends output with no running cell, so keep handlers
+to updating state or a display by id. No permission; in the app only.
+When the host can't send events, the handler is removed and one line
+on stderr says why; `has("on")` tells beforehand.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `event` | `E` | yes | What to watch: `appearance`, `foreground`, `background`, `battery` or `locale`. |
+| `handler` | `(value: HostEvents[E]) => void` | yes | Called with the event's value (`HostEvents`). An error it throws goes to stderr and doesn't remove it. |
+| `options` | `OnOptions` | no | The `signal` that removes the handler. |
+
+**Returns** `() => void`: A function that removes the handler.
+
+**Throws** `DeviceError`: `failed` when `event` isn't one of the five or `handler` isn't a function.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+Appearance, foreground, background, battery and locale changes; an interrupt doesn't remove a handler.
+
+```ts
+const off = device.on("appearance", (mode) => console.log("now", mode));
+// Later, in any cell:
+off();
 ```
 
 ### `device.openURL(url, options?)`
@@ -2340,6 +2381,34 @@ call on a closed handle rejects `failed`.
 | --- | --- | --- | --- |
 | `closed` | `boolean` | yes | Whether it is closed: by `close()`, or by leaving its `await using` block. |
 | `close` | `Promise<void>` | yes | Closes it and frees what it holds. Closing twice is fine. |
+
+### `HostEvents`
+
+What each host event's handler gets, by event (`device.on`).
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `appearance` | `"light" \| "dark"` | yes | The system appearance changed. |
+| `foreground` | `null` | yes | The app came to the front. |
+| `background` | `null` | yes | The app left the front: another app is in front, or the device locked. |
+| `battery` | `{ level: number \| null; charging: boolean }` | yes | The battery's level (0 to 1, or `null` when unknown) or charging changed. Never on a Mac without a battery. |
+| `locale` | `string` | yes | The system language or region changed: the new locale, a BCP 47 tag such as `"fr-FR"`. |
+
+### `HostEvent`
+
+A host event's name: a key of `HostEvents`.
+
+```ts
+export type HostEvent = keyof HostEvents;
+```
+
+### `OnOptions`
+
+Options for `device.on`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `signal` | `AbortSignal` | no | Removes the handler when aborted. An interrupt doesn't: `on` outlives its cell. |
 
 ### `ScheduleNotificationOptions`
 

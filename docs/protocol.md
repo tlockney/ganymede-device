@@ -291,6 +291,36 @@ and folders in Phase 3 (docs/phase-3.md). In a cell it is a
 - A cell's handle rejects `failed` after `close()`, without a round trip.
 - Handles are on-device only: `handle.close` isn't in the remote subset.
 
+## Host events
+
+`device.on(event, handler)` calls `handler` as the device changes. It
+reads one stream, `events.watch`, which the first handler opens and the
+last one's removal closes; the app turns it on with
+`DeviceBridge.addHostEvents()`.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `events.watch` | `{ events? }`: a list of `appearance`, `foreground`, `background`, `battery`, `locale`; all when left out | a stream ("Streams" above) of `{ event, value }`, capacity 64 |
+
+- Values: `appearance` `"light"` or `"dark"`; `foreground` and
+  `background` `null`; `battery` `{ level, charging }`, `level` 0 to 1 or
+  `null`; `locale` a BCP 47 tag.
+- Each is sent only when it changes, never its starting state. A Mac
+  without a battery never sends `battery`.
+- Swift (`HostEventSource`) looks for changes on the locale and battery
+  notifications and once a second, against `DeviceState`'s values
+  (`info`'s), and sends `foreground` and `background` as the app becomes
+  active or not (on iPad and iPhone, as it enters the foreground or
+  background).
+- The cell's stream gets no cell signal: an interrupt leaves handlers
+  running, since `on` outlives the cell that called it. Removing the last
+  handler, its `signal`, or a kernel restart (a new `hello`) closes it.
+- If the stream can't open or fails, the cell removes every handler and
+  writes one line to stderr. `has("on")` says beforehand whether the host
+  sends events.
+- No permission. On-device only: `events.watch` isn't in the remote
+  subset.
+
 ## Permissions
 
 A namespace that needs a system (TCC) permission, such as `location`,

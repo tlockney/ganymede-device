@@ -114,7 +114,9 @@ test("an imported device on a kernel with no host rejects every call", async () 
 test("the support matrix has a row for every method the device calls, and no others", async () => {
   const called = new Set<string>();
   const transport: DeviceTransport = { call: (method) => (called.add(method), Promise.resolve(null)) };
-  const device = createDevice(transport, { platform: "test", appVersion: "", capabilities: Object.keys(SUPPORT) });
+  // The host lists `on` as the stream it reads.
+  const capabilities = [...Object.keys(SUPPORT).filter((m) => m !== "on"), "events.watch"];
+  const device = createDevice(transport, { platform: "test", appVersion: "", capabilities });
   await device.clipboard.readText();
   await device.clipboard.writeText("");
   await device.clipboard.readImage();
@@ -159,7 +161,13 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.reminders.complete("x").catch(() => {});
   await device.reminders.uncomplete("x").catch(() => {});
   await device.reminders.delete("x").catch(() => {});
-  assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
+  const quiet = console.error;
+  console.error = () => {}; // null isn't a stream
+  device.on("locale", () => {});
+  await new Promise((done) => setTimeout(done, 0));
+  console.error = quiet;
+  // `on` reads the `events.watch` stream.
+  assert.deepEqual([...called].map((m) => (m === "events.watch" ? "on" : m)).sort(), Object.keys(SUPPORT).sort());
 });
 
 test("info adds the host's current state to hello, which it can't change", async () => {

@@ -21,7 +21,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let clipboard: Clipboard
     private let haptics: Haptics
     private let urlOpener: URLOpener
-    private let state: DeviceState
+    let state: DeviceState
     private let dialogs: DialogQueue
     private let sounds: Sounds
     /// What calls opened that outlive them: sound players, so far.
