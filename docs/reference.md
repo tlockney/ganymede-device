@@ -3206,7 +3206,7 @@ One item in a folder, from `Folder.entries()`.
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | yes | Its name in its directory. |
-| `kind` | `"file" \| "directory"` | yes | A symlink reads as a file. |
+| `kind` | `"file" \| "directory" \| "link"` | yes | `"link"` is a symlink. Reading it follows it while its target stays in the folder; `remove` takes away the link, not what it points to. |
 | `size` | `number` | no | Bytes, for a file. |
 | `modified` | `Date` | no | When its contents last changed. |
 

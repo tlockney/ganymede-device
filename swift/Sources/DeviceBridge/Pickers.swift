@@ -185,14 +185,19 @@ enum FilePanels {
         }
     }
 
-    /// `folders.pick`: one folder, which the person may make here.
-    static func folder(window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
+    /// `folders.pick`: one folder, which the person may make here. The
+    /// panel says what the notebook may do with it, since picking is the
+    /// consent: read only, or change and delete too.
+    static func folder(write: Bool, window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
+        panel.message = write
+            ? "The notebook will be able to read, change and delete files in the folder you choose."
+            : "The notebook will be able to read the files in the folder you choose."
+        panel.prompt = write ? "Allow Changes" : "Allow Reading"
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return done(.dismissed) }
             done(.folder(url))
@@ -277,6 +282,28 @@ enum FilePicker {
         return picker
     }
 
+    /// `folders.pick({ write: true })`: the document picker takes no
+    /// message, so an alert says first that the notebook may change and
+    /// delete files there, and its Choose Folder shows the picker in its
+    /// place. The alert is the controller the presenter shows and
+    /// closes; closing it also closes the picker it led to.
+    static func writeConsent(done: @escaping (DialogResult) -> Void) -> UIViewController {
+        let picker = folder(done: done)
+        let alert = ConsentAlert(
+            title: "Let the notebook change files?",
+            message: "The notebook will be able to read, change and delete files in the folder you choose next.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(.dismissed) })
+        alert.addAction(UIAlertAction(title: "Choose Folder", style: .default) { [weak alert] _ in
+            // Handlers run once the alert has gone, so its presenter is
+            // free to show the picker.
+            guard let alert, !alert.closed, let host = alert.host else { return done(.dismissed) }
+            alert.next = picker
+            host.present(picker, animated: true)
+        })
+        return alert
+    }
+
     static func export(_ file: NamedFile, done: @escaping (DialogResult) -> Void) throws -> UIViewController {
         let temp = try TemporaryFiles([file])
         let picker = UIDocumentPickerViewController(forExporting: temp.urls, asCopy: true)
@@ -335,6 +362,27 @@ enum PhotoPicker {
                 PhotoLoader.load(providers, done: done)
             }
         }
+    }
+}
+
+/// The alert before a write folder pick. It remembers what showed it and
+/// the picker it led to, so the presenter's close reaches the picker.
+final class ConsentAlert: UIAlertController {
+    weak var host: UIViewController?
+    var next: UIViewController?
+    /// Set when the dialog is closed from code, so Choose Folder shows
+    /// nothing after.
+    var closed = false
+
+    /// What is on screen for this dialog: the picker once it is up.
+    var shown: UIViewController {
+        if let next, next.presentingViewController != nil { return next }
+        return self
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        host = presentingViewController
     }
 }
 

@@ -1408,8 +1408,11 @@ export interface PickFolderOptions extends CallOptions {
 export interface FolderEntry {
   /** Its name in its directory. */
   name: string;
-  /** A symlink reads as a file. */
-  kind: "file" | "directory";
+  /**
+   * `"link"` is a symlink. Reading it follows it while its target stays
+   * in the folder; `remove` takes away the link, not what it points to.
+   */
+  kind: "file" | "directory" | "link";
   /** Bytes, for a file. */
   size?: number;
   /** When its contents last changed. */
@@ -1832,7 +1835,7 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         const found = await call("folders.entries", at("folders.entries", path, true), options);
         if (!Array.isArray(found)) throw new DeviceError("failed", "the host's folders.entries reply is malformed");
         return found.map((item): FolderEntry => {
-          if (!isRecord(item) || typeof item.name !== "string" || (item.kind !== "file" && item.kind !== "directory")) {
+          if (!isRecord(item) || typeof item.name !== "string" || (item.kind !== "file" && item.kind !== "directory" && item.kind !== "link")) {
             throw new DeviceError("failed", "the host's folders.entries reply is malformed");
           }
           const modified = typeof item.modified === "string" ? new Date(item.modified) : undefined;

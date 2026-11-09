@@ -22,6 +22,7 @@ class FolderHost implements DeviceTransport {
         return Promise.resolve([
           { name: "a.csv", kind: "file", size: 12, modified: "2026-11-09T10:00:00.000Z" },
           { name: "sub", kind: "directory", modified: "not a date" },
+          { name: "latest", kind: "link" },
         ]);
       case "folders.read":
         return Promise.resolve(new Uint8Array([104, 105]));
@@ -73,6 +74,7 @@ test("a folder's calls name it and a path in it", async () => {
   assert.deepEqual(host.last("folders.entries"), { folder: "F1" });
   assert.deepEqual(entries[0], { name: "a.csv", kind: "file", size: 12, modified: new Date("2026-11-09T10:00:00.000Z") });
   assert.deepEqual(entries[1], { name: "sub", kind: "directory" });
+  assert.deepEqual(entries[2], { name: "latest", kind: "link" });
   await folder.entries("sub");
   assert.deepEqual(host.last("folders.entries"), { folder: "F1", path: "sub" });
 
@@ -103,7 +105,7 @@ test("paths that leave the folder are refused before calling", async () => {
 });
 
 test("malformed replies fail", async () => {
-  const bad = { call: (method: string) => Promise.resolve(method === "folders.pick" ? { id: 1 } : [{ name: "x", kind: "link" }]) };
+  const bad = { call: (method: string) => Promise.resolve(method === "folders.pick" ? { id: 1 } : [{ name: "x", kind: "pipe" }]) };
   await assert.rejects(device(bad).folders.pick(), code("failed"));
   await assert.rejects(device(bad).folders.list(), code("failed"));
 });

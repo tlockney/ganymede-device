@@ -374,13 +374,16 @@ shares the bridge's store.
 | --- | --- | --- |
 | `folders.pick` | `{ write? }`: false by default | `{ id, name, writable }`, or `null` when the person cancelled. A dialog ("Dialogs" below): it queues with the others and a cancel closes it |
 | `folders.list` | `{}` | `[{ id, name, writable }]`, the notebook's grants in the order they were picked |
-| `folders.entries` | `{ folder, path? }`: the folder itself without `path` | `[{ name, kind, size?, modified? }]` sorted by name; `kind` is `file` or `directory`, `modified` ISO 8601 |
+| `folders.entries` | `{ folder, path? }`: the folder itself without `path` | `[{ name, kind, size?, modified? }]` sorted by name; `kind` is `file`, `directory` or `link` (a symlink, without a size), `modified` ISO 8601 |
 | `folders.read` | `{ folder, path }` | the file's bytes, at most 16 MiB |
 | `folders.write` | `{ folder, path, data }` | `null` once written; makes the directories on the way, and replaces a symlink at `path` rather than following it |
 | `folders.remove` | `{ folder, path }` | `null`; a file, a symlink (not its target) or an empty directory only |
 
 - No permission and no ledger prompt: the system folder picker is the
-  consent, as for `files.pick`. A grant is a bookmark kept per notebook
+  consent, as for `files.pick`. It says what the notebook may do: on the
+  Mac the panel's message and button ("Allow Reading" or "Allow
+  Changes"); on iOS a write pick first shows an alert saying the notebook
+  may change and delete files, then the picker. A grant is a bookmark kept per notebook
   path (`UserDefaultsFolderStore`); `notebookMoved` carries it. Picking a
   folder the notebook already has replaces that grant and keeps its id.
 - Every call needs the notebook (`setNotebook`); without it, or for a
@@ -399,7 +402,11 @@ shares the bridge's store.
   for Settings to revoke.
 - Reads and writes are coordinated (`NSFileCoordinator`), so an iCloud
   Drive file that isn't downloaded comes down on `read`; `entries` lists
-  it by its own name, without a size.
+  it by its own name, without a size, and `remove` deletes it. Only an
+  item iCloud reports as ubiquitous is taken for a placeholder; another
+  `.name.icloud` file lists as itself.
+- A grant's bookmark keeps its kind when it is made again: a
+  security-scoped one is never replaced by a plain one.
 - A `Folder` is not a handle ("Handles" above): it outlives the kernel,
   so there is nothing to close.
 - On-device only: none of these is in the remote subset.

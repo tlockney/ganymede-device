@@ -488,8 +488,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             return try PhotoPicker.present(limit: limit, window: window, done: done)
         case .capturePhoto:
             throw DialogUnavailable(description: "camera.capture shows the camera on iPad and iPhone only")
-        case .pickFolder:
-            return FilePanels.folder(window: window, done: done)
+        case let .pickFolder(write):
+            return FilePanels.folder(write: write, window: window, done: done)
         default:
             break
         }
@@ -642,8 +642,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             controller = PhotoPicker.controller(limit: limit, done: done)
         case .capturePhoto:
             controller = try CameraPicker.controller(done: done)
-        case .pickFolder:
-            controller = FilePicker.folder(done: done)
+        case let .pickFolder(write):
+            controller = write ? FilePicker.writeConsent(done: done) : FilePicker.folder(done: done)
         }
         let state = Presentation()
         let show = {
@@ -659,9 +659,14 @@ public struct SystemDialogPresenter: DialogPresenter {
         } else {
             show()
         }
+        // A write folder pick's alert hands over to the picker: close
+        // whichever is showing. Held here, since once gone from the
+        // screen nothing else keeps the alert.
+        let consent = controller as? ConsentAlert
         return { [weak controller] gone in
             state.closed = true
-            if state.presented, let controller, controller.presentingViewController != nil {
+            consent?.closed = true
+            if state.presented, let controller = consent?.shown ?? controller, controller.presentingViewController != nil {
                 // Already going away (the person answered): wait for that
                 // transition instead of dismissing a second time.
                 if controller.isBeingDismissed, let coordinator = controller.transitionCoordinator {

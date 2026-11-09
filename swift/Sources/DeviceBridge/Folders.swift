@@ -129,17 +129,19 @@ public final class FolderGrants {
 /// Finding a granted folder, and paths in it. Nonisolated: everything
 /// here but `bookmark` runs off the main thread.
 enum FolderAccess {
-    /// A bookmark to `url`, which the picker just handed over.
-    static func bookmark(_ url: URL) throws -> Data {
+    /// A bookmark to `url`, which the picker just handed over. On the
+    /// Mac, a security-scoped one where the app is sandboxed, and a plain
+    /// one where it isn't, since a scope there needs the sandbox's
+    /// bookmarks entitlement. `scoped` asks for one kind only, when a
+    /// stale bookmark of that kind is made again.
+    static func bookmark(_ url: URL, scoped kind: Bool? = nil) throws -> Data {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         #if os(macOS)
-        // A security scope where the app is sandboxed; a plain bookmark
-        // where it isn't, since a scope there needs the sandbox's
-        // bookmarks entitlement.
-        if let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+        if kind != false, let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
             return data
         }
+        if kind == true { throw CocoaError(.fileWriteNoPermission) }
         #endif
         return try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
@@ -153,20 +155,21 @@ enum FolderAccess {
         case unreachable
     }
 
-    /// Where `bookmark` points now, and whether it should be made again.
-    /// Never shows UI or mounts a volume, so an unreachable share fails
-    /// at once instead of waiting.
-    static func resolve(_ bookmark: Data) throws -> (url: URL, stale: Bool) {
+    /// Where `bookmark` points now, whether it should be made again, and
+    /// whether it resolved as a security-scoped bookmark (the Mac), so a
+    /// stale one is made again as the same kind. Never shows UI or mounts
+    /// a volume, so an unreachable share fails at once instead of waiting.
+    static func resolve(_ bookmark: Data) throws -> (url: URL, stale: Bool, scoped: Bool) {
         var stale = false
         let quiet: URL.BookmarkResolutionOptions = [.withoutUI, .withoutMounting]
         #if os(macOS)
         if let url = try? URL(resolvingBookmarkData: bookmark, options: quiet.union(.withSecurityScope), relativeTo: nil, bookmarkDataIsStale: &stale) {
-            return (url, stale)
+            return (url, stale, true)
         }
         #endif
         do {
             let url = try URL(resolvingBookmarkData: bookmark, options: quiet, relativeTo: nil, bookmarkDataIsStale: &stale)
-            return (url, stale)
+            return (url, stale, false)
         } catch CocoaError.fileReadCorruptFile {
             throw Missing.unusable
         } catch {
@@ -253,41 +256,62 @@ enum FolderAccess {
         if let failure { throw failure }
     }
 
-    /// An iCloud Drive placeholder's name for `name`: `.name.icloud`.
-    static func placeholder(_ name: String) -> String { "." + name + ".icloud" }
+    /// The iCloud Drive placeholder that stands for `url` while it isn't
+    /// downloaded (`.name.icloud` beside it), when there is one. Only an
+    /// item iCloud manages counts: a hidden file of that name elsewhere is
+    /// just a file.
+    static func placeholder(for url: URL) -> URL? {
+        let stub = url.deletingLastPathComponent().appendingPathComponent("." + url.lastPathComponent + ".icloud")
+        return isPlaceholder(stub) ? stub : nil
+    }
 
-    /// `url`, or when only its iCloud Drive placeholder is here, still
-    /// `url`: a coordinated read downloads it.
+    /// Whether `url` is an iCloud Drive placeholder: named `.name.icloud`
+    /// and managed by iCloud.
+    static func isPlaceholder(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        guard name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".icloud".count + 1 else { return false }
+        return (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+    }
+
+    /// Whether something is at `url` (a symlink counts as itself), and
+    /// whether it is a directory. An iCloud Drive file that isn't
+    /// downloaded is there: a coordinated read brings it down.
     static func exists(_ url: URL) -> (exists: Bool, directory: Bool) {
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
-            return (true, isDirectory.boolValue)
+        if let type = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType {
+            if type == .typeSymbolicLink {
+                var isDirectory: ObjCBool = false
+                // A dangling link is still there, as a file.
+                _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                return (true, isDirectory.boolValue)
+            }
+            return (true, type == .typeDirectory)
         }
-        let stub = url.deletingLastPathComponent().appendingPathComponent(placeholder(url.lastPathComponent))
-        return (FileManager.default.fileExists(atPath: stub.path), false)
+        return (placeholder(for: url) != nil, false)
     }
 
     static func entries(_ url: URL) throws -> [[String: Any]] {
         let found = exists(url)
         guard found.exists else { throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)") }
         guard found.directory else { throw DeviceCallError("failed", "\(url.lastPathComponent) isn't a directory") }
-        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey, .isUbiquitousItemKey]
         let items = try reading(url) { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: keys, options: []) }
         var entries: [String: [String: Any]] = [:]
         for item in items {
             let values = try? item.resourceValues(forKeys: Set(keys))
-            let directory = values?.isDirectory ?? false
             var name = item.lastPathComponent
             // An iCloud Drive file not downloaded yet: list it by its own
             // name, without a size, unless the file is here too.
-            if name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".icloud".count + 1 {
+            if isPlaceholder(item) {
                 name = String(name.dropFirst().dropLast(".icloud".count))
-                guard entries[name] == nil else { continue }
-                entries[name] = ["name": name, "kind": "file"]
+                if entries[name] == nil { entries[name] = ["name": name, "kind": "file"] }
                 continue
             }
-            var entry: [String: Any] = ["name": name, "kind": directory ? "directory" : "file"]
-            if !directory, let size = values?.fileSize { entry["size"] = size }
+            // A symlink is a link, whatever it points to: `read` follows
+            // it only while it stays in the folder.
+            let link = values?.isSymbolicLink ?? false
+            let directory = !link && (values?.isDirectory ?? false)
+            var entry: [String: Any] = ["name": name, "kind": link ? "link" : directory ? "directory" : "file"]
+            if !directory, !link, let size = values?.fileSize { entry["size"] = size }
             if let modified = values?.contentModificationDate { entry["modified"] = Dialog.formatDate(modified) }
             entries[name] = entry
         }
@@ -308,19 +332,28 @@ enum FolderAccess {
     }
 
     /// Replaces what is at `url` (a symlink there is replaced, not
-    /// followed), making the directories on the way.
+    /// followed, and an iCloud Drive file that isn't downloaded is
+    /// replaced through its coordinator), making the directories on the
+    /// way inside the same coordinated write.
     static func write(_ data: Data, to url: URL) throws {
         if (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeDirectory {
             throw DeviceCallError("failed", "\(url.lastPathComponent) is a directory")
         }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try writing(url, options: .forReplacing) { try data.write(to: $0, options: .atomic) }
+        try writing(url, options: .forReplacing) { url in
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+        }
     }
 
-    /// A file, a symlink (not what it points to), or an empty directory:
-    /// nothing that takes more with it.
+    /// A file, a symlink (not what it points to), an iCloud Drive file
+    /// that isn't downloaded, or an empty directory: nothing that takes
+    /// more with it.
     static func remove(_ url: URL) throws {
         let type = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType
+        if type == nil, let stub = placeholder(for: url) {
+            // Deleting the placeholder deletes the item from iCloud Drive.
+            return try writing(stub, options: .forDeleting) { try FileManager.default.removeItem(at: $0) }
+        }
         guard let type else {
             throw DeviceCallError("failed", "there is nothing at \(url.lastPathComponent)")
         }
@@ -434,7 +467,7 @@ extension DeviceBridge {
                 var fresh: Data?
                 var drop = false
                 let result: Result<Unchecked, DeviceCallError> = Result {
-                    let resolved: (url: URL, stale: Bool)
+                    let resolved: (url: URL, stale: Bool, scoped: Bool)
                     do {
                         resolved = try FolderAccess.resolve(grant.bookmark)
                     } catch FolderAccess.Missing.unusable {
@@ -449,7 +482,9 @@ extension DeviceBridge {
                     guard FolderAccess.exists(root).directory else {
                         throw DeviceCallError("unavailable", "\(grant.name) isn't there now; pick it again if it moved")
                     }
-                    if resolved.stale { fresh = try? FolderAccess.bookmark(root) }
+                    // The same kind again: a plain bookmark made where the
+                    // scoped one failed would lose the sandbox's access.
+                    if resolved.stale { fresh = try? FolderAccess.bookmark(root, scoped: resolved.scoped) }
                     return Unchecked(try body(root, path, sent.value as! [String: Any]))
                 }.mapError { Self.callError($0, method) }
                 let refreshed = fresh
