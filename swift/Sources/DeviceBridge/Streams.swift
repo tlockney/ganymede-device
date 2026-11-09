@@ -48,6 +48,11 @@ public final class StreamSink {
         self.stream = stream
     }
 
+    /// Whether the stream is still open and its bridge still alive. A
+    /// source shared beyond one bridge checks this to let go of streams
+    /// whose bridge went away without closing them.
+    public var isOpen: Bool { stream != nil && streams != nil }
+
     /// Queues `value`, dropping the oldest when the queue is full.
     /// Ignored once the stream has ended.
     public func send(_ value: Any) {

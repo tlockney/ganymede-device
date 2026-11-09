@@ -3,6 +3,7 @@
 
 export {
   type ActionSheetOptions,
+  type Attitude,
   type AlertOptions,
   type CallOptions,
   type Clipboard,
@@ -13,6 +14,7 @@ export {
   type Device,
   type DeviceInfo,
   type DeviceLocation,
+  type DeviceMotion,
   type DeviceTransport,
   type ExportFileOptions,
   type Files,
@@ -20,6 +22,8 @@ export {
   type LocationAccuracy,
   type LocationFix,
   type LocationOptions,
+  type MotionSample,
+  type MotionWatchOptions,
   type NamedBytes,
   type Notifications,
   type PendingNotification,
@@ -36,6 +40,7 @@ export {
   type SoundPlayer,
   type SoundState,
   type UI,
+  type Vector3,
   unavailableDevice,
 } from "./device.ts";
 export { AUTHORIZATION_STATUSES, type Authorization, type AuthorizationStatus, authorization, isGranted } from "./permission.ts";

@@ -54,6 +54,13 @@ const sections: Section[] = [
     intro: "Over Core Location, while the app is in use only. `current` and `watch` need the location permission; geocoding needs the network but no permission. With precise location off for the app, `authorizationStatus()` reads `reducedAccuracy` and fixes are within a few kilometres. The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "DeviceMotion",
+    prefix: "device.motion.",
+    heading: "device.motion",
+    support: "motion.",
+    intro: "Over Core Motion, on iPad and iPhone; a Mac has no motion sensors. `watch` and `latest` share one source. The system has no prompt for these sensors, so the permission is the app's own, per notebook. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
@@ -97,6 +104,10 @@ const types: { name: string; file: string }[] = [
   { name: "LocationAccuracy", file: DEVICE },
   { name: "LocationFix", file: DEVICE },
   { name: "Place", file: DEVICE },
+  { name: "MotionWatchOptions", file: DEVICE },
+  { name: "MotionSample", file: DEVICE },
+  { name: "Attitude", file: DEVICE },
+  { name: "Vector3", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 

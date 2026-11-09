@@ -500,6 +500,93 @@ export interface DeviceLocation extends Authorization {
   reverseGeocode(position: { latitude: number; longitude: number }, options?: CallOptions): Promise<Place[]>;
 }
 
+/** A direction or rate along the device's three axes. */
+export interface Vector3 {
+  /** Along the short side, to the right with the screen facing you. */
+  x: number;
+  /** Along the long side, toward the top. */
+  y: number;
+  /** Out of the screen, toward you. */
+  z: number;
+}
+
+/** Which way the device is turned, in radians. */
+export interface Attitude {
+  /** Around the long (y) axis. */
+  roll: number;
+  /** Around the short (x) axis. */
+  pitch: number;
+  /** Around the axis out of the screen (z). */
+  yaw: number;
+}
+
+/** One reading of Core Motion's device motion. */
+export interface MotionSample {
+  /** Which way the device is turned. */
+  attitude: Attitude;
+  /** Radians per second around each axis. */
+  rotationRate: Vector3;
+  /** Gravity's pull, in g (1 g is 9.81 m/s²). */
+  gravity: Vector3;
+  /** What the person adds to gravity, in g. */
+  userAcceleration: Vector3;
+  /** When it was read, in milliseconds since 1970, as `Date.now()`. */
+  timestamp: number;
+}
+
+/** Options for `device.motion.watch`. */
+export interface MotionWatchOptions extends CallOptions {
+  /** Seconds between samples, 0.01 to 1; 0.1 by default. */
+  interval?: number;
+}
+
+/**
+ * The device's motion sensors over Core Motion: attitude, rotation rate,
+ * gravity and the person's acceleration. iPad and iPhone only; a Mac has
+ * no motion sensors, so `has("motion.watch")` is false there.
+ *
+ * Two ways to read, sharing one source: `watch()` for a sample every
+ * `interval`, as when recording, and `latest()` for the newest sample, as
+ * in a polling loop. Both need the motion permission: the app asks for
+ * this notebook (the system has no prompt for these sensors) and a
+ * refusal rejects `denied`.
+ */
+export interface DeviceMotion extends Authorization {
+  /**
+   * Samples every `interval` seconds, for `for await`, until the loop
+   * ends or the cell is interrupted. Keeps the newest 64 when the cell
+   * reads slower than they come (`dropped` counts the rest).
+   *
+   * @param options `interval` in seconds, 0.01 to 1 (0.1 by default); and the call's `signal`, which ends the stream.
+   * @returns A stream of samples; `close()` or leaving the loop stops the sensors unless something else still reads them.
+   * @throws {DeviceError} `denied` when the notebook may not use motion; `failed` when `interval` is out of range, or Core Motion stops with an error.
+   * @example
+   * ```ts
+   * const samples = [];
+   * for await (const s of device.motion.watch({ interval: 0.05 })) {
+   *   samples.push(s.userAcceleration);
+   *   if (samples.length === 100) break;
+   * }
+   * ```
+   */
+  watch(options?: MotionWatchOptions): DeviceStream<MotionSample>;
+  /**
+   * The newest sample. The first call starts the sensors and waits for a
+   * reading; they keep running while calls keep coming, and stop about
+   * 10 seconds after the last.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The newest sample.
+   * @throws {DeviceError} `denied` when the notebook may not use motion; `failed` when Core Motion stops with an error.
+   * @example
+   * ```ts
+   * const { attitude } = await device.motion.latest();
+   * console.log(`tilted ${((attitude.pitch * 180) / Math.PI).toFixed(0)}°`);
+   * ```
+   */
+  latest(options?: CallOptions): Promise<MotionSample>;
+}
+
 /** The photo library, through the system photo picker. */
 export interface Photos {
   /**
@@ -840,6 +927,8 @@ export interface Device {
   readonly notifications: Notifications;
   /** Where the device is, and geocoding: see `DeviceLocation`. */
   readonly location: DeviceLocation;
+  /** The motion sensors, on iPad and iPhone: see `DeviceMotion`. */
+  readonly motion: DeviceMotion;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1131,6 +1220,19 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return places("location.reverseGeocode", await call("location.reverseGeocode", { latitude, longitude }, options));
       },
     },
+    motion: {
+      ...permission("motion"),
+      watch(options = {}) {
+        const { interval, ...rest } = options;
+        if (interval !== undefined && !(typeof interval === "number" && interval >= 0.01 && interval <= 1)) {
+          throw new DeviceError("failed", "motion.watch: interval must be 0.01 to 1 seconds");
+        }
+        return stream("motion.watch", { ...defined({ interval }) }, rest, (value) => motionSample("motion.watch", value));
+      },
+      async latest(options = {}) {
+        return motionSample("motion.latest", await call("motion.latest", {}, options));
+      },
+    },
     photos: {
       async pick(options = {}) {
         const { signal, limit = 1 } = options;
@@ -1190,6 +1292,44 @@ function places(method: string, value: unknown): Place[] {
     }
     return place;
   });
+}
+
+/** Three finite numbers under `keys`, or undefined. */
+function triple<K extends string>(value: unknown, keys: readonly [K, K, K]): Record<K, number> | undefined {
+  if (!isRecord(value)) return undefined;
+  const out = {} as Record<K, number>;
+  for (const key of keys) {
+    const n = value[key];
+    if (typeof n !== "number" || !Number.isFinite(n)) return undefined;
+    out[key] = n;
+  }
+  return out;
+}
+
+/** A host's motion sample, checked. */
+function motionSample(method: string, value: unknown): MotionSample {
+  const xyz = ["x", "y", "z"] as const;
+  const sample = isRecord(value)
+    ? {
+        attitude: triple(value.attitude, ["roll", "pitch", "yaw"] as const),
+        rotationRate: triple(value.rotationRate, xyz),
+        gravity: triple(value.gravity, xyz),
+        userAcceleration: triple(value.userAcceleration, xyz),
+        timestamp: value.timestamp,
+      }
+    : undefined;
+  if (
+    !sample ||
+    !sample.attitude ||
+    !sample.rotationRate ||
+    !sample.gravity ||
+    !sample.userAcceleration ||
+    typeof sample.timestamp !== "number" ||
+    !Number.isFinite(sample.timestamp)
+  ) {
+    throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  }
+  return sample as MotionSample;
 }
 
 /** Each file as `{ name, data }` bytes, checked for a name and a total within the binary limit. */

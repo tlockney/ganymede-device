@@ -46,12 +46,13 @@ export interface Authorization {
    * @returns `true` when the status is a grant, partial ones included.
    * @example
    * ```ts
-   * if (!(await device.notifications.isAuthorized())) console.log("notifications are off");
+   * if (!(await device.notifications.isAuthorized())) console.log("not allowed yet");
    * ```
    */
   isAuthorized(options?: CallOptions): Promise<boolean>;
   /**
-   * Shows the system prompt when the person hasn't been asked, and
+   * Asks the person when they haven't been asked (the app's prompt for
+   * this notebook, then the system's where there is one), and
    * resolves with the status after it; otherwise resolves with the status
    * as it is. The namespace's methods ask on their own, so calling this
    * first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -62,7 +63,7 @@ export interface Authorization {
    * @example
    * ```ts
    * const status = await device.notifications.requestAuthorization();
-   * if (status === "denied") console.log("turn notifications on in Settings");
+   * if (status === "denied") console.log("allow it in Settings to go on");
    * ```
    */
   requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;

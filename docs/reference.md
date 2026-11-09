@@ -57,18 +57,23 @@ such API.
 | [`device.sound.player(data, options?)`](#device-sound-player-data-options) | Loads a sound into a player, paused at the start, for a cell to play, pause, seek and close. |
 | [`device.notifications.authorizationStatus(options?)`](#device-notifications-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.notifications.isAuthorized(options?)`](#device-notifications-isauthorized-options) | Whether the permission is granted, without asking. |
-| [`device.notifications.requestAuthorization(options?)`](#device-notifications-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.notifications.requestAuthorization(options?)`](#device-notifications-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.notifications.schedule(body, options)`](#device-notifications-schedule-body-options) | Schedules a notification to show after a delay, even if the notebook or the app has closed by then. |
 | [`device.notifications.pending(options?)`](#device-notifications-pending-options) | Lists this notebook's notifications that haven't been delivered yet. |
 | [`device.notifications.cancel(id, options?)`](#device-notifications-cancel-id-options) | Takes one of this notebook's notifications off the schedule. |
 | [`device.notifications.cancelAll(options?)`](#device-notifications-cancelall-options) | Takes all of this notebook's notifications off the schedule. |
 | [`device.location.authorizationStatus(options?)`](#device-location-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.location.isAuthorized(options?)`](#device-location-isauthorized-options) | Whether the permission is granted, without asking. |
-| [`device.location.requestAuthorization(options?)`](#device-location-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.location.requestAuthorization(options?)`](#device-location-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.location.current(options?)`](#device-location-current-options) | One fix, at the accuracy asked for. |
 | [`device.location.watch(options?)`](#device-location-watch-options) | Fixes as the device moves, for `for await`, until the loop ends or the cell is interrupted. |
 | [`device.location.geocode(address, options?)`](#device-location-geocode-address-options) | The places an address may be. |
 | [`device.location.reverseGeocode(position, options?)`](#device-location-reversegeocode-position-options) | What is at a position, such as a fix from `current()`. |
+| [`device.motion.authorizationStatus(options?)`](#device-motion-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.motion.isAuthorized(options?)`](#device-motion-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.motion.requestAuthorization(options?)`](#device-motion-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.motion.watch(options?)`](#device-motion-watch-options) | Samples every `interval` seconds, for `for await`, until the loop ends or the cell is interrupted. |
+| [`device.motion.latest(options?)`](#device-motion-latest-options) | The newest sample. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -232,6 +237,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `sound` | `Sound` | Sound playback: see `Sound`. |
 | `notifications` | `Notifications` | Local notifications after a delay: see `Notifications`. |
 | `location` | `DeviceLocation` | Where the device is, and geocoding: see `DeviceLocation`. |
+| `motion` | `DeviceMotion` | The motion sensors, on iPad and iPhone: see `DeviceMotion`. |
 
 ## `device.clipboard`
 
@@ -798,7 +804,7 @@ Whether the permission is granted, without asking.
 **Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
 
 ```ts
-if (!(await device.notifications.isAuthorized())) console.log("notifications are off");
+if (!(await device.notifications.isAuthorized())) console.log("not allowed yet");
 ```
 
 ### `device.notifications.requestAuthorization(options?)`
@@ -807,7 +813,8 @@ if (!(await device.notifications.isAuthorized())) console.log("notifications are
 requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 ```
 
-Shows the system prompt when the person hasn't been asked, and
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
 resolves with the status after it; otherwise resolves with the status
 as it is. The namespace's methods ask on their own, so calling this
 first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -821,7 +828,7 @@ up stays, and its answer still counts for later calls.
 
 ```ts
 const status = await device.notifications.requestAuthorization();
-if (status === "denied") console.log("turn notifications on in Settings");
+if (status === "denied") console.log("allow it in Settings to go on");
 ```
 
 ### `device.notifications.schedule(body, options)`
@@ -987,7 +994,7 @@ Whether the permission is granted, without asking.
 **Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
 
 ```ts
-if (!(await device.location.isAuthorized())) console.log("notifications are off");
+if (!(await device.location.isAuthorized())) console.log("not allowed yet");
 ```
 
 ### `device.location.requestAuthorization(options?)`
@@ -996,7 +1003,8 @@ if (!(await device.location.isAuthorized())) console.log("notifications are off"
 requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
 ```
 
-Shows the system prompt when the person hasn't been asked, and
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
 resolves with the status after it; otherwise resolves with the status
 as it is. The namespace's methods ask on their own, so calling this
 first is optional. Cancel rejects `cancelled`; a system prompt already
@@ -1010,7 +1018,7 @@ up stays, and its answer still counts for later calls.
 
 ```ts
 const status = await device.location.requestAuthorization();
-if (status === "denied") console.log("turn notifications on in Settings");
+if (status === "denied") console.log("allow it in Settings to go on");
 ```
 
 ### `device.location.current(options?)`
@@ -1134,6 +1142,145 @@ Needs the network, not the location permission.
 ```ts
 const [here] = await device.location.reverseGeocode(await device.location.current());
 console.log(here?.city);
+```
+
+## `device.motion`
+
+The device's motion sensors over Core Motion: attitude, rotation rate,
+gravity and the person's acceleration. iPad and iPhone only; a Mac has
+no motion sensors, so `has("motion.watch")` is false there.
+
+Two ways to read, sharing one source: `watch()` for a sample every
+`interval`, as when recording, and `latest()` for the newest sample, as
+in a polling loop. Both need the motion permission: the app asks for
+this notebook (the system has no prompt for these sensors) and a
+refusal rejects `denied`.
+
+Over Core Motion, on iPad and iPhone; a Mac has no motion sensors. `watch` and `latest` share one source. The system has no prompt for these sensors, so the permission is the app's own, per notebook. The permission methods work where the rest of the namespace does.
+
+### `device.motion.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.motion.authorizationStatus());
+```
+
+### `device.motion.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.motion.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.motion.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.motion.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.motion.watch(options?)`
+
+```ts
+watch(options?: MotionWatchOptions): DeviceStream<MotionSample>;
+```
+
+Samples every `interval` seconds, for `for await`, until the loop
+ends or the cell is interrupted. Keeps the newest 64 when the cell
+reads slower than they come (`dropped` counts the rest).
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `MotionWatchOptions` | no | `interval` in seconds, 0.01 to 1 (0.1 by default); and the call's `signal`, which ends the stream. |
+
+**Returns** `DeviceStream<MotionSample>`: A stream of samples; `close()` or leaving the loop stops the sensors unless something else still reads them.
+
+**Throws** `DeviceError`: `denied` when the notebook may not use motion; `failed` when `interval` is out of range, or Core Motion stops with an error.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| iPad, iPhone | motion | no | no |
+
+Attitude, rotation rate, gravity and acceleration every `interval` seconds (0.01 to 1); keeps the newest 64. A Mac has no motion sensors.
+
+```ts
+const samples = [];
+for await (const s of device.motion.watch({ interval: 0.05 })) {
+  samples.push(s.userAcceleration);
+  if (samples.length === 100) break;
+}
+```
+
+### `device.motion.latest(options?)`
+
+```ts
+latest(options?: CallOptions): Promise<MotionSample>;
+```
+
+The newest sample. The first call starts the sensors and waits for a
+reading; they keep running while calls keep coming, and stop about
+10 seconds after the last.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<MotionSample>`: The newest sample.
+
+**Throws** `DeviceError`: `denied` when the notebook may not use motion; `failed` when Core Motion stops with an error.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| iPad, iPhone | motion | no | no |
+
+Starts the sensors and keeps them running while calls keep coming; they stop about 10 seconds after the last.
+
+```ts
+const { attitude } = await device.motion.latest();
+console.log(`tilted ${((attitude.pitch * 180) / Math.PI).toFixed(0)}°`);
 ```
 
 ## `SoundPlayer`
@@ -1571,6 +1718,48 @@ A place a geocode found. Every part is there only when known.
 | `countryCode` | `string` | no | ISO 3166-1 alpha-2, such as "US". |
 | `latitude` | `number` | no | Degrees north of the equator. |
 | `longitude` | `number` | no | Degrees east of Greenwich. |
+
+### `MotionWatchOptions`
+
+Options for `device.motion.watch`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `interval` | `number` | no | Seconds between samples, 0.01 to 1; 0.1 by default. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `MotionSample`
+
+One reading of Core Motion's device motion.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `attitude` | `Attitude` | yes | Which way the device is turned. |
+| `rotationRate` | `Vector3` | yes | Radians per second around each axis. |
+| `gravity` | `Vector3` | yes | Gravity's pull, in g (1 g is 9.81 m/s²). |
+| `userAcceleration` | `Vector3` | yes | What the person adds to gravity, in g. |
+| `timestamp` | `number` | yes | When it was read, in milliseconds since 1970, as `Date.now()`. |
+
+### `Attitude`
+
+Which way the device is turned, in radians.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `roll` | `number` | yes | Around the long (y) axis. |
+| `pitch` | `number` | yes | Around the short (x) axis. |
+| `yaw` | `number` | yes | Around the axis out of the screen (z). |
+
+### `Vector3`
+
+A direction or rate along the device's three axes.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `x` | `number` | yes | Along the short side, to the right with the screen facing you. |
+| `y` | `number` | yes | Along the long side, toward the top. |
+| `z` | `number` | yes | Out of the screen, toward you. |
 
 ### `AuthorizationStatus`
 
