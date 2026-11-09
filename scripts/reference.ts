@@ -74,6 +74,13 @@ const sections: Section[] = [
     intro: "Over the Contacts framework, on the Mac, iPad and iPhone. Every method needs the contacts permission. Contacts are plain records (`Contact`); groups, accounts, photos and notes aren't wrapped. The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "Camera",
+    prefix: "device.camera.",
+    heading: "device.camera",
+    support: "camera.",
+    intro: "The system camera screen, on iPad and iPhone. `capture` needs the camera permission. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",

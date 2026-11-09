@@ -6,6 +6,7 @@ export {
   type Attitude,
   type AlertOptions,
   type CallOptions,
+  type Camera,
   type Clipboard,
   type ConfirmOptions,
   type Contact,

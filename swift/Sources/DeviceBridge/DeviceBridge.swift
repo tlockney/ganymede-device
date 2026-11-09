@@ -34,6 +34,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private var checks: [String: ParamsCheck] = [:]
     /// The namespace whose permission each streaming method needs.
     private var streamPermissions: [String: String] = [:]
+    /// Dialogs that need a permission first (`addPermissionedDialog`),
+    /// with that permission's namespace.
+    private var dialogPermissions: [String: String] = [:]
     private let pending = PendingCalls()
     private let requests = PermissionRequests()
     private let ledgerRequests = LedgerRequests()
@@ -132,6 +135,13 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         methods[method] = (permission, contextHandler)
     }
 
+    /// Adds a dialog method that asks for `permission` first, such as
+    /// `camera.capture`: `Dialog(method:params:)` parses its call, and it
+    /// queues with the other dialogs once the permission is granted.
+    func addPermissionedDialog(_ method: String, permission: String) {
+        dialogPermissions[method] = permission
+    }
+
     /// Adds the bridge to `controller`, in the page's content world.
     public func register(in controller: WKUserContentController) {
         controller.addScriptMessageHandler(self, contentWorld: .page, name: Self.handlerName)
@@ -162,7 +172,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         if let call = body as? [String: Any], let method = call["method"] as? String, answersLater(method) {
-            respondLater(method, call, reply: reply)
+            respondLater(method, call, host: host, reply: reply)
             return
         }
         guard let call = body as? [String: Any], let method = call["method"] as? String,
@@ -360,6 +370,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             // `unavailable`, so `has()` mustn't report it.
             + methods.filter { $0.value.permission.map { permissions[$0] != nil } ?? true }.keys.sorted()
             + streams.methods.keys.filter { streamPermissions[$0].map { permissions[$0] != nil } ?? true }.sorted()
+            + dialogPermissions.filter { permissions[$0.value] != nil }.keys.sorted()
     }
 
     private func hello() -> [String: Any] {
@@ -411,7 +422,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// `<namespace>.requestAuthorization`, an `addMethod` method, or a
     /// streaming method that needs a permission.
     private func answersLater(_ method: String) -> Bool {
-        methods[method] != nil || streamPermissions[method] != nil || requestedNamespace(method) != nil
+        methods[method] != nil || streamPermissions[method] != nil || dialogPermissions[method] != nil
+            || requestedNamespace(method) != nil
     }
 
     /// The namespace `method` requests authorization for, when it is one
@@ -423,7 +435,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         return permissions[namespace] == nil ? nil : namespace
     }
 
-    private func respondLater(_ method: String, _ call: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+    private func respondLater(_ method: String, _ call: [String: Any], host: DialogHost?, reply: @escaping ([String: Any]) -> Void) {
         guard let id = Self.callID(call["id"]) else {
             reply(Self.error("failed", "\(method) needs a numeric call id, so it can be cancelled"))
             return
@@ -457,6 +469,19 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
                     self?.pending.answer(token, ["result": status.rawValue])
                 }
             })
+        } else if let namespace = dialogPermissions[method] {
+            // A bad call fails before the permission prompt.
+            let dialog: Dialog
+            do {
+                dialog = try Dialog(method: method, params: params)
+            } catch {
+                pending.answer(token, Self.error("failed", "\(error)"))
+                return
+            }
+            weak var weakHost = host
+            authorize(method, namespace, call: token, owner: owner) { [weak self] in
+                self?.showDialog(dialog, method, call: token, on: weakHost)
+            }
         } else if let entry = methods[method] {
             authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
                 self?.run(entry.handler, params, call: token, owner: owner)
@@ -554,6 +579,25 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private func cancelPending(_ matches: (Int) -> Bool) {
         for id in pending.cancel(owners: matches) {
             ledgerRequests.cancel(id, prompter: ledgerPrompter)
+        }
+    }
+
+    /// Shows a permissioned dialog, and answers `token` when it closes. A
+    /// cancel of the call, or a release of its kernel, closes it.
+    private func showDialog(_ dialog: Dialog, _ method: String, call token: PendingCall, on host: DialogHost?) {
+        guard pending.isWaiting(token) else { return }
+        dialogs.show(dialog, id: token.id, on: host) { [weak self] outcome in
+            switch outcome {
+            case let .answered(result):
+                self?.pending.answer(token, ["result": result])
+            case .cancelled:
+                self?.pending.answer(token, Self.error("cancelled", "\(method) was cancelled"))
+            case let .failed(code, message):
+                self?.pending.answer(token, Self.error(code, message))
+            }
+        }
+        if pending.isWaiting(token) {
+            pending.setCancel(token) { [weak self] in self?.dialogs.cancel(token.id) }
         }
     }
 

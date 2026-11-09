@@ -586,6 +586,9 @@ Done:
    "Methods").
 13. **Phase 2's photo saving** (#64): `device.photos.save` with add-only
    access, through PhotoKit (docs/protocol.md, "Methods").
+14. **Phase 2's camera** (#65): `device.camera.capture`, the system
+   camera screen on iPad and iPhone, as a dialog that asks for the
+   camera permission first (docs/protocol.md, "Dialogs").
 15. **Phase 2's contacts** (#66): `device.contacts.search`, `get`, `all`,
    `add` and `delete` over the Contacts framework, Mac, iPad and iPhone,
    contacts as plain records (docs/protocol.md, "Methods").
