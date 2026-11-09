@@ -67,6 +67,13 @@ const sections: Section[] = [
     intro: "Over Core Motion, on iPad and iPhone; a Mac has no motion sensors. `watch` and `latest` share one source. The system has no prompt for these sensors, so the permission is the app's own, per notebook. The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "Contacts",
+    prefix: "device.contacts.",
+    heading: "device.contacts",
+    support: "contacts.",
+    intro: "Over the Contacts framework, on the Mac, iPad and iPhone. Every method needs the contacts permission. Contacts are plain records (`Contact`); groups, accounts, photos and notes aren't wrapped. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
@@ -114,6 +121,9 @@ const types: { name: string; file: string }[] = [
   { name: "MotionSample", file: DEVICE },
   { name: "Attitude", file: DEVICE },
   { name: "Vector3", file: DEVICE },
+  { name: "Contact", file: DEVICE },
+  { name: "LabeledValue", file: DEVICE },
+  { name: "PostalAddress", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 

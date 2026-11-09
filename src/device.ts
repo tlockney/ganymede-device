@@ -629,6 +629,148 @@ export interface Photos extends Authorization {
   save(image: Bytes, options?: CallOptions): Promise<void>;
 }
 
+/** A label and a value, such as a work email. */
+export interface LabeledValue {
+  /** `"home"`, `"work"`, `"mobile"`, `"main"`, `"iPhone"`, `"school"`, `"other"`, or the person's own label. */
+  label?: string;
+  /** The email address or phone number. */
+  value: string;
+}
+
+/** A contact's postal address; any part may be missing. */
+export interface PostalAddress {
+  /** `"home"`, `"work"`, `"other"`, or the person's own label. */
+  label?: string;
+  /** The street, with the house number; may span lines. */
+  street?: string;
+  /** The city or town. */
+  city?: string;
+  /** The state, province or region. */
+  state?: string;
+  /** The postal or ZIP code. */
+  postalCode?: string;
+  /** The country, as written. */
+  country?: string;
+}
+
+/**
+ * A contact as `device.contacts` reads it: a plain record. Fields the
+ * contact doesn't have are left out. Groups, photos and notes aren't
+ * included.
+ */
+export interface Contact {
+  /** The contacts store's identifier, for `get` and `delete`. */
+  id: string;
+  /** The first name. */
+  givenName?: string;
+  /** The middle name. */
+  middleName?: string;
+  /** The last name. */
+  familyName?: string;
+  /** The nickname. */
+  nickname?: string;
+  /** The company or organization. */
+  organization?: string;
+  /** The job title. */
+  jobTitle?: string;
+  /** Email addresses. */
+  emails?: LabeledValue[];
+  /** Phone numbers, as entered. */
+  phones?: LabeledValue[];
+  /** Postal addresses. */
+  addresses?: PostalAddress[];
+  /** `"YYYY-MM-DD"`, or `"--MM-DD"` when the year isn't known. */
+  birthday?: string;
+}
+
+/**
+ * The person's contacts, over the Contacts framework. Every method needs
+ * the contacts permission: the first call asks (the app's prompt for
+ * this notebook, then the system's), and a refusal rejects `denied`.
+ * With limited access (iPhone and iPad), `authorizationStatus()` reads
+ * `limited` and the methods see only the contacts the person shared with
+ * the app.
+ */
+export interface Contacts extends Authorization {
+  /**
+   * Contacts whose name matches `query`; or whose email matches, when
+   * `query` is an email address; or whose phone number matches, when it
+   * is a phone number.
+   *
+   * @param query A name or part of one, an email address, or a phone number.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The matching contacts, or `[]`.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read contacts; `failed` when `query` is empty or the store can't be read.
+   * @example
+   * ```ts
+   * for (const contact of await device.contacts.search("Ada")) {
+   *   console.log(contact.givenName, contact.familyName, contact.emails?.[0]?.value);
+   * }
+   * ```
+   */
+  search(query: string, options?: CallOptions): Promise<Contact[]>;
+  /**
+   * One contact, by the id `search`, `all` or `add` gave.
+   *
+   * @param id The contact's id.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The contact, or `null` when there is none with that id (or it isn't shared with the app).
+   * @throws {DeviceError} `denied` when the notebook or the system may not read contacts; `failed` when `id` is empty or the store can't be read.
+   * @example
+   * ```ts
+   * const [ada] = await device.contacts.search("Ada");
+   * if (ada) console.log(await device.contacts.get(ada.id));
+   * ```
+   */
+  get(id: string, options?: CallOptions): Promise<Contact | null>;
+  /**
+   * Every contact the app may see, in the person's sort order.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The contacts, or `[]`.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read contacts; `failed` when the store can't be read.
+   * @example
+   * ```ts
+   * const all = await device.contacts.all();
+   * console.log(`${all.length} contacts`);
+   * ```
+   */
+  all(options?: CallOptions): Promise<Contact[]>;
+  /**
+   * Adds a contact to the default account. Every field is optional, but
+   * it needs a name, an organization, an email or a phone number.
+   *
+   * @param contact The contact, without an `id`.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a contact already saved stays.
+   * @returns The new contact's id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not change contacts; `failed` when the contact is empty, a field has the wrong type, `birthday` isn't `YYYY-MM-DD` or `--MM-DD`, or the store refuses it.
+   * @example
+   * ```ts
+   * const id = await device.contacts.add({
+   *   givenName: "Ada",
+   *   familyName: "Lovelace",
+   *   emails: [{ label: "work", value: "ada@example.com" }],
+   *   birthday: "1815-12-10",
+   * });
+   * ```
+   */
+  add(contact: Omit<Contact, "id">, options?: CallOptions): Promise<string>;
+  /**
+   * Deletes a contact.
+   *
+   * @param id The contact's id.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a contact already deleted stays deleted.
+   * @returns `true`, or `false` when there was no contact with that id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not change contacts; `failed` when `id` is empty or the store refuses.
+   * @example
+   * ```ts
+   * const id = await device.contacts.add({ givenName: "Test" });
+   * console.log(await device.contacts.delete(id)); // true
+   * ```
+   */
+  delete(id: string, options?: CallOptions): Promise<boolean>;
+}
+
 /** Options for `device.sound.play`. */
 export interface PlaySoundOptions extends CallOptions {
   /** From 0 to 1; 1 by default. */
@@ -952,6 +1094,8 @@ export interface Device {
   readonly location: DeviceLocation;
   /** The motion sensors, on iPad and iPhone: see `DeviceMotion`. */
   readonly motion: DeviceMotion;
+  /** The person's contacts: see `Contacts`. */
+  readonly contacts: Contacts;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1269,7 +1413,73 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return pickedFiles("photos.pick", await call("photos.pick", { limit }, { signal }));
       },
     },
+    contacts: {
+      ...permission("contacts"),
+      async search(query, options = {}) {
+        if (typeof query !== "string" || query.trim() === "") throw new DeviceError("failed", "contacts.search needs a query");
+        return contactList("contacts.search", await call("contacts.search", { query }, options));
+      },
+      async get(id, options = {}) {
+        checkContactID("contacts.get", id);
+        const found = await call("contacts.get", { id }, options);
+        return found === null ? null : contactRecord("contacts.get", found);
+      },
+      async all(options = {}) {
+        return contactList("contacts.all", await call("contacts.all", {}, options));
+      },
+      async add(contact, options = {}) {
+        if (!isRecord(contact)) throw new DeviceError("failed", "contacts.add needs a contact object");
+        const { id: _, ...fields } = contact as Contact;
+        const id = await call("contacts.add", { contact: fields }, options);
+        if (typeof id !== "string") throw new DeviceError("failed", "the host's contacts.add reply is malformed");
+        return id;
+      },
+      async delete(id, options = {}) {
+        checkContactID("contacts.delete", id);
+        const deleted = await call("contacts.delete", { id }, options);
+        if (typeof deleted !== "boolean") throw new DeviceError("failed", "the host's contacts.delete reply is malformed");
+        return deleted;
+      },
+    },
   };
+}
+
+function checkContactID(method: string, id: unknown): void {
+  if (typeof id !== "string" || id === "") throw new DeviceError("failed", `${method} needs a contact id`);
+}
+
+function contactList(method: string, value: unknown): Contact[] {
+  if (!Array.isArray(value)) throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  return value.map((item) => contactRecord(method, item));
+}
+
+/** A host's contact, checked: an id, and only the known fields of the right types. */
+function contactRecord(method: string, value: unknown): Contact {
+  if (!isRecord(value) || typeof value.id !== "string") throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  const contact: Contact = { id: value.id };
+  for (const key of ["givenName", "middleName", "familyName", "nickname", "organization", "jobTitle", "birthday"] as const) {
+    if (typeof value[key] === "string") contact[key] = value[key];
+  }
+  const labeled = (list: unknown): LabeledValue[] =>
+    (Array.isArray(list) ? list : []).filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.value === "string").map((item) => ({
+      ...(typeof item.label === "string" ? { label: item.label } : {}),
+      value: item.value as string,
+    }));
+  const emails = labeled(value.emails);
+  if (emails.length) contact.emails = emails;
+  const phones = labeled(value.phones);
+  if (phones.length) contact.phones = phones;
+  if (Array.isArray(value.addresses)) {
+    const addresses = value.addresses.filter(isRecord).map((item) => {
+      const address: PostalAddress = {};
+      for (const key of ["label", "street", "city", "state", "postalCode", "country"] as const) {
+        if (typeof item[key] === "string") address[key] = item[key];
+      }
+      return address;
+    });
+    if (addresses.length) contact.addresses = addresses;
+  }
+  return contact;
 }
 
 const ACCURACIES: readonly string[] = ["best", "block", "city"] satisfies LocationAccuracy[];

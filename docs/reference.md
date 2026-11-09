@@ -78,6 +78,14 @@ such API.
 | [`device.motion.requestAuthorization(options?)`](#device-motion-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
 | [`device.motion.watch(options?)`](#device-motion-watch-options) | Samples every `interval` seconds, for `for await`, until the loop ends or the cell is interrupted. |
 | [`device.motion.latest(options?)`](#device-motion-latest-options) | The newest sample. |
+| [`device.contacts.authorizationStatus(options?)`](#device-contacts-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.contacts.isAuthorized(options?)`](#device-contacts-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.contacts.requestAuthorization(options?)`](#device-contacts-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.contacts.search(query, options?)`](#device-contacts-search-query-options) | Contacts whose name matches `query`; or whose email matches, when `query` is an email address; or whose phone number matches, when it is a phone number. |
+| [`device.contacts.get(id, options?)`](#device-contacts-get-id-options) | One contact, by the id `search`, `all` or `add` gave. |
+| [`device.contacts.all(options?)`](#device-contacts-all-options) | Every contact the app may see, in the person's sort order. |
+| [`device.contacts.add(contact, options?)`](#device-contacts-add-contact-options) | Adds a contact to the default account. |
+| [`device.contacts.delete(id, options?)`](#device-contacts-delete-id-options) | Deletes a contact. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -242,6 +250,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `notifications` | `Notifications` | Local notifications after a delay: see `Notifications`. |
 | `location` | `DeviceLocation` | Where the device is, and geocoding: see `DeviceLocation`. |
 | `motion` | `DeviceMotion` | The motion sensors, on iPad and iPhone: see `DeviceMotion`. |
+| `contacts` | `Contacts` | The person's contacts: see `Contacts`. |
 
 ## `device.clipboard`
 
@@ -1385,6 +1394,228 @@ const { attitude } = await device.motion.latest();
 console.log(`tilted ${((attitude.pitch * 180) / Math.PI).toFixed(0)}°`);
 ```
 
+## `device.contacts`
+
+The person's contacts, over the Contacts framework. Every method needs
+the contacts permission: the first call asks (the app's prompt for
+this notebook, then the system's), and a refusal rejects `denied`.
+With limited access (iPhone and iPad), `authorizationStatus()` reads
+`limited` and the methods see only the contacts the person shared with
+the app.
+
+Over the Contacts framework, on the Mac, iPad and iPhone. Every method needs the contacts permission. Contacts are plain records (`Contact`); groups, accounts, photos and notes aren't wrapped. The permission methods work where the rest of the namespace does.
+
+### `device.contacts.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.contacts.authorizationStatus());
+```
+
+### `device.contacts.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.contacts.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.contacts.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.contacts.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.contacts.search(query, options?)`
+
+```ts
+search(query: string, options?: CallOptions): Promise<Contact[]>;
+```
+
+Contacts whose name matches `query`; or whose email matches, when
+`query` is an email address; or whose phone number matches, when it
+is a phone number.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `query` | `string` | yes | A name or part of one, an email address, or a phone number. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Contact[]>`: The matching contacts, or `[]`.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read contacts; `failed` when `query` is empty or the store can't be read.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | contacts | no | no |
+
+By name, or by email or phone number when the query is one. With limited access, only the contacts shared with the app.
+
+```ts
+for (const contact of await device.contacts.search("Ada")) {
+  console.log(contact.givenName, contact.familyName, contact.emails?.[0]?.value);
+}
+```
+
+### `device.contacts.get(id, options?)`
+
+```ts
+get(id: string, options?: CallOptions): Promise<Contact | null>;
+```
+
+One contact, by the id `search`, `all` or `add` gave.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The contact's id. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Contact | null>`: The contact, or `null` when there is none with that id (or it isn't shared with the app).
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read contacts; `failed` when `id` is empty or the store can't be read.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | contacts | no | no |
+
+```ts
+const [ada] = await device.contacts.search("Ada");
+if (ada) console.log(await device.contacts.get(ada.id));
+```
+
+### `device.contacts.all(options?)`
+
+```ts
+all(options?: CallOptions): Promise<Contact[]>;
+```
+
+Every contact the app may see, in the person's sort order.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Contact[]>`: The contacts, or `[]`.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not read contacts; `failed` when the store can't be read.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | contacts | no | no |
+
+```ts
+const all = await device.contacts.all();
+console.log(`${all.length} contacts`);
+```
+
+### `device.contacts.add(contact, options?)`
+
+```ts
+add(contact: Omit<Contact, "id">, options?: CallOptions): Promise<string>;
+```
+
+Adds a contact to the default account. Every field is optional, but
+it needs a name, an organization, an email or a phone number.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `contact` | `Omit<Contact, "id">` | yes | The contact, without an `id`. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a contact already saved stays. |
+
+**Returns** `Promise<string>`: The new contact's id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not change contacts; `failed` when the contact is empty, a field has the wrong type, `birthday` isn't `YYYY-MM-DD` or `--MM-DD`, or the store refuses it.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | contacts | no | no |
+
+To the default account; groups and accounts aren't wrapped.
+
+```ts
+const id = await device.contacts.add({
+  givenName: "Ada",
+  familyName: "Lovelace",
+  emails: [{ label: "work", value: "ada@example.com" }],
+  birthday: "1815-12-10",
+});
+```
+
+### `device.contacts.delete(id, options?)`
+
+```ts
+delete(id: string, options?: CallOptions): Promise<boolean>;
+```
+
+Deletes a contact.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The contact's id. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; a contact already deleted stays deleted. |
+
+**Returns** `Promise<boolean>`: `true`, or `false` when there was no contact with that id.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not change contacts; `failed` when `id` is empty or the store refuses.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | contacts | no | no |
+
+```ts
+const id = await device.contacts.add({ givenName: "Test" });
+console.log(await device.contacts.delete(id)); // true
+```
+
 ## `SoundPlayer`
 
 A loaded sound a cell controls, from `device.sound.player`. Close it when
@@ -1862,6 +2093,48 @@ A direction or rate along the device's three axes.
 | `x` | `number` | yes | Along the short side, to the right with the screen facing you. |
 | `y` | `number` | yes | Along the long side, toward the top. |
 | `z` | `number` | yes | Out of the screen, toward you. |
+
+### `Contact`
+
+A contact as `device.contacts` reads it: a plain record. Fields the
+contact doesn't have are left out. Groups, photos and notes aren't
+included.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The contacts store's identifier, for `get` and `delete`. |
+| `givenName` | `string` | no | The first name. |
+| `middleName` | `string` | no | The middle name. |
+| `familyName` | `string` | no | The last name. |
+| `nickname` | `string` | no | The nickname. |
+| `organization` | `string` | no | The company or organization. |
+| `jobTitle` | `string` | no | The job title. |
+| `emails` | `LabeledValue[]` | no | Email addresses. |
+| `phones` | `LabeledValue[]` | no | Phone numbers, as entered. |
+| `addresses` | `PostalAddress[]` | no | Postal addresses. |
+| `birthday` | `string` | no | `"YYYY-MM-DD"`, or `"--MM-DD"` when the year isn't known. |
+
+### `LabeledValue`
+
+A label and a value, such as a work email.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | no | `"home"`, `"work"`, `"mobile"`, `"main"`, `"iPhone"`, `"school"`, `"other"`, or the person's own label. |
+| `value` | `string` | yes | The email address or phone number. |
+
+### `PostalAddress`
+
+A contact's postal address; any part may be missing.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | no | `"home"`, `"work"`, `"other"`, or the person's own label. |
+| `street` | `string` | no | The street, with the house number; may span lines. |
+| `city` | `string` | no | The city or town. |
+| `state` | `string` | no | The state, province or region. |
+| `postalCode` | `string` | no | The postal or ZIP code. |
+| `country` | `string` | no | The country, as written. |
 
 ### `AuthorizationStatus`
 
