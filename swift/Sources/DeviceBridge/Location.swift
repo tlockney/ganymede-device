@@ -106,7 +106,13 @@ public final class SystemLocationProvider: NSObject, LocationProvider, CLLocatio
     public func request(_ done: @escaping @MainActor (PermissionStatus) -> Void) {
         // Without a usage description the system shows nothing and never
         // calls back: answer with the status as it is.
+        // iOS asks only with the when-in-use key; the Mac takes the older
+        // key too.
+        #if os(macOS)
         let keys = ["NSLocationWhenInUseUsageDescription", "NSLocationUsageDescription"]
+        #else
+        let keys = ["NSLocationWhenInUseUsageDescription"]
+        #endif
         guard status == .notDetermined,
               keys.contains(where: { Bundle.main.object(forInfoDictionaryKey: $0) != nil })
         else {
@@ -150,7 +156,7 @@ public final class SystemLocationProvider: NSObject, LocationProvider, CLLocatio
 
     // CLGeocoder is deprecated in macOS and iOS 26 in favour of MapKit's
     // geocoding requests; it still works, and MapKit would add a framework
-    // for two methods. Moving over is a follow-up.
+    // for two methods. Moving over is #90.
     public func geocode(_ address: String, done: @escaping @MainActor (Result<[GeoPlace], DeviceCallError>) -> Void) -> () -> Void {
         let geocoder = CLGeocoder()
         let key = ObjectIdentifier(geocoder)
@@ -253,7 +259,11 @@ private final class OneFix: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         MainActor.assumeIsolated {
-            guard let location = locations.last(where: valid) else { return }
+            // `requestLocation` delivers once: no valid fix is a failure,
+            // or the call would wait for good.
+            guard let location = locations.last(where: valid) else {
+                return finish(.failure(DeviceCallError("failed", "location.current: the device couldn't find where it is")))
+            }
             finish(.success(location))
         }
     }
@@ -313,7 +323,9 @@ extension DeviceBridge {
         // outside the main actor.
         let provider = provider ?? SystemLocationProvider()
         addPermission("location", provider)
-        addMethod("location.current", permission: "location") { params, reply in
+        // A bad `accuracy` fails before the permission prompt.
+        let checkAccuracy: ParamsCheck = { _ = try Self.accuracy($0, "location.current") }
+        addMethod("location.current", permission: "location", check: checkAccuracy) { params, reply in
             do {
                 let accuracy = try Self.accuracy(params, "location.current")
                 return provider.current(accuracy) { result in
@@ -324,7 +336,7 @@ extension DeviceBridge {
                 return nil
             }
         }
-        addStream("location.watch", capacity: 16, permission: "location") { params, sink in
+        addStream("location.watch", capacity: 16, permission: "location", check: { _ = try Self.accuracy($0, "location.watch") }) { params, sink in
             let accuracy = try Self.accuracy(params, "location.watch")
             return provider.watch(accuracy, update: { sink.send(Self.fixReply($0)) }, failed: { sink.finish($0) })
         }
@@ -366,7 +378,7 @@ extension DeviceBridge {
             "accuracy": location.horizontalAccuracy,
             "timestamp": (location.timestamp.timeIntervalSince1970 * 1000).rounded(),
         ]
-        if location.verticalAccuracy > 0 {
+        if location.verticalAccuracy >= 0 {
             reply["altitude"] = location.altitude
             reply["altitudeAccuracy"] = location.verticalAccuracy
         }

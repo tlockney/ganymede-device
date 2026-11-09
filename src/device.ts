@@ -378,6 +378,7 @@ export interface Notifications extends Authorization {
 /** How close a fix must be: within metres ("best"), a city block, or a city. */
 export type LocationAccuracy = "best" | "block" | "city";
 
+/** Options for `device.location.current` and `device.location.watch`. */
 export interface LocationOptions extends CallOptions {
   /** How close a fix must be; "best" by default. Coarser fixes come sooner and use less power. */
   accuracy?: LocationAccuracy;
@@ -407,15 +408,21 @@ export interface LocationFix {
 export interface Place {
   /** The place's name, such as a landmark or the street address. */
   name?: string;
+  /** House number and street. */
   street?: string;
+  /** City or town. */
   city?: string;
   /** State, province or the like. */
   region?: string;
+  /** Postal or ZIP code. */
   postalCode?: string;
+  /** Country name, in the device's language. */
   country?: string;
   /** ISO 3166-1 alpha-2, such as "US". */
   countryCode?: string;
+  /** Degrees north of the equator. */
   latitude?: number;
+  /** Degrees east of Greenwich. */
   longitude?: number;
 }
 
@@ -429,24 +436,67 @@ export interface Place {
  * refusal rejects `denied`. With precise location turned off for the
  * app, `authorizationStatus()` reads `reducedAccuracy` and fixes are
  * within a few kilometres. Geocoding needs no permission but does need
- * the network. On-device: Mac, iPad and iPhone. Remote kernels and the
- * browser: no.
+ * the network.
  */
 export interface DeviceLocation extends Authorization {
   /**
-   * One fix. Cancel stops the search and rejects `cancelled`; a fix that
-   * can't be had (no signal, Location Services off) rejects `failed`.
+   * One fix, at the accuracy asked for.
+   *
+   * @param options `accuracy`: `"best"` (the default), `"block"` or `"city"`; and the call's `signal`. Cancel stops the search and rejects `cancelled`.
+   * @returns The fix: latitude, longitude, its accuracy in metres, and altitude, speed and course when known.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use location, or Location Services is off; `failed` when no fix can be had (no signal) or `accuracy` isn't one of the three.
+   * @example
+   * ```ts
+   * const fix = await device.location.current({ accuracy: "block" });
+   * console.log(fix.latitude, fix.longitude, `±${fix.accuracy} m`);
+   * ```
    */
   current(options?: LocationOptions): Promise<LocationFix>;
   /**
    * Fixes as the device moves, for `for await`, until the loop ends or
    * the cell is interrupted. Keeps the newest 16 when the cell reads
    * slower than they come (`dropped` counts the rest).
+   *
+   * @param options `accuracy`, as for `current()`; and the call's `signal`, which ends the stream.
+   * @returns A stream of fixes; `close()` or leaving the loop stops Core Location.
+   * @throws {DeviceError} `denied` when the notebook or the system may not use location, or Location Services is off; `failed` when `accuracy` isn't one of the three, or when Core Location stops sending fixes.
+   * @example
+   * ```ts
+   * for await (const fix of device.location.watch({ accuracy: "block" })) {
+   *   console.log(fix.latitude, fix.longitude);
+   *   if (fix.speed === 0) break;
+   * }
+   * ```
    */
   watch(options?: LocationOptions): DeviceStream<LocationFix>;
-  /** The places an address may be, best match first; `[]` when none. Cancel rejects `cancelled`. */
+  /**
+   * The places an address may be. Needs the network, not the permission.
+   *
+   * @param address A street address, city or landmark, as a person would type it.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The places, best match first, or `[]` when none.
+   * @throws {DeviceError} `failed` when `address` is empty or the geocoder can't be reached.
+   * @example
+   * ```ts
+   * const [place] = await device.location.geocode("1 Infinite Loop, Cupertino");
+   * if (place) console.log(place.latitude, place.longitude);
+   * ```
+   */
   geocode(address: string, options?: CallOptions): Promise<Place[]>;
-  /** What is at a position, such as a fix from `current()`; `[]` when nothing. Cancel rejects `cancelled`. */
+  /**
+   * What is at a position, such as a fix from `current()`. Needs the
+   * network, not the permission.
+   *
+   * @param position `latitude` (-90 to 90) and `longitude` (-180 to 180), in degrees.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The places there, or `[]` when nothing.
+   * @throws {DeviceError} `failed` when the position is out of range or the geocoder can't be reached.
+   * @example
+   * ```ts
+   * const [here] = await device.location.reverseGeocode(await device.location.current());
+   * console.log(here?.city);
+   * ```
+   */
   reverseGeocode(position: { latitude: number; longitude: number }, options?: CallOptions): Promise<Place[]>;
 }
 
@@ -788,6 +838,7 @@ export interface Device {
   readonly sound: Sound;
   /** Local notifications after a delay: see `Notifications`. */
   readonly notifications: Notifications;
+  /** Where the device is, and geocoding: see `DeviceLocation`. */
   readonly location: DeviceLocation;
 }
 

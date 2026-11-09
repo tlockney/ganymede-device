@@ -152,6 +152,26 @@ final class LocationTests: XCTestCase {
         XCTAssertEqual(provider.asked, [.best])
     }
 
+    func testABadAccuracyFailsBeforeAnyPrompt() {
+        let provider = FakeLocation(.notDetermined)
+        let bridge = bridge(provider)
+        XCTAssertEqual(errorCode(call(bridge, "location.current", ["accuracy": 3])), "failed")
+        XCTAssertEqual(errorCode(call(bridge, "location.watch", ["accuracy": "street"])), "failed")
+        XCTAssertEqual(provider.prompts, 0, "the system prompt never showed")
+        XCTAssertEqual(provider.status, .notDetermined)
+    }
+
+    func testAnAltitudeKnownExactlyIsKept() {
+        let exact = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 1, longitude: 2), altitude: 10,
+            horizontalAccuracy: 5, verticalAccuracy: 0, timestamp: Date())
+        XCTAssertEqual(DeviceBridge.fixReply(exact)["altitude"] as? Double, 10)
+        let unknown = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 1, longitude: 2), altitude: 10,
+            horizontalAccuracy: 5, verticalAccuracy: -1, timestamp: Date())
+        XCTAssertNil(DeviceBridge.fixReply(unknown)["altitude"])
+    }
+
     func testRefusalsRejectDenied() {
         let provider = FakeLocation(.notDetermined)
         provider.answer = .denied

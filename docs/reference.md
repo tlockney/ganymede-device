@@ -62,6 +62,13 @@ such API.
 | [`device.notifications.pending(options?)`](#device-notifications-pending-options) | Lists this notebook's notifications that haven't been delivered yet. |
 | [`device.notifications.cancel(id, options?)`](#device-notifications-cancel-id-options) | Takes one of this notebook's notifications off the schedule. |
 | [`device.notifications.cancelAll(options?)`](#device-notifications-cancelall-options) | Takes all of this notebook's notifications off the schedule. |
+| [`device.location.authorizationStatus(options?)`](#device-location-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.location.isAuthorized(options?)`](#device-location-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.location.requestAuthorization(options?)`](#device-location-requestauthorization-options) | Shows the system prompt when the person hasn't been asked, and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.location.current(options?)`](#device-location-current-options) | One fix, at the accuracy asked for. |
+| [`device.location.watch(options?)`](#device-location-watch-options) | Fixes as the device moves, for `for await`, until the loop ends or the cell is interrupted. |
+| [`device.location.geocode(address, options?)`](#device-location-geocode-address-options) | The places an address may be. |
+| [`device.location.reverseGeocode(position, options?)`](#device-location-reversegeocode-position-options) | What is at a position, such as a fix from `current()`. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -224,6 +231,7 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `photos` | `Photos` | The system photo picker: see `Photos`. |
 | `sound` | `Sound` | Sound playback: see `Sound`. |
 | `notifications` | `Notifications` | Local notifications after a delay: see `Notifications`. |
+| `location` | `DeviceLocation` | Where the device is, and geocoding: see `DeviceLocation`. |
 
 ## `device.clipboard`
 
@@ -931,6 +939,203 @@ Only the calling notebook's.
 await device.notifications.cancelAll();
 ```
 
+## `device.location`
+
+Where the device is, over Core Location, and addresses to places and
+back. While in use only: the app asks for location when in use, never
+always, so nothing runs once the app quits.
+
+`current()` and `watch()` need the location permission: the first call
+asks (the app's prompt for this notebook, then the system's) and a
+refusal rejects `denied`. With precise location turned off for the
+app, `authorizationStatus()` reads `reducedAccuracy` and fixes are
+within a few kilometres. Geocoding needs no permission but does need
+the network.
+
+Over Core Location, while the app is in use only. `current` and `watch` need the location permission; geocoding needs the network but no permission. With precise location off for the app, `authorizationStatus()` reads `reducedAccuracy` and fixes are within a few kilometres. The permission methods work where the rest of the namespace does.
+
+### `device.location.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.location.authorizationStatus());
+```
+
+### `device.location.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.location.isAuthorized())) console.log("notifications are off");
+```
+
+### `device.location.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Shows the system prompt when the person hasn't been asked, and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.location.requestAuthorization();
+if (status === "denied") console.log("turn notifications on in Settings");
+```
+
+### `device.location.current(options?)`
+
+```ts
+current(options?: LocationOptions): Promise<LocationFix>;
+```
+
+One fix, at the accuracy asked for.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `LocationOptions` | no | `accuracy`: `"best"` (the default), `"block"` or `"city"`; and the call's `signal`. Cancel stops the search and rejects `cancelled`. |
+
+**Returns** `Promise<LocationFix>`: The fix: latitude, longitude, its accuracy in metres, and altitude, speed and course when known.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use location, or Location Services is off; `failed` when no fix can be had (no signal) or `accuracy` isn't one of the three.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | location | no | no |
+
+While the app is in use only. With precise location off, within a few kilometres.
+
+```ts
+const fix = await device.location.current({ accuracy: "block" });
+console.log(fix.latitude, fix.longitude, `±${fix.accuracy} m`);
+```
+
+### `device.location.watch(options?)`
+
+```ts
+watch(options?: LocationOptions): DeviceStream<LocationFix>;
+```
+
+Fixes as the device moves, for `for await`, until the loop ends or
+the cell is interrupted. Keeps the newest 16 when the cell reads
+slower than they come (`dropped` counts the rest).
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `LocationOptions` | no | `accuracy`, as for `current()`; and the call's `signal`, which ends the stream. |
+
+**Returns** `DeviceStream<LocationFix>`: A stream of fixes; `close()` or leaving the loop stops Core Location.
+
+**Throws** `DeviceError`: `denied` when the notebook or the system may not use location, or Location Services is off; `failed` when `accuracy` isn't one of the three, or when Core Location stops sending fixes.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | location | no | no |
+
+Until the loop ends or the cell is interrupted; keeps the newest 16.
+
+```ts
+for await (const fix of device.location.watch({ accuracy: "block" })) {
+  console.log(fix.latitude, fix.longitude);
+  if (fix.speed === 0) break;
+}
+```
+
+### `device.location.geocode(address, options?)`
+
+```ts
+geocode(address: string, options?: CallOptions): Promise<Place[]>;
+```
+
+The places an address may be. Needs the network, not the permission.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `address` | `string` | yes | A street address, city or landmark, as a person would type it. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Place[]>`: The places, best match first, or `[]` when none.
+
+**Throws** `DeviceError`: `failed` when `address` is empty or the geocoder can't be reached.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+Needs the network, not the location permission.
+
+```ts
+const [place] = await device.location.geocode("1 Infinite Loop, Cupertino");
+if (place) console.log(place.latitude, place.longitude);
+```
+
+### `device.location.reverseGeocode(position, options?)`
+
+```ts
+reverseGeocode(position: { latitude: number; longitude: number }, options?: CallOptions): Promise<Place[]>;
+```
+
+What is at a position, such as a fix from `current()`. Needs the
+network, not the permission.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `position` | `{ latitude: number; longitude: number }` | yes | `latitude` (-90 to 90) and `longitude` (-180 to 180), in degrees. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<Place[]>`: The places there, or `[]` when nothing.
+
+**Throws** `DeviceError`: `failed` when the position is out of range or the geocoder can't be reached.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+Needs the network, not the location permission.
+
+```ts
+const [here] = await device.location.reverseGeocode(await device.location.current());
+console.log(here?.city);
+```
+
 ## `SoundPlayer`
 
 A loaded sound a cell controls, from `device.sound.player`. Close it when
@@ -1317,6 +1522,55 @@ A notification this notebook scheduled that hasn't been delivered.
 | `title` | `string` | no | The title it was scheduled with. |
 | `body` | `string` | yes | The text it shows. |
 | `date` | `Date` | no | When it is due, when the host knows. |
+
+### `LocationOptions`
+
+Options for `device.location.current` and `device.location.watch`.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `accuracy` | `LocationAccuracy` | no | How close a fix must be; "best" by default. Coarser fixes come sooner and use less power. |
+
+It also takes [`CallOptions`](#calloptions)'s properties.
+
+### `LocationAccuracy`
+
+How close a fix must be: within metres ("best"), a city block, or a city.
+
+```ts
+export type LocationAccuracy = "best" | "block" | "city";
+```
+
+### `LocationFix`
+
+Where the device is, as Core Location reports it.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `latitude` | `number` | yes | Degrees north of the equator. |
+| `longitude` | `number` | yes | Degrees east of Greenwich. |
+| `accuracy` | `number` | yes | The fix is within this many metres of the true position. |
+| `altitude` | `number` | no | Metres above sea level, when known. |
+| `altitudeAccuracy` | `number` | no | The altitude is within this many metres, when known. |
+| `speed` | `number` | no | Metres per second, when moving and known. |
+| `course` | `number` | no | Degrees clockwise from true north, when moving and known. |
+| `timestamp` | `number` | yes | When the fix was taken, in milliseconds since 1970, as `Date.now()`. |
+
+### `Place`
+
+A place a geocode found. Every part is there only when known.
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | no | The place's name, such as a landmark or the street address. |
+| `street` | `string` | no | House number and street. |
+| `city` | `string` | no | City or town. |
+| `region` | `string` | no | State, province or the like. |
+| `postalCode` | `string` | no | Postal or ZIP code. |
+| `country` | `string` | no | Country name, in the device's language. |
+| `countryCode` | `string` | no | ISO 3166-1 alpha-2, such as "US". |
+| `latitude` | `number` | no | Degrees north of the equator. |
+| `longitude` | `number` | no | Degrees east of Greenwich. |
 
 ### `AuthorizationStatus`
 

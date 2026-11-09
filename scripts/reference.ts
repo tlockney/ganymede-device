@@ -47,6 +47,13 @@ const sections: Section[] = [
     intro: "The permission methods (`authorizationStatus`, `isAuthorized`, `requestAuthorization`) work where the rest of the namespace does: in the app, not from a remote kernel or a browser.",
   },
   {
+    iface: "DeviceLocation",
+    prefix: "device.location.",
+    heading: "device.location",
+    support: "location.",
+    intro: "Over Core Location, while the app is in use only. `current` and `watch` need the location permission; geocoding needs the network but no permission. With precise location off for the app, `authorizationStatus()` reads `reducedAccuracy` and fixes are within a few kilometres. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
@@ -86,6 +93,10 @@ const types: { name: string; file: string }[] = [
   { name: "SoundState", file: DEVICE },
   { name: "ScheduleNotificationOptions", file: DEVICE },
   { name: "PendingNotification", file: DEVICE },
+  { name: "LocationOptions", file: DEVICE },
+  { name: "LocationAccuracy", file: DEVICE },
+  { name: "LocationFix", file: DEVICE },
+  { name: "Place", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 

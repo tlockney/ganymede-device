@@ -29,6 +29,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private var permissions: [String: Permission] = [:]
     /// Methods that answer later (`addMethod`), with the namespace whose permission they need.
     private var methods: [String: (permission: String?, handler: ContextMethodHandler)] = [:]
+    /// Argument checks that run before a call asks for its permission
+    /// (`addMethod`/`addStream` `check:`).
+    private var checks: [String: ParamsCheck] = [:]
     /// The namespace whose permission each streaming method needs.
     private var streamPermissions: [String: String] = [:]
     private let pending = PendingCalls()
@@ -94,9 +97,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// `capacity` values and counts the ones it drops.
     /// With `permission`, a namespace added with `addPermission`, a call
     /// asks for it first (docs/protocol.md, "Permissions").
-    public func addStream(_ method: String, capacity: Int = 64, permission: String? = nil, start: @escaping StreamStarter) {
+    /// `check` throws a `DeviceCallError` for bad arguments, before the
+    /// permission prompt, so a malformed call never asks.
+    public func addStream(
+        _ method: String, capacity: Int = 64, permission: String? = nil, check: ParamsCheck? = nil, start: @escaping StreamStarter
+    ) {
         streams.add(method, capacity: capacity, start: start)
         streamPermissions[method] = permission
+        checks[method] = check
     }
 
     /// Adds `namespace`'s system permission: `hello` lists
@@ -111,8 +119,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// `permission`, a namespace added with `addPermission`, the call asks
     /// for it first and rejects `denied` without a grant. A cancel rejects
     /// the call `cancelled` and runs the cancel action `handler` returned.
-    public func addMethod(_ method: String, permission: String? = nil, handler: @escaping MethodHandler) {
+    /// `check`, as for `addStream`, runs before the permission.
+    public func addMethod(_ method: String, permission: String? = nil, check: ParamsCheck? = nil, handler: @escaping MethodHandler) {
         methods[method] = (permission, { params, _, reply in handler(params, reply) })
+        checks[method] = check
     }
 
     /// `addMethod` for a handler that needs to know who called: the
@@ -424,6 +434,15 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         let params = call["params"] as? [String: Any] ?? [:]
+        if let check = checks[method] {
+            do {
+                try check(params)
+            } catch {
+                let failure = error as? DeviceCallError ?? DeviceCallError("failed", "\(method): \(error)")
+                pending.answer(token, Self.error(failure.code, failure.message))
+                return
+            }
+        }
         if let namespace = requestedNamespace(method), let permission = permissions[namespace],
            permission.status == .denied || permission.status == .restricted {
             // The system already refused: answer that without the app's prompt.
@@ -578,6 +597,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         return UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios"
         #endif
     }
+
+    /// Checks a call's arguments; throws a `DeviceCallError` to reject it.
+    public typealias ParamsCheck = @MainActor ([String: Any]) throws -> Void
 
     static func error(_ code: String, _ message: String) -> [String: Any] {
         ["error": ["code": code, "message": message]]

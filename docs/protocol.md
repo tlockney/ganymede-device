@@ -158,7 +158,8 @@ network but no permission. The app turns the namespace on with
 `DeviceBridge.addLocation()`, and needs
 `NSLocationWhenInUseUsageDescription` in its Info.plist and, on a Mac
 with the hardened runtime, the `com.apple.security.personal-information.location`
-entitlement.
+entitlement. With Location Services off, `current` and `watch` reject
+`denied`; a fix that can't be had (no signal) rejects `failed`.
 
 ## Streams
 
@@ -220,6 +221,8 @@ photos; approximate location) and count as granted.
   a grant rejects the call `denied`. Calling `requestAuthorization()`
   first is optional. Calls that come while a prompt is up wait on that
   prompt; it shows once.
+- A method's argument checks run before any prompt: a malformed call
+  fails `failed` without asking (`addMethod`/`addStream` `check:`).
 - A cancel (interrupt, abort) while the prompt is up rejects the call
   `cancelled` at once. The system prompt can't be closed; its answer
   still sets the status for later calls, but the cancelled call doesn't
