@@ -185,6 +185,24 @@ enum FilePanels {
         }
     }
 
+    /// `folders.pick`: one folder, which the person may make here.
+    static func folder(window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return done(.dismissed) }
+            done(.folder(url))
+        }
+        return { [weak window] gone in
+            window?.endSheet(panel)
+            gone()
+        }
+    }
+
     static func save(_ file: NamedFile, window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = file.name
@@ -238,6 +256,20 @@ enum FilePicker {
         picker.allowsMultipleSelection = multiple
         let delegate = DocumentPickerDelegate(
             picked: { urls in PickedFiles.readInBackground(urls, removeAfter: true, done: done) },
+            cancelled: { done(.dismissed) }
+        )
+        picker.delegate = delegate
+        retain(delegate, by: picker)
+        return picker
+    }
+
+    /// `folders.pick`: one folder, opened in place (not copied), so the
+    /// app can keep a bookmark to it.
+    static func folder(done: @escaping (DialogResult) -> Void) -> UIViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        picker.allowsMultipleSelection = false
+        let delegate = DocumentPickerDelegate(
+            picked: { urls in urls.first.map { done(.folder($0)) } ?? done(.dismissed) },
             cancelled: { done(.dismissed) }
         )
         picker.delegate = delegate

@@ -363,6 +363,47 @@ app turns it on with `DeviceBridge.addBluetooth()`, which needs
   the `CBPeripheral` identifiers, which differ from device to device.
 - On-device only: none of these is in the remote subset.
 
+## Folders
+
+`device.folders` gives a notebook lasting access to folders the person
+picked. The app turns it on with `DeviceBridge.addFolders()`; a Settings
+screen lists and revokes grants with its own `FolderGrants()`, which
+shares the bridge's store.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `folders.pick` | `{ write? }`: false by default | `{ id, name, writable }`, or `null` when the person cancelled. A dialog ("Dialogs" below): it queues with the others and a cancel closes it |
+| `folders.list` | `{}` | `[{ id, name, writable }]`, the notebook's grants in the order they were picked |
+| `folders.entries` | `{ folder, path? }`: the folder itself without `path` | `[{ name, kind, size?, modified? }]` sorted by name; `kind` is `file` or `directory`, `modified` ISO 8601 |
+| `folders.read` | `{ folder, path }` | the file's bytes, at most 16 MiB |
+| `folders.write` | `{ folder, path, data }` | `null` once written; makes the directories on the way, and replaces a symlink at `path` rather than following it |
+| `folders.remove` | `{ folder, path }` | `null`; a file, a symlink (not its target) or an empty directory only |
+
+- No permission and no ledger prompt: the system folder picker is the
+  consent, as for `files.pick`. A grant is a bookmark kept per notebook
+  path (`UserDefaultsFolderStore`); `notebookMoved` carries it. Picking a
+  folder the notebook already has replaces that grant and keeps its id.
+- Every call needs the notebook (`setNotebook`); without it, or for a
+  grant another notebook holds or one revoked, it fails `denied`.
+  `write` and `remove` on a grant picked without `write: true` fail
+  `denied`.
+- `path` is relative to the folder. An absolute path, a `..`, or a path
+  whose symlinks resolve outside the folder fails `denied`; so does
+  removing the folder itself. `write` and `remove` resolve every
+  component but the last, so they act on a link, not on what it points to.
+- Each call resolves the bookmark off the main thread, without UI or
+  mounting a volume: a stale one is made again; one whose data can't be
+  read is dropped and the call fails `unavailable`; a folder that can't
+  be reached now (a drive or share not connected, a file provider not
+  ready, the folder moved away) fails `unavailable` and keeps its grant,
+  for Settings to revoke.
+- Reads and writes are coordinated (`NSFileCoordinator`), so an iCloud
+  Drive file that isn't downloaded comes down on `read`; `entries` lists
+  it by its own name, without a size.
+- A `Folder` is not a handle ("Handles" above): it outlives the kernel,
+  so there is nothing to close.
+- On-device only: none of these is in the remote subset.
+
 ## Permissions
 
 A namespace that needs a system (TCC) permission, such as `location`,

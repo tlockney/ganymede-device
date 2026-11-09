@@ -51,6 +51,8 @@ public enum Dialog: Equatable, Sendable {
     case pickPhotos(limit: Int)
     /// `camera.capture`: the system camera, for one photo.
     case capturePhoto
+    /// `folders.pick`: a folder, for reading, or for writing too.
+    case pickFolder(write: Bool)
 
     /// Why a dialog call's params were refused. Its description is the
     /// reply's message.
@@ -149,6 +151,15 @@ public enum Dialog: Equatable, Sendable {
             self = .pickPhotos(limit: limit)
         case "camera.capture":
             self = .capturePhoto
+        case "folders.pick":
+            var write = false
+            if let value = params["write"], !(value is NSNull) {
+                guard let flag = value as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else {
+                    throw ParamsError(description: "folders.pick: write must be true or false")
+                }
+                write = flag.boolValue
+            }
+            self = .pickFolder(write: write)
         default:
             throw ParamsError(description: "\(method) isn't a dialog")
         }
@@ -289,6 +300,8 @@ public enum DialogResult: Equatable, Sendable {
     case saved
     /// The camera's photo, as JPEG within the binary limit.
     case photo(Data)
+    /// The folder a folder picker handed over.
+    case folder(URL)
     /// The person answered, but the answer couldn't be handed over, such
     /// as picked files over the binary limit. The call fails `failed`.
     case failed(String)
@@ -330,7 +343,8 @@ public typealias Close = (_ gone: @escaping () -> Void) -> Void
 @MainActor
 final class DialogQueue {
     enum Outcome {
-        case answered(Any)
+        /// The reply's result, and the person's answer as the presenter gave it.
+        case answered(Any, DialogResult)
         case cancelled
         case failed(String, String)
     }
@@ -399,7 +413,7 @@ final class DialogQueue {
                 if case let .failed(message) = answer {
                     self?.finish(current, .failed("failed", message))
                 } else {
-                    self?.finish(current, .answered(call.dialog.result(answer)))
+                    self?.finish(current, .answered(call.dialog.result(answer), answer))
                 }
             }
             current.close = close
@@ -474,6 +488,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             return try PhotoPicker.present(limit: limit, window: window, done: done)
         case .capturePhoto:
             throw DialogUnavailable(description: "camera.capture shows the camera on iPad and iPhone only")
+        case .pickFolder:
+            return FilePanels.folder(window: window, done: done)
         default:
             break
         }
@@ -481,7 +497,7 @@ public struct SystemDialogPresenter: DialogPresenter {
         let first = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         let answer: (NSApplication.ModalResponse) -> DialogResult
         switch dialog {
-        case .share, .preview, .pickFiles, .exportFile, .pickPhotos, .capturePhoto:
+        case .share, .preview, .pickFiles, .exportFile, .pickPhotos, .capturePhoto, .pickFolder:
             preconditionFailure("shown above")
         case let .alert(title, message):
             Self.text(alert, title: title, message: message)
@@ -626,6 +642,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             controller = PhotoPicker.controller(limit: limit, done: done)
         case .capturePhoto:
             controller = try CameraPicker.controller(done: done)
+        case .pickFolder:
+            controller = FilePicker.folder(done: done)
         }
         let state = Presentation()
         let show = {

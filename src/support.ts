@@ -436,6 +436,22 @@ export const SUPPORT = {
     permission: "bluetooth",
     note: "Services, read, write, notify and RSSI; close it, or hold it with `await using`. At most 8 per kernel.",
   },
+  "folders.pick": {
+    call: "folders.pick({ write })",
+    returns: "a `Folder`, or `null` when cancelled",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "The system folder picker, which is the consent; the folder stays the notebook's until revoked in Settings. A browser would need the File System Access API, which Safari doesn't have.",
+  },
+  "folders.list": {
+    call: "folders.list()",
+    returns: "`Folder[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "A `Folder` lists, reads, writes and removes inside the folder only; reads up to 16 MiB.",
+  },
   on: {
     call: "on(event, handler)",
     returns: "a function that removes the handler",

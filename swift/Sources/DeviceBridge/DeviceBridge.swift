@@ -36,10 +36,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private var checks: [String: ParamsCheck] = [:]
     /// The namespace whose permission each streaming method needs.
     private var streamPermissions: [String: String] = [:]
-    /// Dialogs that need a permission first (`addPermissionedDialog`),
-    /// with that permission's namespace.
-    private var dialogPermissions: [String: String] = [:]
+    /// Dialogs a namespace adds (`addPermissionedDialog`, `addDialog`):
+    /// the namespace whose permission each needs first, if any, and what
+    /// turns the person's answer into the reply.
+    private var addedDialogs: [String: AddedDialog] = [:]
     private let pending = PendingCalls()
+    /// The folders notebooks picked (`addFolders`), so a moved notebook
+    /// keeps them.
+    var folderGrants: FolderGrants?
     private let requests = PermissionRequests()
     private let ledgerRequests = LedgerRequests()
     private let appVersion: String
@@ -88,6 +92,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A notebook was renamed or moved: its kernels and kept answers follow.
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
+        folderGrants?.move(from: old, to: new)
         ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 
@@ -145,15 +150,30 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// `addMethod` for a handler that needs to know who called: the
     /// kernel and the notebook it runs, such as a namespace that keeps
     /// each notebook's items apart.
-    public func addMethod(_ method: String, permission: String? = nil, contextHandler: @escaping ContextMethodHandler) {
+    public func addMethod(
+        _ method: String, permission: String? = nil, check: ParamsCheck? = nil, contextHandler: @escaping ContextMethodHandler
+    ) {
         methods[method] = (permission, contextHandler)
+        checks[method] = check
     }
 
     /// Adds a dialog method that asks for `permission` first, such as
     /// `camera.capture`: `Dialog(method:params:)` parses its call, and it
     /// queues with the other dialogs once the permission is granted.
     func addPermissionedDialog(_ method: String, permission: String) {
-        dialogPermissions[method] = permission
+        addedDialogs[method] = AddedDialog(permission: permission)
+    }
+
+    /// Adds a dialog method whose answer needs the caller, such as
+    /// `folders.pick`, which keeps what was picked for the notebook:
+    /// `prepare` runs before the dialog shows and may refuse the call, and
+    /// `finish` turns the person's answer, with the call's params, into
+    /// the reply. Both throw a `DeviceCallError` to reject it.
+    func addDialog(
+        _ method: String, prepare: @escaping @MainActor (CallContext) throws -> Void,
+        finish: @escaping @MainActor (_ answer: DialogResult, _ params: [String: Any], CallContext) throws -> Any
+    ) {
+        addedDialogs[method] = AddedDialog(permission: nil, prepare: prepare, finish: finish)
     }
 
     /// Adds the bridge to `controller`, in the page's content world.
@@ -390,7 +410,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             // `unavailable`, so `has()` mustn't report it.
             + methods.filter { $0.value.permission.map { permissions[$0] != nil } ?? true }.keys.sorted()
             + streams.methods.keys.filter { streamPermissions[$0].map { permissions[$0] != nil } ?? true }.sorted()
-            + dialogPermissions.filter { permissions[$0.value] != nil }.keys.sorted()
+            + addedDialogs.filter { $0.value.permission.map { permissions[$0] != nil } ?? true }.keys.sorted()
     }
 
     private func hello() -> [String: Any] {
@@ -443,7 +463,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// streaming method that needs a permission, or a dialog that needs one
     /// (`addPermissionedDialog`).
     private func answersLater(_ method: String) -> Bool {
-        methods[method] != nil || streamPermissions[method] != nil || dialogPermissions[method] != nil
+        methods[method] != nil || streamPermissions[method] != nil || addedDialogs[method] != nil
             || requestedNamespace(method) != nil
     }
 
@@ -490,18 +510,28 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
                     self?.pending.answer(token, ["result": status.rawValue])
                 }
             })
-        } else if let namespace = dialogPermissions[method] {
+        } else if let entry = addedDialogs[method] {
             // A bad call fails before the permission prompt.
             let dialog: Dialog
+            let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner), call: id)
             do {
                 dialog = try Dialog(method: method, params: params)
+                try entry.prepare?(context)
+            } catch let error as DeviceCallError {
+                pending.answer(token, Self.error(error.code, error.message))
+                return
             } catch {
                 pending.answer(token, Self.error("failed", "\(error)"))
                 return
             }
             weak var weakHost = host
-            authorize(method, namespace, call: token, owner: owner) { [weak self] in
-                self?.showDialog(dialog, method, call: token, on: weakHost)
+            authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
+                self?.showDialog(dialog, method, call: token, on: weakHost) { result, answer in
+                    guard let finish = entry.finish else { return result }
+                    // The notebook as it is now: it may have moved while
+                    // the dialog showed.
+                    return try finish(answer, params, CallContext(owner: owner, notebook: self?.ledger.notebook(for: owner), call: id))
+                }
             }
         } else if let entry = methods[method] {
             authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
@@ -605,10 +635,23 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// Shows a permissioned dialog, and answers `token` when it closes. A
     /// cancel of the call, or a release of its kernel, closes it.
-    private func showDialog(_ dialog: Dialog, _ method: String, call token: PendingCall, on host: DialogHost?) {
+    private func showDialog(
+        _ dialog: Dialog, _ method: String, call token: PendingCall, on host: DialogHost?,
+        finish: @escaping @MainActor (Any, DialogResult) throws -> Any
+    ) {
         guard pending.isWaiting(token) else { return }
         dialogs.show(dialog, id: token.id, on: host) { [weak self] outcome in
-            self?.pending.answer(token, Self.reply(outcome, method))
+            guard let self, self.pending.isWaiting(token) else { return }
+            guard case let .answered(result, answer) = outcome else {
+                return self.pending.answer(token, Self.reply(outcome, method))
+            }
+            do {
+                self.pending.answer(token, ["result": try finish(result, answer)])
+            } catch let error as DeviceCallError {
+                self.pending.answer(token, Self.error(error.code, error.message))
+            } catch {
+                self.pending.answer(token, Self.error("failed", "\(method): \(error)"))
+            }
         }
         if pending.isWaiting(token) {
             pending.setCancel(token) { [weak self] in self?.dialogs.cancel(token.id) }
@@ -662,7 +705,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A dialog's outcome as the call's reply.
     private static func reply(_ outcome: DialogQueue.Outcome, _ method: String) -> [String: Any] {
         switch outcome {
-        case let .answered(result):
+        case let .answered(result, _):
             ["result": result]
         case .cancelled:
             error("cancelled", "\(method) was cancelled")
@@ -971,4 +1014,11 @@ public struct SystemDeviceState: DeviceState {
         return nil
     }
     #endif
+}
+
+/// A dialog method a namespace added: see `addDialog`.
+struct AddedDialog {
+    var permission: String?
+    var prepare: (@MainActor (CallContext) throws -> Void)?
+    var finish: (@MainActor (DialogResult, [String: Any], CallContext) throws -> Any)?
 }

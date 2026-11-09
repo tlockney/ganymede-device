@@ -95,6 +95,13 @@ const sections: Section[] = [
     intro: "A Bluetooth LE central over Core Bluetooth, on the Mac, iPad and iPhone. `scan`, `known` and `connect` need the bluetooth permission and reject `unavailable` while Bluetooth is off. A connected peripheral is a [`Peripheral`](#peripheral). The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "Folders",
+    prefix: "device.folders.",
+    heading: "device.folders",
+    support: "folders.",
+    intro: "Folders the person picked, kept per notebook as bookmarks, on the Mac, iPad and iPhone. No permission: the picker is the consent, and Settings revokes. A picked folder is a [`Folder`](#folder).",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
@@ -105,6 +112,12 @@ const sections: Section[] = [
     prefix: "peripheral.",
     heading: "Peripheral",
     intro: "Its methods work wherever [`device.bluetooth.connect`](#device-bluetooth-connect-id-options) does.",
+  },
+  {
+    iface: "Folder",
+    prefix: "folder.",
+    heading: "Folder",
+    intro: "Its methods work wherever [`device.folders.pick`](#device-folders-pick-options) does. Paths are relative to the folder; one that leads outside it rejects `denied`.",
   },
 ];
 
@@ -166,6 +179,8 @@ const types: { name: string; file: string }[] = [
   { name: "BluetoothService", file: DEVICE },
   { name: "BluetoothCharacteristic", file: DEVICE },
   { name: "WriteOptions", file: DEVICE },
+  { name: "PickFolderOptions", file: DEVICE },
+  { name: "FolderEntry", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 
