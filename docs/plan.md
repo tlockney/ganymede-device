@@ -13,6 +13,11 @@ gets a few of those through web APIs where they fit; see "Browser
 fallback". Every feature's support in each case is documented in one
 matrix; see "Documentation".
 
+Platforms: macOS and iOS (iPadOS) only, for now. The native side is
+Swift in Ganymede's Apple apps; there is no Windows, Linux or Android
+host, and none is planned. The browser fallback is the only part that
+runs elsewhere.
+
 Sources: Juno's module docs (juno.sh/docs/python/juno/ and its 17
 module pages, read 2026-10-18) and the existing design in the
 [ts-on-ipados](https://github.com/tlockney/research/tree/main/ts-on-ipados)
