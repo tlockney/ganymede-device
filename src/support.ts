@@ -410,6 +410,14 @@ export const SUPPORT = {
     browser: "no",
     permission: "reminders",
   },
+  on: {
+    call: "on(event, handler)",
+    returns: "a function that removes the handler",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Appearance, foreground, background, battery and locale changes; an interrupt doesn't remove a handler.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

@@ -1183,6 +1183,29 @@ export interface UI {
   pickDate(options?: PickDateOptions): Promise<Date | null>;
 }
 
+/** What each host event's handler gets, by event (`device.on`). */
+export interface HostEvents {
+  /** The system appearance changed. */
+  appearance: "light" | "dark";
+  /** The app came to the front. */
+  foreground: null;
+  /** The app left the front: another app is in front, or the device locked. */
+  background: null;
+  /** The battery's level (0 to 1, or `null` when unknown) or charging changed. Never on a Mac without a battery. */
+  battery: { level: number | null; charging: boolean };
+  /** The system language or region changed: the new locale, a BCP 47 tag such as `"fr-FR"`. */
+  locale: string;
+}
+
+/** A host event's name: a key of `HostEvents`. */
+export type HostEvent = keyof HostEvents;
+
+/** Options for `device.on`. */
+export interface OnOptions {
+  /** Removes the handler when aborted. An interrupt doesn't: `on` outlives its cell. */
+  signal?: AbortSignal;
+}
+
 /**
  * The `device` global: native features of the Mac, iPad and iPhone apps.
  * Undefined on kernels the app doesn't host, so check for it first.
@@ -1213,6 +1236,30 @@ export interface Device {
    * ```
    */
   has(method: string): boolean;
+  /**
+   * Calls `handler` each time the device changes in the way `event`
+   * names, until it is removed: by calling the function `on` answers, by
+   * aborting `options.signal`, or by a kernel restart. Unlike other calls,
+   * an interrupt leaves it running, since it outlives the cell that added
+   * it. A handler that runs after its cell finished writes its output
+   * where the kernel sends output with no running cell, so keep handlers
+   * to updating state or a display by id. No permission; in the app only.
+   * When the host can't send events, the handler is removed and one line
+   * on stderr says why; `has("on")` tells beforehand.
+   *
+   * @param event What to watch: `appearance`, `foreground`, `background`, `battery` or `locale`.
+   * @param handler Called with the event's value (`HostEvents`). An error it throws goes to stderr and doesn't remove it.
+   * @param options The `signal` that removes the handler.
+   * @returns A function that removes the handler.
+   * @throws {DeviceError} `failed` when `event` isn't one of the five or `handler` isn't a function.
+   * @example
+   * ```ts
+   * const off = device.on("appearance", (mode) => console.log("now", mode));
+   * // Later, in any cell:
+   * off();
+   * ```
+   */
+  on<E extends HostEvent>(event: E, handler: (value: HostEvents[E]) => void, options?: OnOptions): () => void;
   /** The system clipboard: see `Clipboard`. */
   readonly clipboard: Clipboard;
   /** Taptic feedback, on iPhone: see `Haptics`. */
@@ -1406,6 +1453,86 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
       state: (options) => control("state", {}, options),
     };
   }
+  const hostEvents = hostEventHandlers();
+  /**
+   * `device.on`'s handlers, over one `events.watch` stream that the first
+   * handler opens and the last one's removal closes. The stream gets no
+   * cell signal, so an interrupt leaves it running.
+   */
+  function hostEventHandlers(): { on: Device["on"] } {
+    const handlers = new Map<string, Set<(value: never) => void>>();
+    let events: DeviceStream<{ event: string; value: unknown }> | null = null;
+    const count = () => [...handlers.values()].reduce((n, set) => n + set.size, 0);
+    function stop(): void {
+      const stream = events;
+      events = null;
+      void stream?.return();
+    }
+    function start(): void {
+      let stream: DeviceStream<{ event: string; value: unknown }>;
+      try {
+        requireMethod("events.watch");
+        stream = openStream(transport, "events.watch", {}, {}, readHostEvent);
+      } catch (err) {
+        fail(err);
+        return;
+      }
+      events = stream;
+      void (async () => {
+        try {
+          for await (const { event, value } of stream) {
+            for (const handler of [...(handlers.get(event) ?? [])]) {
+              try {
+                (handler as (value: unknown) => void)(value);
+              } catch (err) {
+                console.error(`device.on("${event}"): the handler threw: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+          }
+          // The host ended it (the kernel is going away): nothing more comes.
+          if (events === stream) {
+            events = null;
+            handlers.clear();
+          }
+        } catch (err) {
+          if (events === stream) fail(err);
+        }
+      })();
+    }
+    /** The stream can't run: its handlers would never be called. */
+    function fail(err: unknown): void {
+      events = null;
+      handlers.clear();
+      const error = DeviceError.from(err);
+      console.error(`device.on: no host events (${error.code}): ${error.message}`);
+    }
+    function on(event: string, handler: (value: never) => void, options: OnOptions = {}): () => void {
+      if (!HOST_EVENTS.includes(event as HostEvent)) {
+        throw new DeviceError("failed", `device.on: event must be one of ${HOST_EVENTS.join(", ")}`);
+      }
+      if (typeof handler !== "function") throw new DeviceError("failed", "device.on needs a handler function");
+      const { signal } = options;
+      if (signal?.aborted) return () => {};
+      // A function per call, so adding the same handler twice needs two removals.
+      const entry = (value: never) => handler(value);
+      let set = handlers.get(event);
+      if (!set) handlers.set(event, (set = new Set()));
+      set.add(entry);
+      if (!events) start();
+      let removed = false;
+      function off(): void {
+        if (removed) return;
+        removed = true;
+        signal?.removeEventListener("abort", off);
+        handlers.get(event)?.delete(entry);
+        if (count() === 0) stop();
+      }
+      signal?.addEventListener("abort", off, { once: true });
+      return off;
+    }
+    return { on: on as Device["on"] };
+  }
+
   return {
     async info(options) {
       const snapshot = structuredClone(info);
@@ -1421,7 +1548,9 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         capabilities: snapshot.capabilities,
       };
     },
-    has: (method) => capabilities.has(method),
+    // `on` reads the `events.watch` stream.
+    has: (method) => capabilities.has(method === "on" ? "events.watch" : method),
+    on: hostEvents.on,
     clipboard: {
       async readText(options) {
         const text = await call("clipboard.readText", {}, options);
@@ -1766,6 +1895,14 @@ function contactRecord(method: string, value: unknown): Contact {
     if (addresses.length) contact.addresses = addresses;
   }
   return contact;
+}
+
+const HOST_EVENTS: readonly HostEvent[] = ["appearance", "foreground", "background", "battery", "locale"];
+
+/** One `events.watch` value: `{ event, value }`. */
+function readHostEvent(item: unknown): { event: string; value: unknown } {
+  if (!isRecord(item) || typeof item.event !== "string") throw new DeviceError("failed", "the host's events.watch value is malformed");
+  return { event: item.event, value: item.value ?? null };
 }
 
 const ACCURACIES: readonly string[] = ["best", "block", "city"] satisfies LocationAccuracy[];

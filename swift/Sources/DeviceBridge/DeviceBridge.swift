@@ -21,7 +21,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let clipboard: Clipboard
     private let haptics: Haptics
     private let urlOpener: URLOpener
-    private let state: DeviceState
+    let state: DeviceState
     private let dialogs: DialogQueue
     private let sounds: Sounds
     /// What calls opened that outlive them: sound players, so far.
@@ -915,9 +915,14 @@ public struct SystemDeviceState: DeviceState {
         #else
         let device = UIDevice.current
         state["isPad"] = device.userInterfaceIdiom == .pad
-        state["darkMode"] = UITraitCollection.current.userInterfaceStyle == .dark
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        if let screen = (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.screen {
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        // The scene's own traits: `UITraitCollection.current` outside a
+        // view's drawing doesn't follow the system appearance.
+        let style = (scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first)?.traitCollection.userInterfaceStyle
+            ?? scene?.traitCollection.userInterfaceStyle
+        state["darkMode"] = style == .dark
+        if let screen = scene?.screen {
             state["screen"] = [
                 "width": Double(screen.bounds.width),
                 "height": Double(screen.bounds.height),
