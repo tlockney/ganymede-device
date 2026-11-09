@@ -213,6 +213,10 @@ interface Folder {
   that no longer finds its folder fails `unavailable` and is kept (a
   drive may come back); only unreadable bookmark data drops the grant. Grants live in their own store
   (`FolderGrants`), beside the ledger's, so a Settings screen reads both.
+  After review (#104): a write pick says so in the picker (Mac panel
+  message and "Allow Changes"; an iOS alert first), `entries` reports
+  symlinks as `kind: "link"`, and only ubiquitous items count as iCloud
+  placeholders.
 
 **Acceptance**: a notebook picks a folder on a Mac and an iPad (Files,
 iCloud Drive), lists, reads and writes in it after an app restart, can't

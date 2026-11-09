@@ -488,8 +488,8 @@ public struct SystemDialogPresenter: DialogPresenter {
             return try PhotoPicker.present(limit: limit, window: window, done: done)
         case .capturePhoto:
             throw DialogUnavailable(description: "camera.capture shows the camera on iPad and iPhone only")
-        case .pickFolder:
-            return FilePanels.folder(window: window, done: done)
+        case let .pickFolder(write):
+            return FilePanels.folder(write: write, window: window, done: done)
         default:
             break
         }
@@ -584,6 +584,9 @@ public struct SystemDialogPresenter: DialogPresenter {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
         let controller: UIViewController
+        // A write folder pick's alert hands over to the picker: close
+        // whichever is showing.
+        var consentFlow: ConsentFlow?
         switch dialog {
         case let .alert(title, message):
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
@@ -642,14 +645,23 @@ public struct SystemDialogPresenter: DialogPresenter {
             controller = PhotoPicker.controller(limit: limit, done: done)
         case .capturePhoto:
             controller = try CameraPicker.controller(done: done)
-        case .pickFolder:
-            controller = FilePicker.folder(done: done)
+        case let .pickFolder(write):
+            if write {
+                let flow = ConsentFlow(done: done)
+                consentFlow = flow
+                controller = flow.alert
+            } else {
+                controller = FilePicker.folder(done: done)
+            }
         }
+        let consent = consentFlow
         let state = Presentation()
         let show = {
             guard !state.closed else { return }
             // Whatever is on top once the transition has ended.
-            (Self.topViewController(in: window) ?? top).present(controller, animated: true)
+            let presenter = Self.topViewController(in: window) ?? top
+            consent?.host = presenter
+            presenter.present(controller, animated: true)
             state.presented = true
         }
         // UIKit drops a presentation on a controller still going away, such
@@ -661,7 +673,8 @@ public struct SystemDialogPresenter: DialogPresenter {
         }
         return { [weak controller] gone in
             state.closed = true
-            if state.presented, let controller, controller.presentingViewController != nil {
+            consent?.closed = true
+            if state.presented, let controller = consent?.shown ?? controller, controller.presentingViewController != nil {
                 // Already going away (the person answered): wait for that
                 // transition instead of dismissing a second time.
                 if controller.isBeingDismissed, let coordinator = controller.transitionCoordinator {

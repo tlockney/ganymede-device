@@ -185,14 +185,19 @@ enum FilePanels {
         }
     }
 
-    /// `folders.pick`: one folder, which the person may make here.
-    static func folder(window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
+    /// `folders.pick`: one folder, which the person may make here. The
+    /// panel says what the notebook may do with it, since picking is the
+    /// consent: read only, or change and delete too.
+    static func folder(write: Bool, window: NSWindow, done: @escaping (DialogResult) -> Void) -> Close {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
+        panel.message = write
+            ? "The notebook will be able to read, change and delete files in the folder you choose."
+            : "The notebook will be able to read the files in the folder you choose."
+        panel.prompt = write ? "Allow Changes" : "Allow Reading"
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return done(.dismissed) }
             done(.folder(url))
@@ -335,6 +340,43 @@ enum PhotoPicker {
                 PhotoLoader.load(providers, done: done)
             }
         }
+    }
+}
+
+/// `folders.pick({ write: true })`: the document picker takes no message,
+/// so an alert says first that the notebook may change and delete files
+/// there, and its Choose Folder shows the picker from the same host. The
+/// presenter shows `alert` and closes `shown`, which is the picker once it
+/// is up. A plain alert held here, since UIAlertController is not to be
+/// subclassed.
+@MainActor
+final class ConsentFlow {
+    let alert: UIAlertController
+    let picker: UIViewController
+    /// What showed the alert; the presenter sets it.
+    weak var host: UIViewController?
+    /// Set when the dialog is closed from code, so Choose Folder shows
+    /// nothing after.
+    var closed = false
+
+    init(done: @escaping (DialogResult) -> Void) {
+        picker = FilePicker.folder(done: done)
+        alert = UIAlertController(
+            title: "Let the notebook change files?",
+            message: "The notebook will be able to read, change and delete files in the folder you choose next.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(.dismissed) })
+        alert.addAction(UIAlertAction(title: "Choose Folder", style: .default) { [weak self] _ in
+            // Handlers run once the alert has gone, so the host is free
+            // to show the picker.
+            guard let self, !self.closed, let host = self.host else { return done(.dismissed) }
+            host.present(self.picker, animated: true)
+        })
+    }
+
+    /// What is on screen for this dialog: the picker once it is up.
+    var shown: UIViewController {
+        picker.presentingViewController != nil ? picker : alert
     }
 }
 
