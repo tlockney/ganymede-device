@@ -112,6 +112,9 @@ final class PhotosTests: XCTestCase {
         let bridge = bridge(library)
         XCTAssertEqual(errorCode(call(bridge, "photos.save", image(Data("not an image".utf8)))), "failed")
         XCTAssertEqual(errorCode(call(bridge, "photos.save", [:])), "failed")
+        // A 1×1 BMP: ImageIO reads it, but it isn't one of the five formats.
+        let bmp = Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAATCwAAEwsAAAAAAAAAAAAAAAD/AA==")!
+        XCTAssertEqual(errorCode(call(bridge, "photos.save", image(bmp))), "failed")
         XCTAssertEqual(library.prompts, 0)
         XCTAssertEqual(always.asked, 0)
         XCTAssertTrue(library.saved.isEmpty)

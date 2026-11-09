@@ -90,7 +90,11 @@ extension DeviceBridge {
         }
     }
 
-    /// `photos.save`'s image: bytes that ImageIO reads as an image.
+    /// The formats `photos.save` takes, as documented: ImageIO reads more
+    /// (WebP, BMP, RAW), some of which Photos refuses.
+    private static let savedTypes: [UTType] = [.png, .jpeg, .gif, .heic, .tiff]
+
+    /// `photos.save`'s image: PNG, JPEG, GIF, HEIC or TIFF bytes.
     static func savedImage(_ params: [String: Any]) throws -> Data {
         let data: Data
         do {
@@ -101,7 +105,7 @@ extension DeviceBridge {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
               let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) }),
-              type.conforms(to: .image)
+              savedTypes.contains(where: { type.conforms(to: $0) })
         else {
             throw DeviceCallError("failed", "photos.save takes PNG, JPEG, GIF, HEIC or TIFF bytes")
         }
