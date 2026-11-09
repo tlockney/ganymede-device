@@ -223,7 +223,10 @@ the wire.
   keyed by (notebook path, capability), in UserDefaults by default
   (`LedgerStore`). A kept "deny" rejects `denied` without the system
   prompt; so does a dismissed prompt, which keeps nothing.
-  `requestAuthorization()` answers `denied` when the ledger refuses.
+  `requestAuthorization()` answers `denied` when the ledger refuses, and
+  `authorizationStatus()` reads `denied` for a kernel with no notebook or
+  a kept deny. When the system status is already `denied` or
+  `restricted`, a call fails without the app's prompt.
 - The app shows the prompt through `ledgerPrompter`
   (`askPermission(capability, notebook:, id:, answer:)`). Calls for the
   same notebook and capability share one prompt. A cancel takes the call

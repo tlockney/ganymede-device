@@ -110,7 +110,7 @@ final class PermissionsTests: XCTestCase {
     func testAuthorizationStatusReadsWithoutPrompting() {
         let permission = FakePermission(.limited)
         let bridge = bridge(permission)
-        XCTAssertEqual(bridge.handle(["id": 1, "method": "test.authorizationStatus", "params": [:]])["result"] as? String, "limited")
+        XCTAssertEqual(bridge.handle(["id": 1, "owner": 1, "method": "test.authorizationStatus", "params": [:]])["result"] as? String, "limited")
         XCTAssertEqual(permission.prompts, 0)
     }
 

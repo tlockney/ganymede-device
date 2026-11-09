@@ -270,6 +270,27 @@ final class LedgerTests: XCTestCase {
         XCTAssertNil(bridge.ledger.answer(notebook: "/notes/other.ipynb", capability: "location"))
     }
 
+    func testASystemRefusalSkipsTheAppPrompt() {
+        let bridge = bridge()
+        system.status = .denied
+        let replies = Replies()
+        call(bridge, id: 1, into: replies)
+        XCTAssertEqual(errorCode(replies.last), "denied")
+        XCTAssertTrue(prompter.asked.isEmpty)
+    }
+
+    func testAuthorizationStatusReadsTheLedgersRefusal() {
+        let bridge = bridge()
+        let status = { (owner: Int) in
+            bridge.handle(["id": 9, "owner": owner, "method": "location.authorizationStatus", "params": [:]])["result"] as? String
+        }
+        XCTAssertEqual(status(1), "authorized", "nothing kept: the system status")
+        XCTAssertEqual(status(2), "denied", "no notebook")
+        bridge.ledger.record(.deny, notebook: "/notes/walk.ipynb", capability: "location")
+        XCTAssertEqual(status(1), "denied", "kept deny")
+        XCTAssertTrue(prompter.asked.isEmpty)
+    }
+
     func testDeclarationsListWhatIsStillToAsk() {
         store.saved = [LedgerGrant(notebook: "/n.ipynb", capability: "location", answer: .deny)]
         let bridge = bridge()

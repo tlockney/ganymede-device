@@ -67,9 +67,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public weak var ledgerPrompter: LedgerPrompter?
 
     /// Kernel `owner` (its `webkitHost().owner`) runs the notebook at
-    /// `path`; call it when the kernel starts and when the notebook is
-    /// renamed or moved (or use `notebookMoved`). Permissioned calls from a
-    /// kernel with no notebook are denied.
+    /// `path`; call it when the kernel starts. It moves only that kernel:
+    /// when a notebook is renamed or moved, call `notebookMoved`, which
+    /// also carries its kept answers. Permissioned calls from a kernel with
+    /// no notebook are denied.
     public func setNotebook(_ path: String?, for owner: Int) {
         ledger.setNotebook(path, for: owner)
     }
@@ -293,10 +294,16 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         case _ where answersLater(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         case _ where method.hasSuffix(".authorizationStatus"):
-            guard let permission = permissions[String(method.dropLast(".authorizationStatus".count))] else {
+            let namespace = String(method.dropLast(".authorizationStatus".count))
+            guard let permission = permissions[namespace] else {
                 return Self.error("unavailable", "\(method) isn't available in this app")
             }
-            return ["result": permission.status.rawValue]
+            // What a call would meet: the ledger's refusal (no notebook, or a
+            // kept deny) reads as `denied`, as `requestAuthorization` answers.
+            if let notebook = ledger.notebook(for: owner), ledger.answer(notebook: notebook, capability: namespace) != .deny {
+                return ["result": permission.status.rawValue]
+            }
+            return ["result": PermissionStatus.denied.rawValue]
         case _ where streams.methods[method] != nil:
             return streams.start(method, params, call: Self.callID(call["id"]), owner: owner)
         case _ where Self.dialogMethods.contains(method):
@@ -442,6 +449,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         guard let permission = permissions[namespace] else {
             pending.answer(token, Self.error("unavailable", "\(method) needs the \(namespace) permission, which this app doesn't have"))
+            return
+        }
+        // The system already refused: no point asking the person in the app.
+        if permission.status == .denied || permission.status == .restricted {
+            pending.answer(token, Self.error("denied", "\(method): \(namespace) permission is \(permission.status.rawValue)"))
             return
         }
         checkLedger(method, namespace, call: token, owner: owner, refused: { [weak self] message in
