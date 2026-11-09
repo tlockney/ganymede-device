@@ -1,10 +1,13 @@
 // The whole path short of a real Worker and a real WKWebView: the preload
 // module, a stand-in for cdp-kernel's Worker host channel, webkitHost, and a
 // fake Swift DeviceBridge behind `webkit.messageHandlers.device`.
+// test/host-transport.test.ts runs these again with installHostDevice and a
+// host-function transport (an embedded engine's) over the same fake bridge.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import install, { type WorkerHost } from "../src/preload.ts";
 import { webkitHost } from "../src/webkit.ts";
+import { installHostDevice } from "../src/host.ts";
 import { createDevice, type Device, DeviceError, type DeviceTransport, MAX_BINARY_BYTES, SUPPORT, supportTable, unavailableDevice } from "../src/mod.ts";
 import { decodeBase64, decodeBinary, encodeBase64, encodeBinary } from "../src/binary.ts";
 
@@ -50,9 +53,20 @@ function workerHost(): WorkerHost {
 
 const HELLO = { result: { platform: "macos", appVersion: "0.1", capabilities: ["clipboard.readText", "clipboard.writeText"] } };
 
+/** Set by test/host-transport.test.ts: install through an engine's host function instead. */
+const viaHostFunction = (globalThis as { deviceTestTransport?: string }).deviceTestTransport === "host";
+
+/** What Swift's `__ganymedeDevice` does: JSON text to the same bridge and back. */
+async function hostFunction(message: string): Promise<string> {
+  const handler = globalThis.webkit?.messageHandlers.device;
+  if (!handler) return JSON.stringify({ error: { code: "unavailable", message: "no bridge" } });
+  return JSON.stringify((await handler.postMessage(JSON.parse(message))) ?? null);
+}
+
 async function installed(): Promise<Device> {
   delete (globalThis as { device?: unknown }).device;
-  await install({ host: workerHost() });
+  if (viaHostFunction) await installHostDevice(hostFunction);
+  else await install({ host: workerHost() });
   return globalThis.device as Device;
 }
 

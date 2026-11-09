@@ -22,7 +22,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let haptics: Haptics
     private let urlOpener: URLOpener
     let state: DeviceState
-    private let dialogs: DialogQueue
+    let dialogs: DialogQueue
+    /// Engine contexts' owners and call ids so far (`engineDevice()`).
+    var nextEngineOwner = 0
+    var nextEngineCallID = 0
     private let sounds: Sounds
     /// What calls opened that outlive them: sound players, so far.
     let handles: Handles
@@ -261,12 +264,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// the kernel page's alone: the UI page that answers server kernels
     /// navigated or its process ended.
     public func dropRemote() {
-        dialogs.drop { $0 < 0 }
-        sounds.stop { $0 < 0 }
-        handles.stop { $0 < 0 }
-        streams.stop { $0 < 0 }
-        cancelPending { $0 < 0 }
-        ledger.forget { $0 < 0 }
+        // Engine contexts' are below the remote handler's and stay.
+        let remote: (Int) -> Bool = { $0 < 0 && !Self.isEngine($0) }
+        dialogs.drop(remote)
+        sounds.stop(remote)
+        handles.stop(remote)
+        streams.stop(remote)
+        cancelPending(remote)
+        ledger.forget(remote)
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
