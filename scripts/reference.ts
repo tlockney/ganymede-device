@@ -81,6 +81,13 @@ const sections: Section[] = [
     intro: "The system camera screen, on iPad and iPhone. `capture` needs the camera permission. The permission methods work where the rest of the namespace does.",
   },
   {
+    iface: "Reminders",
+    prefix: "device.reminders.",
+    heading: "device.reminders",
+    support: "reminders.",
+    intro: "Over EventKit, on the Mac, iPad and iPhone. Every method needs the reminders permission; with write-only access only `add` works. Reminders are plain records (`Reminder`); recurrence, alarms and subtasks aren't wrapped. The permission methods work where the rest of the namespace does.",
+  },
+  {
     iface: "SoundPlayer",
     prefix: "player.",
     heading: "SoundPlayer",
@@ -131,6 +138,10 @@ const types: { name: string; file: string }[] = [
   { name: "Contact", file: DEVICE },
   { name: "LabeledValue", file: DEVICE },
   { name: "PostalAddress", file: DEVICE },
+  { name: "ReminderCalendar", file: DEVICE },
+  { name: "Reminder", file: DEVICE },
+  { name: "NewReminder", file: DEVICE },
+  { name: "ListRemindersOptions", file: DEVICE },
   { name: "AuthorizationStatus", file: "src/permission.ts" },
 ];
 

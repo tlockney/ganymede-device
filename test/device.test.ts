@@ -153,6 +153,12 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.contacts.add({ givenName: "a" }).catch(() => {}); // null isn't an id
   await device.contacts.delete("x").catch(() => {}); // null isn't a boolean
   await device.camera.capture();
+  await device.reminders.calendars().catch(() => {}); // null isn't a list
+  await device.reminders.list().catch(() => {});
+  await device.reminders.add({ title: "a" }).catch(() => {});
+  await device.reminders.complete("x").catch(() => {});
+  await device.reminders.uncomplete("x").catch(() => {});
+  await device.reminders.delete("x").catch(() => {});
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 

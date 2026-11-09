@@ -790,6 +790,149 @@ export interface Camera extends Authorization {
   capture(options?: CallOptions): Promise<Uint8Array | null>;
 }
 
+/** A reminder list, from `device.reminders.calendars()`. */
+export interface ReminderCalendar {
+  /** The list's id, for `list({ calendar })` and `add({ calendar })`. */
+  id: string;
+  /** The list's name, as the Reminders app shows it. */
+  title: string;
+  /** Whether `add` puts reminders here when it isn't given a list. */
+  isDefault: boolean;
+}
+
+/** A reminder as `device.reminders` reads it: a plain record. */
+export interface Reminder {
+  /** The store's identifier, for `complete`, `uncomplete` and `delete`. */
+  id: string;
+  /** What to do. */
+  title: string;
+  /** The id of the list it is in. */
+  calendar: string;
+  /** Whether it is done. */
+  completed: boolean;
+  /** Notes, when it has any. */
+  notes?: string;
+  /** `"YYYY-MM-DD"` for a due day, or an ISO 8601 date and time when it is due at a time. */
+  due?: string;
+  /** 1 (high) to 9 (low); left out for none. The Reminders app shows 1, 5 and 9 as high, medium and low. */
+  priority?: number;
+  /** When it was completed, as ISO 8601. */
+  completedAt?: string;
+}
+
+/** A reminder for `device.reminders.add`: a title, and the rest optional. */
+export interface NewReminder {
+  /** What to do. */
+  title: string;
+  /** Notes. */
+  notes?: string;
+  /** A due day (`"YYYY-MM-DD"`), or a day and time: an ISO 8601 string or a `Date`. */
+  due?: string | Date;
+  /** 0 (none, the default) or 1 (high) to 9 (low). */
+  priority?: number;
+  /** The id of the list to add it to; the default list when left out. */
+  calendar?: string;
+}
+
+/** Options for `device.reminders.list`. */
+export interface ListRemindersOptions extends CallOptions {
+  /** A list's id from `calendars()`; every list when left out. */
+  calendar?: string;
+  /** `true` for completed reminders only, `false` for incomplete ones only; both when left out. */
+  completed?: boolean;
+}
+
+/**
+ * The person's reminders, over EventKit. Every method needs the
+ * reminders permission: the first call asks (the app's prompt for this
+ * notebook, then the system's), and a refusal rejects `denied`. With
+ * write-only access (`authorizationStatus()` reads `writeOnly`), `add`
+ * works and the methods that read reject `denied`. No recurrence, alarms
+ * or subtasks.
+ */
+export interface Reminders extends Authorization {
+  /**
+   * The reminder lists.
+   *
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns The lists, the default one marked `isDefault`.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read reminders.
+   * @example
+   * ```ts
+   * for (const list of await device.reminders.calendars()) console.log(list.title, list.isDefault);
+   * ```
+   */
+  calendars(options?: CallOptions): Promise<ReminderCalendar[]>;
+  /**
+   * Reminders, from one list or all of them.
+   *
+   * @param options `calendar`, a list's id; `completed`, to see only completed or only incomplete ones; and the call's `signal`.
+   * @returns The reminders, or `[]`.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read reminders; `failed` when `calendar` isn't a reminder list.
+   * @example
+   * ```ts
+   * const open = await device.reminders.list({ completed: false });
+   * for (const r of open) console.log(r.title, r.due ?? "");
+   * ```
+   */
+  list(options?: ListRemindersOptions): Promise<Reminder[]>;
+  /**
+   * Adds a reminder.
+   *
+   * @param reminder A `title`, and optional `notes`, `due`, `priority` and `calendar`.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a reminder already saved stays.
+   * @returns The new reminder's id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not add reminders; `failed` when the title is empty, `due` isn't a date, `priority` isn't 0 to 9, or `calendar` isn't a list that can be added to.
+   * @example
+   * ```ts
+   * const id = await device.reminders.add({ title: "Buy milk", due: "2026-11-10", priority: 1 });
+   * ```
+   */
+  add(reminder: NewReminder, options?: CallOptions): Promise<string>;
+  /**
+   * Marks a reminder done.
+   *
+   * @param id The reminder's id.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns `true`, or `false` when there is no reminder with that id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+   * @example
+   * ```ts
+   * const [first] = await device.reminders.list({ completed: false });
+   * if (first) await device.reminders.complete(first.id);
+   * ```
+   */
+  complete(id: string, options?: CallOptions): Promise<boolean>;
+  /**
+   * Marks a reminder not done.
+   *
+   * @param id The reminder's id.
+   * @param options The call's `signal`. Cancel rejects `cancelled`.
+   * @returns `true`, or `false` when there is no reminder with that id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+   * @example
+   * ```ts
+   * const [last] = await device.reminders.list({ completed: true });
+   * if (last) await device.reminders.uncomplete(last.id);
+   * ```
+   */
+  uncomplete(id: string, options?: CallOptions): Promise<boolean>;
+  /**
+   * Deletes a reminder.
+   *
+   * @param id The reminder's id.
+   * @param options The call's `signal`. Cancel rejects `cancelled`; a reminder already deleted stays deleted.
+   * @returns `true`, or `false` when there is no reminder with that id.
+   * @throws {DeviceError} `denied` when the notebook or the system may not read reminders; `failed` when `id` is empty or the store refuses.
+   * @example
+   * ```ts
+   * const id = await device.reminders.add({ title: "Test" });
+   * console.log(await device.reminders.delete(id)); // true
+   * ```
+   */
+  delete(id: string, options?: CallOptions): Promise<boolean>;
+}
+
 /** Options for `device.sound.play`. */
 export interface PlaySoundOptions extends CallOptions {
   /** From 0 to 1; 1 by default. */
@@ -1117,6 +1260,8 @@ export interface Device {
   readonly contacts: Contacts;
   /** The system camera: see `Camera`. */
   readonly camera: Camera;
+  /** The person's reminders: see `Reminders`. */
+  readonly reminders: Reminders;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -1472,7 +1617,69 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         throw new DeviceError("failed", "the host's camera.capture reply is malformed");
       },
     },
+    reminders: {
+      ...permission("reminders"),
+      async calendars(options = {}) {
+        const lists = await call("reminders.calendars", {}, options);
+        if (!Array.isArray(lists)) throw new DeviceError("failed", "the host's reminders.calendars reply is malformed");
+        return lists.map((list) => {
+          if (!isRecord(list) || typeof list.id !== "string" || typeof list.title !== "string") {
+            throw new DeviceError("failed", "the host's reminders.calendars reply is malformed");
+          }
+          return { id: list.id, title: list.title, isDefault: list.isDefault === true };
+        });
+      },
+      async list(options = {}) {
+        const { signal, calendar, completed } = options;
+        if (calendar !== undefined && (typeof calendar !== "string" || calendar === "")) throw new DeviceError("failed", "reminders.list: calendar must be a list id from calendars()");
+        if (completed !== undefined && typeof completed !== "boolean") throw new DeviceError("failed", "reminders.list: completed must be true or false");
+        const found = await call("reminders.list", defined({ calendar, completed }), { signal });
+        if (!Array.isArray(found)) throw new DeviceError("failed", "the host's reminders.list reply is malformed");
+        return found.map((item) => reminderRecord("reminders.list", item));
+      },
+      async add(reminder, options = {}) {
+        if (!isRecord(reminder)) throw new DeviceError("failed", "reminders.add needs a reminder object");
+        const due = reminder.due instanceof Date ? reminder.due.toISOString() : reminder.due;
+        const id = await call("reminders.add", { reminder: { ...reminder, ...defined({ due }) } }, options);
+        if (typeof id !== "string") throw new DeviceError("failed", "the host's reminders.add reply is malformed");
+        return id;
+      },
+      async complete(id, options = {}) {
+        checkReminderID("reminders.complete", id);
+        return booleanReply("reminders.complete", await call("reminders.complete", { id }, options));
+      },
+      async uncomplete(id, options = {}) {
+        checkReminderID("reminders.uncomplete", id);
+        return booleanReply("reminders.uncomplete", await call("reminders.uncomplete", { id }, options));
+      },
+      async delete(id, options = {}) {
+        checkReminderID("reminders.delete", id);
+        return booleanReply("reminders.delete", await call("reminders.delete", { id }, options));
+      },
+    },
   };
+}
+
+function checkReminderID(method: string, id: unknown): void {
+  if (typeof id !== "string" || id === "") throw new DeviceError("failed", `${method} needs a reminder id`);
+}
+
+function booleanReply(method: string, value: unknown): boolean {
+  if (typeof value !== "boolean") throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  return value;
+}
+
+/** A host's reminder, checked: id, title, list and completion, and the optional parts of the right types. */
+function reminderRecord(method: string, value: unknown): Reminder {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string" || typeof value.calendar !== "string" || typeof value.completed !== "boolean") {
+    throw new DeviceError("failed", `the host's ${method} reply is malformed`);
+  }
+  const reminder: Reminder = { id: value.id, title: value.title, calendar: value.calendar, completed: value.completed };
+  for (const key of ["notes", "due", "completedAt"] as const) {
+    if (typeof value[key] === "string") reminder[key] = value[key];
+  }
+  if (typeof value.priority === "number" && Number.isInteger(value.priority)) reminder.priority = value.priority;
+  return reminder;
 }
 
 function checkContactID(method: string, id: unknown): void {

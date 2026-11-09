@@ -592,6 +592,10 @@ Done:
 15. **Phase 2's contacts** (#66): `device.contacts.search`, `get`, `all`,
    `add` and `delete` over the Contacts framework, Mac, iPad and iPhone,
    contacts as plain records (docs/protocol.md, "Methods").
+16. **Phase 2's reminders** (#67): `device.reminders.calendars`, `list`,
+   `add`, `complete`, `uncomplete` and `delete` over EventKit, Mac, iPad
+   and iPhone; write-only access adds but doesn't read (docs/protocol.md,
+   "Methods").
 
 Next:
 
