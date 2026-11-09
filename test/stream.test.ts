@@ -124,8 +124,9 @@ test("aborting while the cell waits rejects cancelled and ends the stream on the
   controller.abort();
   await assert.rejects(waiting, (err: DeviceError) => err instanceof DeviceError && err.code === "cancelled");
   assert.ok(host.stopped);
-  // The cancel ended it; no close follows, and the stream is done.
-  assert.ok(!methods(host).includes("stream.close"));
+  // A quiet close follows, in case the cancel didn't reach the host's read; the stream is done.
+  assert.deepEqual(host.sent.at(-1), { method: "stream.close", params: { stream: 7 } });
+  assert.equal(methods(host).filter((m) => m === "stream.close").length, 1);
   assert.deepEqual(await stream.next(), { done: true, value: undefined });
 });
 
@@ -241,8 +242,71 @@ test("through webkitHost, a cancelled stream.next posts the cancel Swift ends th
     const next = received[1];
     assert.equal(opened.method, "test.ticks");
     assert.deepEqual(next.params, { stream: opened.id });
-    assert.deepEqual(received.at(-1), { id: next.id, cancel: true });
+    const cancel = received.findIndex((m) => m.cancel);
+    assert.deepEqual(received[cancel], { id: next.id, cancel: true });
+    // Then the close, in case the cancel came too early or too late for Swift's read.
+    assert.deepEqual(received.slice(cancel + 1).map((m) => [m.method, m.params]), [["stream.close", { stream: opened.id }]]);
   } finally {
     delete (globalThis as { webkit?: unknown }).webkit;
   }
+});
+
+// #82: the host ends a stream on a cancel only while the read waits there.
+
+test("a stream.next that fails before reaching the host still closes the stream", async () => {
+  const sent: Sent[] = [];
+  const transport: DeviceTransport = {
+    call(method, params) {
+      sent.push({ method, params });
+      if (method === "test.ticks") return Promise.resolve({ stream: 5 });
+      if (method === "stream.close") return Promise.resolve(null);
+      // As webkitHost's "cancelled before it was sent": the host never sees the read.
+      return Promise.reject(new DeviceError("cancelled", "stream.next was cancelled before it was sent"));
+    },
+  };
+  const stream = openStream(transport, "test.ticks", {});
+  await assert.rejects(stream.next(), (err: DeviceError) => err.code === "cancelled");
+  assert.deepEqual(sent.map((s) => s.method), ["test.ticks", "stream.next", "stream.close"]);
+  assert.deepEqual(sent.at(-1)?.params, { stream: 5 });
+  assert.deepEqual(await stream.next(), { done: true, value: undefined });
+});
+
+test("a malformed stream.next reply closes the stream", async () => {
+  const sent: string[] = [];
+  const transport: DeviceTransport = {
+    call(method) {
+      sent.push(method);
+      if (method === "test.ticks") return Promise.resolve({ stream: 5 });
+      if (method === "stream.close") return Promise.resolve(null);
+      return Promise.resolve({ values: "nope" });
+    },
+  };
+  await assert.rejects(openStream(transport, "test.ticks", {}).next(), (err: DeviceError) => err.code === "failed");
+  assert.deepEqual(sent, ["test.ticks", "stream.next", "stream.close"]);
+});
+
+test("a read that throws stops the stream", async () => {
+  const host = new FakeHost();
+  host.push(1, "bad", 3);
+  const read = (value: unknown) => {
+    if (typeof value !== "number") throw new DeviceError("failed", "not a number");
+    return value;
+  };
+  const seen: number[] = [];
+  await assert.rejects(async () => {
+    for await (const value of openStream(host, "test.ticks", {}, {}, read)) seen.push(value);
+  }, (err: DeviceError) => err.code === "failed");
+  assert.deepEqual(seen, [1]);
+  assert.ok(host.stopped);
+  assert.deepEqual(host.sent.at(-1), { method: "stream.close", params: { stream: 7 } });
+});
+
+test("a read that throws something else still rejects with a DeviceError", async () => {
+  const host = new FakeHost();
+  host.push(1);
+  const stream = openStream(host, "test.ticks", {}, {}, () => {
+    throw new TypeError("boom");
+  });
+  await assert.rejects(stream.next(), (err) => err instanceof DeviceError);
+  assert.ok(host.stopped);
 });

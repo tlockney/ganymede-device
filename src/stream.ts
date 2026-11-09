@@ -52,7 +52,7 @@ export function openStream<T>(
   const signals = [options.signal, options.cellSignal].filter((s): s is AbortSignal => s !== undefined);
   const signal = signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
   let id: number | null = null;
-  /** The host ended the stream (end, error, or a cancelled `stream.next`): nothing to close. */
+  /** The host ended the stream (it said `end`), or it was closed: nothing to close. */
   let hostEnded = false;
   let done = false;
   let dropped = 0;
@@ -99,7 +99,15 @@ export function openStream<T>(
 
   async function pull(): Promise<IteratorResult<T, undefined>> {
     while (true) {
-      if (buffer.length > 0) return { done: false, value: read(buffer.shift()) };
+      if (buffer.length > 0) {
+        try {
+          return { done: false, value: read(buffer.shift()) };
+        } catch (err) {
+          // `for await` doesn't call return() when next() throws.
+          stop();
+          throw DeviceError.from(err);
+        }
+      }
       if (stoppedByAbort) throw aborted();
       // Ended by the host with nothing left to hand out, or stopped here.
       if (done || hostEnded) {
@@ -133,8 +141,11 @@ export function openStream<T>(
         // Values already sent are still read; then the stream is done.
         if (batch.end === true) hostEnded = true;
       } catch (err) {
-        // A failed or cancelled call ends the stream on the host too.
-        hostEnded = true;
+        // Close it even so: the host ends a stream on a cancel only while
+        // that read waits there, not when the abort came before the read
+        // reached it or after it answered, nor after a reply this side
+        // couldn't read. A stream the host already forgot answers the
+        // close with null.
         stop();
         throw err;
       } finally {

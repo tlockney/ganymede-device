@@ -568,6 +568,13 @@ Done:
    `DeviceBridge.addStream` with a drop-oldest queue per stream
    (docs/protocol.md, "Streams"). No method streams yet; location and
    motion will.
+9. **Phase 2's permission core** (#59): the trio (`authorization()` in
+   src/permission.ts), and in Swift `addPermission`, `addMethod` and
+   `addStream(permission:)`, which ask lazily and reject `denied`
+   (docs/protocol.md, "Permissions").
+10. **Phase 2's ledger, Swift side** (#60): `DeviceBridge.ledger`, the
+   notebook per kernel, `ledgerPrompter`, declarations (docs/protocol.md,
+   "The ledger"). The app's prompt and Settings pane are ganymede-ui#383.
 
 Next:
 

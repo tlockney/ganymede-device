@@ -162,11 +162,86 @@ nothing pushes into the Worker.
   cell's `jupyter.signal`. A new `hello` from the same owner, `release`,
   `dropPage()`, `dropRemote()` and `dropAll()` stop the owner's streams.
 - At most 16 streams are open per kernel. `stream.next` and
-  `stream.close` reach only the calling kernel's (`owner`) streams;
-  another kernel's id answers as no such stream.
+  `stream.close` reach only the calling kernel's (`owner`) streams:
+  `stream.next` on another kernel's id fails `failed` as no such stream,
+  and `stream.close` answers `null` and leaves it running, as it does for
+  an id that has ended or never was.
 - Streaming methods are on-device only: none is in the remote subset, and
   `stream.next` and `stream.close` aren't either, so over a comm they
   fail `unavailable`.
+
+## Permissions
+
+A namespace that needs a system (TCC) permission, such as `location`,
+has the trio in TypeScript (`authorization()` in src/permission.ts) and
+answers two more methods:
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `<namespace>.authorizationStatus` | `{}` | the status, without prompting |
+| `<namespace>.requestAuthorization` | `{}` | the status after the system prompt; without one when the person was already asked |
+
+The status is one of `notDetermined`, `denied`, `restricted`,
+`authorized`, `limited`, `writeOnly` or `reducedAccuracy`. The last
+three are partial grants (some contacts or photos; add-only reminders or
+photos; approximate location) and count as granted.
+
+- The namespace's other methods ask lazily: a call while the status is
+  `notDetermined` shows the system prompt first, and any status short of
+  a grant rejects the call `denied`. Calling `requestAuthorization()`
+  first is optional. Calls that come while a prompt is up wait on that
+  prompt; it shows once.
+- A cancel (interrupt, abort) while the prompt is up rejects the call
+  `cancelled` at once. The system prompt can't be closed; its answer
+  still sets the status for later calls, but the cancelled call doesn't
+  run.
+- In Swift, `DeviceBridge.addPermission(namespace, permission)` takes a
+  `Permission` wrapping the framework's status and request; methods take
+  `permission: namespace` in `addMethod` (calls that answer later, with a
+  cancel action) or `addStream`. Handlers throw or reply
+  `DeviceCallError(code, message)` for an error with a code.
+- Permissioned methods are on-device only: `support.ts` marks them
+  `remote: "no"` and `browser: "no"` with a `permission` field, and the
+  generated support table gains a Permission column with the first one.
+  Their TSDoc names the permission ("Needs the location permission.").
+- The app's own ledger (below) is checked before the system prompt.
+
+### The ledger
+
+Before the system prompt, the app asks the person whether this notebook
+may use the capability (docs/plan.md, "Permissions" item 2). The ledger
+lives in Swift (`DeviceBridge.ledger`, Ledger.swift); nothing new crosses
+the wire.
+
+- The host says which notebook each kernel runs:
+  `setNotebook(path, for: owner)` when the kernel starts (`owner` is its
+  `webkitHost().owner`), and `notebookMoved(from:to:)` on a rename or
+  move, which carries kept answers along (replacing answers left at the
+  new path). A permissioned call from a kernel with no notebook is
+  denied. `release`, `dropPage()`, `dropRemote()` and `dropAll()` forget
+  their kernels' notebooks, since owner numbers start over with the page:
+  set the notebook again for each kernel the new page starts.
+- Answers: once (this call), always, deny. "Always" and "deny" are kept,
+  keyed by (notebook path, capability), in UserDefaults by default
+  (`LedgerStore`). A kept "deny" rejects `denied` without the system
+  prompt; so does a dismissed prompt, which keeps nothing.
+  `requestAuthorization()` answers `denied` when the ledger refuses, and
+  `authorizationStatus()` reads `denied` for a kernel with no notebook or
+  a kept deny. When the system status is already `denied` or
+  `restricted`, a call fails without the app's prompt.
+- The app shows the prompt through `ledgerPrompter`
+  (`askPermission(capability, notebook:, id:, answer:)`). Calls for the
+  same notebook and capability share one prompt. A cancel takes the call
+  off it, and once no call waits, `dismissPermission(id)` closes it.
+  With no prompter (headless runs: share sheet, Shortcuts), only kept
+  "always" answers let a call through.
+- `ledger.grants` and `ledger.revoke(notebook:capability:)` are for the
+  Settings screen; a revoke applies from the next call.
+- Declarations: `undecided(declared, notebook:)` takes a notebook's
+  `metadata.ganymede.device` list and returns the capabilities this app
+  has with no kept answer, so the app can ask when the notebook opens.
+- Pickers, share and dialogs need no permission, so they never reach
+  the ledger.
 
 ## Dialogs
 

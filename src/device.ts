@@ -5,6 +5,7 @@
 
 import { type Bytes, MAX_BINARY_BYTES, toBytes } from "./binary.ts";
 import { DeviceError } from "./errors.ts";
+import { type Authorization, authorization } from "./permission.ts";
 import { type DeviceStream, openStream } from "./stream.ts";
 
 /**
@@ -374,6 +375,10 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
   function stream<T>(method: string, params: Record<string, unknown>, options: CallOptions, read: (value: unknown) => T): DeviceStream<T> {
     requireMethod(method);
     return openStream(transport, method, params, { ...options, cellSignal: readCellSignal() }, read);
+  }
+  /** A permissioned namespace's trio (src/permission.ts). */
+  function permission(namespace: string): Authorization {
+    return authorization(call, namespace);
   }
   function readCellSignal(): AbortSignal | undefined {
     try {
