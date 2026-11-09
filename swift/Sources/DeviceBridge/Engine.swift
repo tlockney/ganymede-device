@@ -22,6 +22,9 @@ public final class EngineDevice {
     /// This context's owner in the bridge: `setNotebook(_:for:)` keys the
     /// ledger with it.
     public let owner: Int
+    /// A run with no one to answer (the share sheet, Shortcuts, a widget):
+    /// see `allows(_:)`.
+    public let headless: Bool
     private weak var bridge: DeviceBridge?
     private weak var host: DialogHost?
     /// The context's call ids, to the bridge's, while a call is open.
@@ -33,10 +36,27 @@ public final class EngineDevice {
     private let keptAnswers = 64
     private var released = false
 
-    init(bridge: DeviceBridge, owner: Int, host: DialogHost?) {
+    init(bridge: DeviceBridge, owner: Int, host: DialogHost?, headless: Bool) {
         self.bridge = bridge
         self.owner = owner
         self.host = host
+        self.headless = headless
+    }
+
+    /// Whether this context may call `method` now. Always, unless it is
+    /// headless; then not a dialog or picker, not a permission request,
+    /// and a permissioned method only when the context's notebook has a
+    /// kept "always" for it and the system has granted it
+    /// (docs/phase-4.md, part 2). `hello` lists only what this allows.
+    public func allows(_ method: String) -> Bool {
+        guard headless else { return true }
+        guard let bridge else { return false }
+        if bridge.personMethods.contains(method) || method.hasSuffix(".requestAuthorization") { return false }
+        guard let namespace = bridge.permissionNamespace(method) else { return true }
+        guard let notebook = bridge.ledger.notebook(for: owner),
+              bridge.ledger.answer(notebook: notebook, capability: namespace) == .always
+        else { return false }
+        return bridge.isAuthorized(namespace)
     }
 
     /// Defines `name` (`__ganymedeDevice` by default) in `context`'s global
@@ -89,6 +109,19 @@ public final class EngineDevice {
             }
             call["id"] = id
             return reply(Self.text(bridge.handle(call)))
+        }
+        if headless, let method = call["method"] as? String {
+            if method == "hello" {
+                var answer = bridge.handle(call)
+                if var hello = answer["result"] as? [String: Any], let all = hello["capabilities"] as? [String] {
+                    hello["capabilities"] = all.filter(allows)
+                    answer["result"] = hello
+                }
+                return reply(Self.text(answer))
+            }
+            guard allows(method) else {
+                return reply(Self.text(DeviceBridge.error("unavailable", "\(method) isn't available in a headless run")))
+            }
         }
         var id: Int?
         if let engineID {
@@ -145,11 +178,13 @@ public final class EngineDevice {
 
 extension DeviceBridge {
     /// A link for one engine context, with an owner of its own. `host` is
-    /// the view whose window shows its dialogs; a headless run has none
-    /// (and no presenter, so dialogs fail).
-    public func engineDevice(host: DialogHost? = nil) -> EngineDevice {
+    /// the view whose window shows its dialogs. A `headless` context (a
+    /// run with no notebook on screen) gets only what works without a
+    /// person; set its notebook with `setNotebook(_:for:)` so its kept
+    /// answers apply.
+    public func engineDevice(host: DialogHost? = nil, headless: Bool = false) -> EngineDevice {
         nextEngineOwner += 1
-        return EngineDevice(bridge: self, owner: -(engineBase + nextEngineOwner), host: host)
+        return EngineDevice(bridge: self, owner: -(engineBase + nextEngineOwner), host: host, headless: headless)
     }
 
     /// A bridge-wide id for an engine context's call.

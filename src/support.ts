@@ -25,6 +25,13 @@ export interface SupportRow {
   /** The browser lets a page call it only after a click on a prompt the page shows. */
   browserClick?: boolean;
   /**
+   * A headless run (an embedded engine with no notebook on screen: the
+   * share sheet, Shortcuts, a widget). Absent means as on-device, except
+   * that a permissioned method needs a kept "Always" for the notebook;
+   * "no" for anything that waits for the person, such as a dialog.
+   */
+  headless?: Support;
+  /**
    * The system permission the call needs on-device, such as "location",
    * the namespace whose trio (`authorizationStatus()`,
    * `requestAuthorization()`) covers it. A permissioned method is `no` for
@@ -120,6 +127,7 @@ export const SUPPORT = {
     call: "ui.alert(message, { title })",
     returns: "nothing, once closed",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "planned",
     note: "A sheet on the Mac, an alert on iPhone and iPad; a browser will show it in the cell's output.",
@@ -128,6 +136,7 @@ export const SUPPORT = {
     call: "ui.confirm(message, { title, destructive, okLabel })",
     returns: "`boolean`",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "planned",
   },
@@ -135,6 +144,7 @@ export const SUPPORT = {
     call: "ui.prompt(message, { title, placeholder, defaultValue, secure })",
     returns: "`string`, or `null`",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "planned",
   },
@@ -142,6 +152,7 @@ export const SUPPORT = {
     call: "ui.actionSheet(title, options, { message, cancel, destructive })",
     returns: "the option's index, or `null`",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "planned",
   },
@@ -149,6 +160,7 @@ export const SUPPORT = {
     call: "ui.pickDate({ mode, title, value, min, max })",
     returns: "`Date`, or `null`",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "planned",
   },
@@ -156,6 +168,7 @@ export const SUPPORT = {
     call: "share({ text, url, files })",
     returns: "`true` when sent, `false` when dismissed",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "yes",
     browserClick: true,
@@ -165,6 +178,7 @@ export const SUPPORT = {
     call: "preview(files)",
     returns: "nothing, once closed",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "no",
     note: "Quick Look, which picks the viewer from each file name's extension. A browser has no Quick Look.",
@@ -173,6 +187,7 @@ export const SUPPORT = {
     call: "files.pick({ types, multiple })",
     returns: "`File[]`, `[]` when cancelled",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "yes",
     browserClick: true,
@@ -182,6 +197,7 @@ export const SUPPORT = {
     call: "files.export(data, { name })",
     returns: "`true` when saved, `false` when cancelled",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "yes",
     browserClick: true,
@@ -208,6 +224,7 @@ export const SUPPORT = {
     call: "photos.pick({ limit })",
     returns: "`File[]`, `[]` when cancelled",
     onDevice: "yes",
+    headless: "no",
     remote: "yes",
     browser: "yes",
     browserClick: true,
@@ -355,6 +372,7 @@ export const SUPPORT = {
     call: "camera.capture()",
     returns: "JPEG bytes, or `null` when cancelled",
     onDevice: "yes",
+    headless: "no",
     devices: "iPad, iPhone",
     remote: "no",
     browser: "no",
@@ -440,6 +458,7 @@ export const SUPPORT = {
     call: "folders.pick({ write })",
     returns: "a `Folder`, or `null` when cancelled",
     onDevice: "yes",
+    headless: "no",
     remote: "no",
     browser: "no",
     note: "The system folder picker, which is the consent; the folder stays the notebook's until revoked in Settings. A browser would need the File System Access API, which Safari doesn't have.",

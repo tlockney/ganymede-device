@@ -730,3 +730,28 @@ context, `install(in:)` defines the function in a `JSContext`, and
   that call opened, for the context's latest 64 answered calls.
 - Call the function, and run the context, on the main thread; a call
   from another thread fails `unavailable`.
+
+### Headless runs
+
+A run with no notebook on screen (the share sheet, Shortcuts, a widget)
+gets `bridge.engineDevice(headless: true)`. Set its notebook, the
+script's path, with `setNotebook(_:for:)` so its kept answers apply.
+`allows(method)` says what such a context may call:
+
+- Not a dialog, picker, `share` or `preview` (`DeviceBridge.dialogMethods`
+  and the dialogs a namespace added), and no `requestAuthorization`.
+- A method that needs a permission only when the ledger has a kept
+  "always" for the notebook and capability, and the system has granted
+  the permission.
+- Everything else, such as `authorizationStatus`, the clipboard and
+  sounds.
+
+Its `hello` lists only those methods, so `device.has()` answers
+truthfully, and any other call fails `unavailable` without reaching the
+ledger or a dialog. The `headless` column of `src/support.ts` says which
+methods a headless run never has.
+
+Extensions read the app's kept answers from an App Group suite: pass
+`PermissionLedger(store: UserDefaultsLedgerStore(defaults:
+UserDefaults(suiteName: "group.<name>")!))` in the app and in each
+extension. Only the app writes.

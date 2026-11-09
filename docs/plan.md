@@ -425,7 +425,7 @@ never reach a permissioned feature.
      chooses what to hand over, so no ledger prompt.
    - A Settings screen lists and revokes grants.
    - Headless runs (share sheet, Shortcuts) use grants already given;
-     they can't show a prompt, so an ungranted call fails `denied`.
+     they can't show a prompt, so an ungranted call fails `unavailable`.
 
 Files: picked files are copied in by value for v1. Persistent access
 (security-scoped bookmarks to a folder) is Phase 3 and maps to Deno-style
