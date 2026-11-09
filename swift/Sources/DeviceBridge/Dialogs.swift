@@ -584,6 +584,9 @@ public struct SystemDialogPresenter: DialogPresenter {
             throw DialogUnavailable(description: "there is no window to show a dialog on")
         }
         let controller: UIViewController
+        // A write folder pick's alert hands over to the picker: close
+        // whichever is showing.
+        var consentFlow: ConsentFlow?
         switch dialog {
         case let .alert(title, message):
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
@@ -643,13 +646,22 @@ public struct SystemDialogPresenter: DialogPresenter {
         case .capturePhoto:
             controller = try CameraPicker.controller(done: done)
         case let .pickFolder(write):
-            controller = write ? FilePicker.writeConsent(done: done) : FilePicker.folder(done: done)
+            if write {
+                let flow = ConsentFlow(done: done)
+                consentFlow = flow
+                controller = flow.alert
+            } else {
+                controller = FilePicker.folder(done: done)
+            }
         }
+        let consent = consentFlow
         let state = Presentation()
         let show = {
             guard !state.closed else { return }
             // Whatever is on top once the transition has ended.
-            (Self.topViewController(in: window) ?? top).present(controller, animated: true)
+            let presenter = Self.topViewController(in: window) ?? top
+            consent?.host = presenter
+            presenter.present(controller, animated: true)
             state.presented = true
         }
         // UIKit drops a presentation on a controller still going away, such
@@ -659,10 +671,6 @@ public struct SystemDialogPresenter: DialogPresenter {
         } else {
             show()
         }
-        // A write folder pick's alert hands over to the picker: close
-        // whichever is showing. Held here, since once gone from the
-        // screen nothing else keeps the alert.
-        let consent = controller as? ConsentAlert
         return { [weak controller] gone in
             state.closed = true
             consent?.closed = true

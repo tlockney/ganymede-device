@@ -282,28 +282,6 @@ enum FilePicker {
         return picker
     }
 
-    /// `folders.pick({ write: true })`: the document picker takes no
-    /// message, so an alert says first that the notebook may change and
-    /// delete files there, and its Choose Folder shows the picker in its
-    /// place. The alert is the controller the presenter shows and
-    /// closes; closing it also closes the picker it led to.
-    static func writeConsent(done: @escaping (DialogResult) -> Void) -> UIViewController {
-        let picker = folder(done: done)
-        let alert = ConsentAlert(
-            title: "Let the notebook change files?",
-            message: "The notebook will be able to read, change and delete files in the folder you choose next.",
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(.dismissed) })
-        alert.addAction(UIAlertAction(title: "Choose Folder", style: .default) { [weak alert] _ in
-            // Handlers run once the alert has gone, so its presenter is
-            // free to show the picker.
-            guard let alert, !alert.closed, let host = alert.host else { return done(.dismissed) }
-            alert.picker = picker
-            host.present(picker, animated: true)
-        })
-        return alert
-    }
-
     static func export(_ file: NamedFile, done: @escaping (DialogResult) -> Void) throws -> UIViewController {
         let temp = try TemporaryFiles([file])
         let picker = UIDocumentPickerViewController(forExporting: temp.urls, asCopy: true)
@@ -365,24 +343,39 @@ enum PhotoPicker {
     }
 }
 
-/// The alert before a write folder pick. It remembers what showed it and
-/// the picker it led to, so the presenter's close reaches the picker.
-final class ConsentAlert: UIAlertController {
+/// `folders.pick({ write: true })`: the document picker takes no message,
+/// so an alert says first that the notebook may change and delete files
+/// there, and its Choose Folder shows the picker from the same host. The
+/// presenter shows `alert` and closes `shown`, which is the picker once it
+/// is up. A plain alert held here, since UIAlertController is not to be
+/// subclassed.
+final class ConsentFlow {
+    let alert: UIAlertController
+    let picker: UIViewController
+    /// What showed the alert; the presenter sets it.
     weak var host: UIViewController?
-    var picker: UIViewController?
     /// Set when the dialog is closed from code, so Choose Folder shows
     /// nothing after.
     var closed = false
 
-    /// What is on screen for this dialog: the picker once it is up.
-    var shown: UIViewController {
-        if let picker, picker.presentingViewController != nil { return picker }
-        return self
+    init(done: @escaping (DialogResult) -> Void) {
+        picker = FilePicker.folder(done: done)
+        alert = UIAlertController(
+            title: "Let the notebook change files?",
+            message: "The notebook will be able to read, change and delete files in the folder you choose next.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(.dismissed) })
+        alert.addAction(UIAlertAction(title: "Choose Folder", style: .default) { [weak self] _ in
+            // Handlers run once the alert has gone, so the host is free
+            // to show the picker.
+            guard let self, !self.closed, let host = self.host else { return done(.dismissed) }
+            host.present(self.picker, animated: true)
+        })
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        host = presentingViewController
+    /// What is on screen for this dialog: the picker once it is up.
+    var shown: UIViewController {
+        picker.presentingViewController != nil ? picker : alert
     }
 }
 

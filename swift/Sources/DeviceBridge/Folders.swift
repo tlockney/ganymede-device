@@ -270,7 +270,13 @@ enum FolderAccess {
     static func isPlaceholder(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         guard name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".icloud".count + 1 else { return false }
-        return (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+        return isUbiquitous(url)
+    }
+
+    /// Whether iCloud manages `url`. Tests replace it, since a temporary
+    /// directory never is.
+    nonisolated(unsafe) static var isUbiquitous: (URL) -> Bool = { url in
+        (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
     }
 
     /// Whether something is at `url` (a symlink counts as itself), and

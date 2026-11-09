@@ -30,6 +30,8 @@ final class FoldersTests: XCTestCase {
     private var bridge: DeviceBridge!
     private var nextID = 1
 
+    nonisolated(unsafe) private static let ubiquitous = FolderAccess.isUbiquitous
+
     override func setUp() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("folders-\(UUID().uuidString)")
         root = base.appendingPathComponent("Data")
@@ -46,6 +48,7 @@ final class FoldersTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        FolderAccess.isUbiquitous = Self.ubiquitous
         try? FileManager.default.removeItem(at: root.deletingLastPathComponent())
     }
 
@@ -236,6 +239,25 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(entries.map { $0["name"] as? String }, ["a.txt", "latest.txt", "sub"])
         XCTAssertEqual(entries[1]["kind"] as? String, "link")
         XCTAssertNil(entries[1]["size"])
+    }
+
+    func testICloudPlaceholdersListByTheirOwnNameAndRemove() async throws {
+        // A temporary directory is never in iCloud: take `.x.icloud` files
+        // as managed by it.
+        FolderAccess.isUbiquitous = { $0.lastPathComponent.hasSuffix(".icloud") }
+        let picked = await pick(write: true)
+        let id = try XCTUnwrap(picked)
+        try Data().write(to: root.appendingPathComponent(".c.txt.icloud"))
+        try Data().write(to: root.appendingPathComponent(".a.txt.icloud"))
+        let reply = await call("folders.entries", ["folder": id])
+        let entries = try XCTUnwrap(reply["result"] as? [[String: Any]])
+        XCTAssertEqual(entries.map { $0["name"] as? String }, ["a.txt", "c.txt", "sub"])
+        XCTAssertEqual(entries[0]["size"] as? Int, 2, "the downloaded file wins over its placeholder")
+        XCTAssertEqual(entries[1]["kind"] as? String, "file")
+        XCTAssertNil(entries[1]["size"], "not downloaded: no size")
+        let removed = await call("folders.remove", ["folder": id, "path": "c.txt"])
+        XCTAssertTrue(removed["result"] is NSNull)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".c.txt.icloud").path), "removing it deletes the placeholder")
     }
 
     func testANonICloudPlaceholderNameListsAsItself() async throws {
