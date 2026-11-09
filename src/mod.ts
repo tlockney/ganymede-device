@@ -8,6 +8,7 @@ export {
   type Clipboard,
   type ConfirmOptions,
   createDevice,
+  type CreateDeviceOptions,
   type DateMode,
   type Device,
   type DeviceInfo,
@@ -29,6 +30,7 @@ export {
   type UI,
   unavailableDevice,
 } from "./device.ts";
+export { type DeviceStream, openStream, type StreamOptions } from "./stream.ts";
 export { type Bytes, MAX_BINARY_BYTES } from "./binary.ts";
 export { DeviceError, type DeviceErrorCode } from "./errors.ts";
 export { type Method, SUPPORT, type Support, type SupportRow, supportTable } from "./support.ts";
