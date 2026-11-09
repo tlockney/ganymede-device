@@ -723,4 +723,10 @@ context, `install(in:)` defines the function in a `JSContext`, and
 - `dropPage()` and `dropRemote()` leave engine contexts alone.
 - Aborting a call (an interrupt aborts the cell's signal) sends
   `{ id, cancel: true }` and rejects at once. Bytes cross as `{ base64 }`.
-- Call the function, and run the context, on the main thread.
+  A call made once the cell's signal has aborted isn't bound to it, so
+  what the interrupt sends (`stream.close`, a handle's close in a
+  `finally`) still reaches Swift.
+- A cancel that arrives after its call answered still closes the handle
+  that call opened, for the context's latest 64 answered calls.
+- Call the function, and run the context, on the main thread; a call
+  from another thread fails `unavailable`.

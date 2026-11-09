@@ -100,7 +100,11 @@ export async function installHostDevice(post: HostPost | undefined, options: Ins
   };
   const transport: DeviceTransport = {
     call(method, params, callOptions = {}) {
-      const cell = cellSignal();
+      // A cell already interrupted doesn't bind the call: what the
+      // interrupt itself sends (`stream.close`, a handle's close in a
+      // `finally`) must still reach Swift, as it does from the Worker.
+      const current = cellSignal();
+      const cell = current?.aborted ? undefined : current;
       const signal = cell && callOptions.signal ? AbortSignal.any([cell, callOptions.signal]) : (cell ?? callOptions.signal);
       return host.call(method, params, { ...callOptions, signal });
     },

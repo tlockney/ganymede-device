@@ -26,6 +26,11 @@ public final class EngineDevice {
     private weak var host: DialogHost?
     /// The context's call ids, to the bridge's, while a call is open.
     private var calls: [Int: Int] = [:]
+    /// The same for the latest calls that answered, so a cancel that
+    /// arrives after the answer still reaches the handle the call opened
+    /// (docs/protocol.md, "Handles"). Oldest first; at most `keptAnswers`.
+    private var answered: [(engine: Int, bridge: Int)] = []
+    private let keptAnswers = 64
     private var released = false
 
     init(bridge: DeviceBridge, owner: Int, host: DialogHost?) {
@@ -42,6 +47,12 @@ public final class EngineDevice {
             let context = JSContext.current()!
             return JSValue(newPromiseIn: context) { resolve, _ in
                 nonisolated(unsafe) let resolve = resolve
+                // The bridge runs on the main thread; an engine evaluating
+                // elsewhere gets an error, not a crash.
+                guard Thread.isMainThread else {
+                    resolve?.call(withArguments: [Self.text(DeviceBridge.error("unavailable", "device calls must come from the main thread"))])
+                    return
+                }
                 MainActor.assumeIsolated {
                     guard let self else {
                         resolve?.call(withArguments: [Self.text(DeviceBridge.error("unavailable", "the device link is gone"))])
@@ -73,8 +84,9 @@ public final class EngineDevice {
         }
         let engineID = DeviceBridge.callID(call["id"])
         if call["cancel"] as? Bool == true {
-            // A call that already answered has nothing left to cancel.
-            guard let engineID, let id = calls[engineID] else { return reply(Self.text(["result": NSNull()])) }
+            guard let engineID, let id = calls[engineID] ?? answered.last(where: { $0.engine == engineID })?.bridge else {
+                return reply(Self.text(["result": NSNull()]))
+            }
             call["id"] = id
             return reply(Self.text(bridge.handle(call)))
         }
@@ -87,8 +99,10 @@ public final class EngineDevice {
             call.removeValue(forKey: "id")
         }
         bridge.respond(to: call, from: host) { [weak self] answer in
-            if let engineID, let self, self.calls[engineID] == id {
+            if let engineID, let id, let self, self.calls[engineID] == id {
                 self.calls.removeValue(forKey: engineID)
+                self.answered.append((engineID, id))
+                if self.answered.count > self.keptAnswers { self.answered.removeFirst() }
             }
             reply(Self.text(answer))
         }
@@ -99,16 +113,23 @@ public final class EngineDevice {
     /// when the context goes away.
     public func release() {
         guard !released, let bridge else { return }
-        _ = bridge.handle(["owner": owner, "release": true])
-        dropCalls(bridge)
+        // First, so a call the cell starts while what it waited on is
+        // cancelled (JavaScriptCore can run its `catch` inside our reply)
+        // is refused rather than lost.
         released = true
+        dropCalls(bridge)
+        _ = bridge.handle(["owner": owner, "release": true])
     }
 
     /// Closes the dialogs this context's open calls showed, which the
     /// bridge keeps by call id rather than owner, and forgets the calls.
     private func dropCalls(_ bridge: DeviceBridge) {
-        bridge.dialogs.drop { [calls] id in calls.values.contains(id) }
+        // Taken first: closing a dialog answers its call, which can start
+        // another in the same turn.
+        let open = Set(calls.values)
         calls.removeAll()
+        answered.removeAll()
+        bridge.dialogs.drop { open.contains($0) }
     }
 
     static func text(_ reply: [String: Any]) -> String {

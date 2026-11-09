@@ -11,6 +11,23 @@ private final class Board: Clipboard {
     func writeImage(_ data: Data) -> Bool { false }
 }
 
+/// Sounds that never play.
+@MainActor
+private final class Quiet: SoundLoader {
+    func load(_ data: Data) throws -> SoundPlayback { Mute() }
+}
+
+@MainActor
+private final class Mute: SoundPlayback {
+    var duration: TimeInterval = 1
+    var currentTime: TimeInterval = 0
+    var isPlaying = false
+    var volume: Float = 1
+    var onFinish: (() -> Void)?
+    func play() -> Bool { true }
+    func pause() {}
+}
+
 /// Records each dialog; a close counts and finishes at once.
 @MainActor
 private final class Screen: DialogPresenter {
@@ -131,6 +148,30 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(code(reply), "failed", "2^40 itself would be the engine range")
         bridge.respondRemote(to: ["owner": engineBase - 1, "release": true]) { reply = $0 }
         XCTAssertNil(code(reply), "just below is a remote owner")
+    }
+
+    func testACancelAfterTheAnswerClosesTheHandleTheCallOpened() throws {
+        let bridge = DeviceBridge(clipboard: Board(), presenter: screen, sounds: Quiet(), appVersion: "")
+        let engine = bridge.engineDevice()
+        let opened = send(engine, ["id": 3, "method": "sound.player", "params": ["data": ["base64": "AQI="]]])()
+        let player = try XCTUnwrap((opened?["result"] as? [String: Any])?["player"] as? Int)
+        XCTAssertTrue(bridge.handles.isOpen(player, owner: engine.owner, kind: "sound.player"))
+        _ = send(engine, ["id": 3, "cancel": true])
+        XCTAssertFalse(bridge.handles.isOpen(player, owner: engine.owner, kind: "sound.player"))
+    }
+
+    func testACallStartedWhileReleasingIsRefused() {
+        let engine = bridge.engineDevice()
+        var during: [String: Any]?
+        var text = String(data: try! JSONSerialization.data(withJSONObject: ["id": 1, "method": "ui.alert", "params": ["message": "hi"]]), encoding: .utf8)!
+        engine.respond(to: text) { [engine] _ in
+            // What a cell's `catch` could do as its call is cancelled.
+            text = #"{"id":2,"method":"ui.alert","params":{"message":"again"}}"#
+            engine.respond(to: text) { during = try! JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        }
+        engine.release()
+        XCTAssertEqual(code(during), "unavailable")
+        XCTAssertEqual(screen.shown, 1, "nothing new shows after the release")
     }
 
     func testTheEngineFunctionResolvesWithTheReply() async throws {
