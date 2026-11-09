@@ -246,6 +246,40 @@ export const SUPPORT = {
     browser: "no",
     note: "Only the calling notebook's.",
   },
+  "location.current": {
+    call: "location.current({ accuracy })",
+    returns: "a `LocationFix`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "location",
+    note: "While the app is in use only. With precise location off, within a few kilometres.",
+  },
+  "location.watch": {
+    call: "location.watch({ accuracy })",
+    returns: "a stream of `LocationFix`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    permission: "location",
+    note: "Until the loop ends or the cell is interrupted; keeps the newest 16.",
+  },
+  "location.geocode": {
+    call: "location.geocode(address)",
+    returns: "`Place[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Needs the network, not the location permission.",
+  },
+  "location.reverseGeocode": {
+    call: "location.reverseGeocode({ latitude, longitude })",
+    returns: "`Place[]`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    note: "Needs the network, not the location permission.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;
