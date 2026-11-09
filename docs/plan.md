@@ -34,9 +34,10 @@ interface DeviceTransport {
 }
 ```
 
-Planned, added when a method needs them: `stream(method, params, signal)`
-for bounded streams (Phase 2), `on(event, handler)` for host events
-(Phase 3), and binary arguments (see "Message format").
+Bounded streams (Phase 2) are built on `call` (`openStream` in
+src/stream.ts, protocol.md "Streams"), so a transport needs nothing more
+for them. Planned, added when a method needs it: `on(event, handler)` for
+host events (Phase 3).
 
 | Kernel placement | Where it applies | Transport |
 | --- | --- | --- |
@@ -372,8 +373,11 @@ side has one dispatcher:
   files and photos; a streaming method (camera frames, audio) should
   get its own transport rather than base64 per message.
 - Reply: `{ id, result }` or `{ id, error: { code, message } }`.
-- Stream: `{ id, event, value }` until `{ id, end: true }`; cancel with
-  `{ id, cancel: true }`.
+- Stream: the method answers `{ stream }`; the page pulls batches with
+  `stream.next` (`{ values, dropped, end? }`) and stops it with
+  `stream.close` or a cancel (protocol.md, "Streams"). Pulling keeps
+  every message a call, so the Worker's host channel, which only answers
+  requests, needs no push path.
 - Host events: `{ event, value }` with no `id`.
 - A `hello` at install returns platform, app version and capabilities.
 - Methods are named `namespace.method` (`location.current`); additive
@@ -559,6 +563,10 @@ Done:
    (ganymede-ui#406, #75). Not yet: the `ui.*` dialogs.
 7. **Phase 0's exit** (#19): tried on a Mac and an iPad, including
    that an HTML output can't reach the bridge.
+8. **Phase 2's bounded streams** (#58): `openStream` over `call`, and
+   `DeviceBridge.addStream` with a drop-oldest queue per stream
+   (docs/protocol.md, "Streams"). No method streams yet; location and
+   motion will.
 
 Next:
 

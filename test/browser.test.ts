@@ -60,9 +60,42 @@ import { webkitHost } from "./webkit.js";
 let clipboard = "from the fake bridge";
 let image = null;
 globalThis.bridgeLog = [];
+// The test-only stream \`test.ticks\`, as Swift's Streams answers it: a
+// value every 10 ms into a queue of 4 that drops the oldest; a cancelled
+// stream.next, a cancel of the opening call or stream.close stops it.
+globalThis.streams = new Map();
+function endStream(id) {
+  const s = streams.get(id);
+  if (!s) return;
+  clearInterval(s.timer);
+  s.stopped = true;
+  s.waiting?.({ result: { values: [], dropped: s.dropped, end: true } });
+  s.waiting = null;
+}
 globalThis.webkit = { messageHandlers: { device: { async postMessage(msg) {
   bridgeLog.push(msg);
-  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "ui.prompt"] } };
+  if (msg.cancel) {
+    if (streams.has(msg.id)) endStream(msg.id);
+    for (const [id, s] of streams) if (s.waitingId === msg.id) endStream(id);
+  }
+  if (msg.method === "test.ticks") {
+    const s = { n: 0, queue: [], dropped: 0, waiting: null, waitingId: null, stopped: false };
+    s.timer = setInterval(() => {
+      if (s.queue.length >= 4) { s.queue.shift(); s.dropped++; }
+      s.queue.push(++s.n);
+      if (s.waiting) { s.waiting({ result: { values: s.queue.splice(0), dropped: s.dropped } }); s.waiting = null; }
+    }, 10);
+    streams.set(msg.id, s);
+    return { result: { stream: msg.id } };
+  }
+  if (msg.method === "stream.next") {
+    const s = streams.get(msg.params.stream);
+    if (!s || s.stopped) return { error: { code: "failed", message: "no such stream" } };
+    if (s.queue.length) return { result: { values: s.queue.splice(0), dropped: s.dropped } };
+    return new Promise((resolve) => { s.waiting = resolve; s.waitingId = msg.id; });
+  }
+  if (msg.method === "stream.close") { endStream(msg.params.stream); return { result: null }; }
+  if (msg.method === "hello") return { result: { platform: "macos", appVersion: "test", capabilities: ["clipboard.readText", "clipboard.writeText", "clipboard.readImage", "clipboard.writeImage", "ui.prompt", "test.ticks"] } };
   // A dialog the person never answers.
   if (msg.method === "ui.prompt") return new Promise(() => {});
   if (msg.method === "clipboard.readText") return { result: clipboard };
@@ -74,7 +107,7 @@ globalThis.webkit = { messageHandlers: { device: { async postMessage(msg) {
 
 const kernel = startBrowserKernel({
   createWorker: () => new Worker("./worker.js", { type: "module" }),
-  preload: ["./preload.js"],
+  preload: ["./preload.js", "./ticks.js"],
   host: webkitHost(),
   log: () => {},
 });
@@ -106,18 +139,23 @@ globalThis.interrupt = () => kernel.send("control", {
 globalThis.ready = true;
 </script>`;
 
-test("a cell reads and writes the clipboard through the fake Swift bridge", { skip }, async (t) => {
+type Result = { status: string; evalue?: string; text?: string };
+
+/** Builds the page and its modules, serves them, and opens the page in Chromium. */
+async function openPage(t: { after(fn: () => unknown): void }): Promise<{ page: Page; execute(code: string): Promise<Result> }> {
   const problem = setupProblem();
   if (problem) assert.fail(problem);
   const dir = mkdtempSync(join(tmpdir(), "ganymede-device-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   execFileSync(process.execPath, [join(CDPK_DIR!, "scripts/build-browser.mjs"), dir], { cwd: CDPK_DIR, stdio: "pipe" });
   execFileSync(process.execPath, [join(ROOT, "scripts/build.mjs"), dir], { cwd: ROOT, stdio: "pipe" });
+  const { build } = await import("esbuild");
+  await build({ entryPoints: [join(ROOT, "test/fixtures/ticks-preload.ts")], outfile: join(dir, "ticks.js"), bundle: true, format: "esm", platform: "browser", target: "es2022", logLevel: "warning" });
 
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
     if (path === "/") return res.writeHead(200, { "content-type": "text/html" }).end(PAGE);
-    if (/^\/(?:kernel|worker|preload|webkit)\.js$/.test(path)) {
+    if (/^\/(?:kernel|worker|preload|webkit|ticks)\.js$/.test(path)) {
       return res.writeHead(200, { "content-type": "text/javascript" }).end(readFileSync(join(dir, path)));
     }
     res.writeHead(404).end();
@@ -130,8 +168,13 @@ test("a cell reads and writes the clipboard through the fake Swift bridge", { sk
   await page.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
   await page.waitForFunction("globalThis.ready === true");
 
-  type Result = { status: string; evalue?: string; text?: string };
   const execute = (code: string) => page.evaluate((c) => (globalThis as unknown as { execute(c: string): Promise<Result> }).execute(c), code);
+
+  return { page, execute };
+}
+
+test("a cell reads and writes the clipboard through the fake Swift bridge", { skip }, async (t) => {
+  const { page, execute } = await openPage(t);
 
   assert.equal((await execute("device.has('clipboard.readText')")).text, "true");
   assert.equal((await execute("await device.clipboard.readText()")).text, "'from the fake bridge'");
@@ -165,4 +208,32 @@ test("a cell reads and writes the clipboard through the fake Swift bridge", { sk
   const log = await page.evaluate(() => (globalThis as unknown as { bridgeLog: { method?: string }[] }).bridgeLog.map((m) => m.method), null);
   // The cancel has no method.
   assert.deepEqual(log, ["hello", "clipboard.readText", "clipboard.writeText", "clipboard.readText", "clipboard.writeImage", "clipboard.readImage", "ui.prompt", undefined, "ui.prompt", undefined]);
+});
+
+test("a cell reads a stream through the Worker, and break, abort and interrupt stop it", { skip }, async (t) => {
+  const { page, execute } = await openPage(t);
+  type Stream = { stopped: boolean; dropped: number };
+  const stopped = () => page.evaluate(() => [...(globalThis as unknown as { streams: Map<number, Stream> }).streams.values()].map((s) => s.stopped), null);
+
+  // In order, and `break` closes it.
+  const first = await execute("const got = []; for await (const n of ticks()) { got.push(n); if (got.length === 3) break; } got");
+  assert.equal(first.text, "[ 1, 2, 3 ]");
+  assert.deepEqual(await stopped(), [true]);
+
+  // A slow reader: the queue keeps the newest, and `dropped` counts the rest.
+  const slow = await execute("const s = ticks(); await s.next(); await new Promise((r) => setTimeout(r, 150)); const v = (await s.next()).value; await s.return(); [v > 5, s.dropped > 0]");
+  assert.equal(slow.text, "[ true, true ]");
+  assert.deepEqual(await stopped(), [true, true]);
+
+  // A signal that times out rejects `timeout`, and the cancel stops it.
+  const timed = await execute("await (async () => { for await (const n of ticks({ signal: AbortSignal.timeout(60) })) await new Promise((r) => setTimeout(r, 25)); })().catch((e) => e.code)");
+  assert.equal(timed.text, "'timeout'");
+  await page.waitForFunction("[...streams.values()].every((s) => s.stopped)");
+
+  // An interrupt during the loop stops it.
+  const running = execute("for await (const n of ticks()) {}");
+  await page.waitForFunction("streams.size === 4");
+  await page.evaluate(() => (globalThis as unknown as { interrupt(): void }).interrupt(), null);
+  assert.equal((await running).status, "error");
+  await page.waitForFunction("[...streams.values()].every((s) => s.stopped)");
 });

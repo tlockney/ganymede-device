@@ -19,7 +19,13 @@ export interface WorkerHost {
   request(method: string, params: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
-export default async function install({ host }: { host: WorkerHost }): Promise<void> {
+/** The part of cdp-kernel's `jupyter` object the preload uses. */
+export interface WorkerJupyter {
+  /** The running cell's signal, which an interrupt aborts. */
+  readonly signal?: AbortSignal;
+}
+
+export default async function install({ host, jupyter }: { host: WorkerHost; jupyter?: WorkerJupyter }): Promise<void> {
   const transport: DeviceTransport = { call: (method, params, options) => host.request(method, params, options) };
   let info;
   try {
@@ -29,5 +35,5 @@ export default async function install({ host }: { host: WorkerHost }): Promise<v
     if (error.code !== "unavailable") console.error(`device: no device API, hello failed (${error.code}): ${error.message}`);
     return;
   }
-  Object.defineProperty(globalThis, "device", { value: createDevice(transport, info), configurable: true, writable: false });
+  Object.defineProperty(globalThis, "device", { value: createDevice(transport, info, { cellSignal: () => jupyter?.signal }), configurable: true, writable: false });
 }
