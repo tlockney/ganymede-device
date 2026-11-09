@@ -227,6 +227,19 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("out.txt"), encoding: .utf8), "mine")
     }
 
+    func testICloudPlaceholdersListByTheirOwnName() async throws {
+        let picked = await pick()
+        let id = try XCTUnwrap(picked)
+        try Data().write(to: root.appendingPathComponent(".c.txt.icloud"))
+        try Data().write(to: root.appendingPathComponent(".a.txt.icloud"))
+        let reply = await call("folders.entries", ["folder": id])
+        let entries = try XCTUnwrap(reply["result"] as? [[String: Any]])
+        XCTAssertEqual(entries.map { $0["name"] as? String }, ["a.txt", "c.txt", "sub"])
+        XCTAssertEqual(entries[0]["size"] as? Int, 2, "the downloaded file wins over its placeholder")
+        XCTAssertEqual(entries[1]["kind"] as? String, "file")
+        XCTAssertNil(entries[1]["size"], "not downloaded: no size")
+    }
+
     func testBadArgumentsFail() async throws {
         let r30 = await pick(write: true)
         let id = try XCTUnwrap(r30)

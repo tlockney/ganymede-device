@@ -280,7 +280,7 @@ enum FolderAccess {
             var name = item.lastPathComponent
             // An iCloud Drive file not downloaded yet: list it by its own
             // name, without a size, unless the file is here too.
-            if name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".x.icloud".count - 1 {
+            if name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > ".icloud".count + 1 {
                 name = String(name.dropFirst().dropLast(".icloud".count))
                 guard entries[name] == nil else { continue }
                 entries[name] = ["name": name, "kind": "file"]
