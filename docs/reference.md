@@ -833,7 +833,7 @@ app, dropping the soonest beyond that.
 
 **Returns** `Promise<string>`: Its id, for `cancel()`.
 
-**Throws** `DeviceError`: `denied` when the notifications permission is refused; `failed` when `body` is empty, `delay` isn't more than 0, or `title` isn't a string.
+**Throws** `DeviceError`: `denied` when the notifications permission is refused; `failed` when `body` is empty, `delay` isn't a finite number above 0, or `title` isn't a string.
 
 **Availability**
 

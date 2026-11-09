@@ -326,7 +326,7 @@ export interface Notifications extends Authorization {
    * @param body The text it shows.
    * @param options `delay` in seconds (more than 0), an optional `title`, and the call's `signal`. Cancel rejects `cancelled`; it may already be scheduled.
    * @returns Its id, for `cancel()`.
-   * @throws {DeviceError} `denied` when the notifications permission is refused; `failed` when `body` is empty, `delay` isn't more than 0, or `title` isn't a string.
+   * @throws {DeviceError} `denied` when the notifications permission is refused; `failed` when `body` is empty, `delay` isn't a finite number above 0, or `title` isn't a string.
    * @example
    * ```ts
    * const id = await device.notifications.schedule("The training run should be done.", {
