@@ -167,6 +167,19 @@ final class StreamsTests: XCTestCase {
         XCTAssertEqual(sources.map(\.stops), [1, 1])
     }
 
+    func testAnotherKernelCantReadOrCloseAStream() throws {
+        let bridge = bridge()
+        let stream = try XCTUnwrap(open(bridge, id: 1, owner: 1))
+        sources[0].sink.send(1)
+        let replies = Collected()
+        bridge.respond(to: ["id": 2, "owner": 2, "method": "stream.next", "params": ["stream": stream]], reply: replies.reply)
+        XCTAssertEqual(errorCode(replies.last), "failed")
+        _ = bridge.handle(["id": 3, "owner": 2, "method": "stream.close", "params": ["stream": stream]])
+        XCTAssertEqual(sources[0].stops, 0)
+        next(bridge, stream: stream, id: 4, into: replies)
+        XCTAssertEqual(values(replies.last), [1], "the owner still reads it")
+    }
+
     func testARemoteKernelCantStream() {
         let bridge = bridge()
         let replies = Collected()

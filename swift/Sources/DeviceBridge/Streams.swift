@@ -130,8 +130,9 @@ final class Streams {
     }
 
     /// `stream.next`: replies with what is queued, or waits for a value.
-    func next(_ params: [String: Any], call: Int?, reply: @escaping ([String: Any]) -> Void) {
-        guard let id = DeviceBridge.callID(params["stream"]), let stream = open[id] else {
+    /// Only the kernel that opened the stream (`owner`) reaches it.
+    func next(_ params: [String: Any], call: Int?, owner: Int, reply: @escaping ([String: Any]) -> Void) {
+        guard let id = DeviceBridge.callID(params["stream"]), let stream = open[id], stream.owner == owner else {
             reply(DeviceBridge.error("failed", "stream.next: no such stream (it ended or was closed)"))
             return
         }
@@ -151,8 +152,9 @@ final class Streams {
     }
 
     /// `stream.close`: stops the source. A waiting `stream.next` gets the end.
-    func close(_ params: [String: Any]) -> [String: Any] {
-        if let id = DeviceBridge.callID(params["stream"]) {
+    /// Another kernel's stream is left alone.
+    func close(_ params: [String: Any], owner: Int) -> [String: Any] {
+        if let id = DeviceBridge.callID(params["stream"]), open[id]?.owner == owner {
             end(id, reply: ["result": ["values": [Any](), "dropped": open[id]?.dropped ?? 0, "end": true]])
         }
         return ["result": NSNull()]

@@ -79,7 +79,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// notebook whose page asked, or on the key window without one.
     public func respond(to body: Any, from host: DialogHost? = nil, reply: @escaping ([String: Any]) -> Void) {
         if let call = body as? [String: Any], call["method"] as? String == "stream.next" {
-            streams.next(call["params"] as? [String: Any] ?? [:], call: Self.callID(call["id"]), reply: reply)
+            streams.next(
+                call["params"] as? [String: Any] ?? [:], call: Self.callID(call["id"]),
+                owner: Self.callID(call["owner"]) ?? 0, reply: reply)
             return
         }
         guard let call = body as? [String: Any], let method = call["method"] as? String,
@@ -213,7 +215,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "stream.next":
             return Self.error("failed", "stream.next answers later; send it through respond(to:reply:)")
         case "stream.close":
-            return streams.close(params)
+            return streams.close(params, owner: owner)
         case _ where streams.methods[method] != nil:
             return streams.start(method, params, call: Self.callID(call["id"]), owner: owner)
         case _ where Self.dialogMethods.contains(method):
