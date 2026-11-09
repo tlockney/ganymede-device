@@ -434,8 +434,11 @@ Settings screen lists names (never values) and deletes them with its own
   in UserDefaults so it survives a relaunch, and applied before the
   next secrets call or Settings listing; until it applies, secrets calls
   fail, so a notebook later saved at the old path can't read what was
-  under it. `NotebookSecrets.pendingMoves` and `settle()` show and retry
-  them.
+  under it. Only the two paths a stuck rename names wait; other
+  notebooks' calls go on. `NotebookSecrets.pendingMoves` and `settle()`
+  show and retry them, and `forgetPendingMoves()` drops one the keychain
+  keeps refusing, leaving the secrets under the old path for Settings
+  to delete.
 - Names are 1 to 128 UTF-16 code units without NUL; values are strings
   up to 64 KiB as UTF-8. Anything else fails `failed`.
 - `KeychainSecretStore`: generic passwords under service

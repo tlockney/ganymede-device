@@ -7,10 +7,16 @@ import XCTest
 final class MemorySecretStore: SecretStore {
     var items: [String: String] = [:]
     var locked = false
+    /// Writes under this notebook path fail, as a keychain error would.
+    var failing: String?
 
     private func open() throws { if locked { throw SecretStoreLocked() } }
     func read(_ account: String) throws -> String? { try open(); return items[account] }
-    func write(_ value: String, to account: String) throws { try open(); items[account] = value }
+    func write(_ value: String, to account: String) throws {
+        try open()
+        if let failing, account.hasPrefix(failing + "\0") { throw DeviceCallError("failed", "the keychain refused") }
+        items[account] = value
+    }
     func delete(_ account: String) throws -> Bool { try open(); return items.removeValue(forKey: account) != nil }
     func accounts() throws -> [String] { try open(); return Array(items.keys) }
 }
@@ -86,6 +92,21 @@ final class SecretsTests: XCTestCase {
         XCTAssertTrue(call("secrets.get", ["name": "github"], owner: 3)?["result"] is NSNull, "the rename applied first")
         XCTAssertEqual(call("secrets.get", ["name": "github"])?["result"] as? String, "tok")
         XCTAssertTrue(NotebookSecrets(store: store, defaults: defaults).pendingMoves.isEmpty)
+    }
+
+    func testAStuckRenameBlocksOnlyItsPaths() throws {
+        _ = call("secrets.set", ["name": "github", "value": "tok"])
+        _ = call("secrets.set", ["name": "b", "value": "2"], owner: 2)
+        store.locked = true
+        bridge.notebookMoved(from: "/n/A.ipynb", to: "/n/C.ipynb")
+        store.locked = false
+        store.failing = "/n/C.ipynb"
+        XCTAssertEqual(code(call("secrets.get", ["name": "github"])), "failed", "the moved notebook waits")
+        XCTAssertEqual(call("secrets.get", ["name": "b"], owner: 2)?["result"] as? String, "2", "another notebook doesn't")
+        let settings = NotebookSecrets(store: store, defaults: defaults)
+        settings.forgetPendingMoves()
+        XCTAssertTrue(settings.pendingMoves.isEmpty)
+        XCTAssertEqual(settings.all.map(\.notebook), ["/n/A.ipynb", "/n/B.ipynb"], "left where Settings can delete it")
     }
 
     func testALedgerDenyRejectsDenied() {

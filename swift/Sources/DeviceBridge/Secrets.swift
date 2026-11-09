@@ -66,15 +66,37 @@ public final class NotebookSecrets {
     }
 
     /// Applies the pending renames, in order. Every secrets call does this
-    /// first, so a notebook never reads under a path its secrets haven't
-    /// left yet; it throws when the keychain still can't be changed.
-    public func settle() throws {
-        var moves = pendingMoves
-        while let move = moves.first {
-            try apply(from: move.from, to: move.to)
-            moves.removeFirst()
-            savePending(moves)
+    /// first, for its own notebook: it throws when a rename from or to that
+    /// notebook's path still can't apply, so a notebook never reads under a
+    /// path another's secrets haven't left. A stuck rename blocks only the
+    /// two paths it names (and renames chained on them), not every notebook.
+    public func settle(for notebook: String? = nil) throws {
+        var left: [(from: String, to: String)] = []
+        var blocked: Set<String> = []
+        var failure: Error?
+        for move in pendingMoves {
+            if blocked.contains(move.from) || blocked.contains(move.to) {
+                left.append(move)
+                blocked.formUnion([move.from, move.to])
+                continue
+            }
+            do {
+                try apply(from: move.from, to: move.to)
+            } catch {
+                left.append(move)
+                blocked.formUnion([move.from, move.to])
+                failure = error
+            }
         }
+        savePending(left)
+        if let notebook, blocked.contains(notebook), let failure { throw failure }
+    }
+
+    /// Drops renames that can't apply, for a Settings screen when the
+    /// keychain keeps refusing one (not merely locked): the secrets stay
+    /// under the old path, where Settings lists them to delete.
+    public func forgetPendingMoves() {
+        savePending([])
     }
 
     static func account(_ notebook: String, _ name: String) -> String { "\(notebook)\0\(name)" }
@@ -112,7 +134,7 @@ public final class NotebookSecrets {
 
     /// Deletes every one of `notebook`'s secrets.
     public func delete(notebook: String) throws {
-        try settle()
+        try settle(for: notebook)
         for name in try names(for: notebook) { try delete(name, notebook: notebook) }
     }
 
@@ -123,7 +145,7 @@ public final class NotebookSecrets {
     public func move(from old: String, to new: String) {
         guard old != new else { return }
         savePending(pendingMoves + [(old, new)])
-        try? settle()
+        try? settle(for: nil)
     }
 
     /// One the new path already has keeps the new path's value. Safe to
@@ -240,7 +262,7 @@ extension DeviceBridge {
                 }
                 // A rename not applied yet goes first, so no notebook reads
                 // under a path another's secrets haven't left.
-                try secrets.settle()
+                try secrets.settle(for: notebook)
                 reply(.success(try body(notebook)))
             } catch is SecretStoreLocked {
                 reply(.failure(DeviceCallError("unavailable", "\(method): the keychain is locked until the device is first unlocked")))
