@@ -41,6 +41,7 @@ such API.
 | [`device.openURL(url, options?)`](#device-openurl-url-options) | Opens a link: in the browser, or the mail app for `mailto`. |
 | [`device.share(options)`](#device-share-options) | Shows the system share sheet (`NSSharingServicePicker` on the Mac). |
 | [`device.preview(files, options?)`](#device-preview-files-options) | Shows files in Quick Look. |
+| [`device.output(result, options?)`](#device-output-result-options) | Hands `result` back to whatever started this run: the share sheet's host app, or the Shortcut's next action. |
 | [`device.clipboard.readText(options?)`](#device-clipboard-readtext-options) | Reads the clipboard's text. |
 | [`device.clipboard.writeText(text, options?)`](#device-clipboard-writetext-text-options) | Replaces the clipboard's contents with `text`. |
 | [`device.clipboard.readImage(options?)`](#device-clipboard-readimage-options) | Reads the clipboard's image as PNG bytes, whatever format was copied. |
@@ -110,6 +111,7 @@ such API.
 | [`device.bluetooth.connect(id, options?)`](#device-bluetooth-connect-id-options) | Connects to a peripheral. |
 | [`device.folders.pick(options?)`](#device-folders-pick-options) | Shows the system folder picker and keeps what the person picks for this notebook. |
 | [`device.folders.list(options?)`](#device-folders-list-options) | The folders this notebook was given, in the order they were picked. |
+| [`device.widget.update(kind, content, options?)`](#device-widget-update-kind-content-options) | Publishes `content` for this notebook's widget `kind`, in place of what it showed, and asks the system to redraw it. |
 | [`player.play(options?)`](#player-play-options) | Plays from the current time. |
 | [`player.pause(options?)`](#player-pause-options) | Pauses at the current time. |
 | [`player.stop(options?)`](#player-stop-options) | Pauses and goes back to the start. |
@@ -310,6 +312,36 @@ const png = await device.clipboard.readImage();
 if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 ```
 
+### `device.output(result, options?)`
+
+```ts
+output(result: RunOutput, options?: CallOptions): Promise<void>;
+```
+
+Hands `result` back to whatever started this run: the share sheet's
+host app, or the Shortcut's next action. A later call replaces it.
+In a notebook there is nothing to hand it to.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `result` | `RunOutput` | yes | `text`, `url` and `files` (together at most 16 MiB). |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Throws** `DeviceError`: `unavailable` in a notebook; `failed` when `result` has nothing in it or a file has no plain name.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| no | none | no | no |
+
+Only in a run the share sheet, Shortcuts or a widget started, which also has `device.input`; a notebook has nothing to hand a result to.
+
+```ts
+const page = device.input?.url;
+if (page) await device.output({ text: `Summary of ${page}: ...` });
+```
+
 ### Properties
 
 | Property | Type | Description |
@@ -328,6 +360,8 @@ if (png) await device.preview([{ name: "clipboard.png", data: png }]);
 | `reminders` | `Reminders` | The person's reminders: see `Reminders`. |
 | `bluetooth` | `Bluetooth` | Bluetooth LE peripherals: see `Bluetooth`. |
 | `folders` | `Folders` | Folders the person picked for this notebook: see `Folders`. |
+| `widget` | `Widget` | Widgets that show what a run published: see `Widget`. |
+| `input` | `RunInput \| null` | What this run was given, when the share sheet, Shortcuts or a widget started it; `null` in a notebook. |
 
 ## `device.clipboard`
 
@@ -2263,6 +2297,48 @@ A `Folder` lists, reads, writes and removes inside the folder only; reads up to 
 ```ts
 const folders = await device.folders.list();
 const data = folders.find((f) => f.name === "Data") ?? (await device.folders.pick());
+```
+
+## `device.widget`
+
+Widgets on the home screen, desktop or lock screen. A widget can't run
+a script itself, so it shows what a run last published: from a
+notebook or a headless run. No permission.
+
+Widgets show what a run last published, since a widget can't run a script itself. The content is a small layout (`WidgetContent`): a title, up to six rows, a tint and a sparkline. No permission.
+
+### `device.widget.update(kind, content, options?)`
+
+```ts
+update(kind: string, content: WidgetContent, options?: CallOptions): Promise<void>;
+```
+
+Publishes `content` for this notebook's widget `kind`, in place of
+what it showed, and asks the system to redraw it.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kind` | `string` | yes | A name for the widget, 1 to 64 letters, digits, `.`, `_` or `-`; a widget configured for this notebook and kind shows it. |
+| `content` | `WidgetContent` | yes | The layout: `title`, `rows`, `tint`, `sparkline`. |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`; content already published stays. |
+
+**Throws** `DeviceError`: `failed` when `kind` or `content` isn't valid; `denied` when the app hasn't said which notebook runs.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | none | no | no |
+
+Stored in the app's App Group for its widgets; a widget can't run a script itself.
+
+```ts
+await device.widget.update("weather", {
+  title: "Oslo",
+  rows: [{ label: "Now", value: 4, unit: "°C" }, { text: "Rain at 15:00" }],
+  tint: "blue",
+  sparkline: [3, 4, 4, 5, 6, 5],
+});
 ```
 
 ## `SoundPlayer`

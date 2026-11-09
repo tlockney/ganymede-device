@@ -139,6 +139,15 @@ published, and refreshes come from the app or an App Intent:
 **Acceptance**: a notebook publishes a widget on a Mac and an iPad; the
 background refresh updates it with the app closed.
 
+As built so far (bridge side, #115): `device.input` and
+`device.output(...)` (wire `input` and `output`, answered by an
+`EngineDevice` with `attachRun(_:output:)`; files as plain
+`{ name, type, data }`, since JavaScriptCore has no `File`), and
+`device.widget.update` (`addWidgets()`, `PublishedWidgets` per notebook
+and kind in a `WidgetStore`). The share extension, intents and widget
+extension are prototyped in ganymede-ui on JavaScriptCore, ahead of
+ganymede#266 (decided 2026-11-09).
+
 ## Exit
 
 Each entry point tried on a real iPad and Mac; plan.md "Where things

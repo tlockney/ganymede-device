@@ -772,3 +772,41 @@ notifications, reads `notDetermined` until it does, and a `hello`
 before then leaves its methods out for the run. An extension has to
 wait for it; an awaitable refresh comes with the extensions (parts 3
 to 5).
+
+### A run's input and output
+
+A context the share sheet, Shortcuts or a widget started gets
+`engine.attachRun(input) { output in ... }` before its preload runs.
+Its `hello` then lists `input` and `output`:
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `input` | `{}` | `{ text?, url?, files: [{ name, type, data }] }`: what the run was given. The preload reads it once, as `device.input` |
+| `output` | `{ text?, url?, files: [{ name, data }] }`, at least one | `null`; Swift's `output` closure gets a `RunOutput`. A later call replaces it |
+
+Any other context (a notebook's, the page, a remote kernel) answers both
+`unavailable`, and `device.input` is `null` there. Files cross as plain
+`{ name, type, data }` objects: an engine without a web view has no
+`File`.
+
+## Widgets
+
+`device.widget.update(kind, content)` publishes what a widget shows,
+since a widget can't run a script itself. The app turns it on with
+`DeviceBridge.addWidgets()`; the widget extension reads the same
+`UserDefaultsWidgetStore` (on the App Group suite, with
+`UserDefaultsWidgetStore.read(_:)` from its timeline provider).
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `widget.update` | `{ kind, content }` | `null` once stored; WidgetKit reloads the timelines |
+
+- `kind` is 1 to 64 ASCII letters, digits, `.`, `_` or `-`. Content is
+  kept per notebook and kind, newest first, 64 in all; `notebookMoved`
+  carries it.
+- `content`: `title` (up to 64 characters), `rows` (up to six: `{ text }`
+  up to 128 characters, or `{ label?, value, unit? }` with a finite
+  number and labels and units up to 32), `tint` (one of `WIDGET_TINTS`),
+  `sparkline` (up to 64 finite numbers). Anything else fails `failed`.
+- No permission. A call needs the notebook (`setNotebook`); without it,
+  `denied`.

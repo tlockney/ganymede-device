@@ -35,6 +35,8 @@ public final class EngineDevice {
     private var answered: [(engine: Int, bridge: Int)] = []
     private let keptAnswers = 64
     private var released = false
+    /// A run's input and where its output goes; see `attachRun(_:output:)`.
+    private var run: (input: RunInput, output: @MainActor (RunOutput) -> Void)?
 
     init(bridge: DeviceBridge, owner: Int, host: DialogHost?, headless: Bool) {
         self.bridge = bridge
@@ -64,6 +66,26 @@ public final class EngineDevice {
     private func keptAlways(_ namespace: String, _ bridge: DeviceBridge) -> Bool {
         guard let notebook = bridge.ledger.notebook(for: owner) else { return false }
         return bridge.ledger.answer(notebook: notebook, capability: namespace) == .always
+    }
+
+    /// Makes this context a run the share sheet, Shortcuts or a widget
+    /// started: `hello` lists `input` and `output`, `device.input` reads
+    /// `input`, and each `device.output(...)` calls `output`. Call it
+    /// before the preload runs.
+    public func attachRun(_ input: RunInput, output: @escaping @MainActor (RunOutput) -> Void) {
+        run = (input, output)
+    }
+
+    /// `input` and `output`, which only a run answers.
+    private func answerRun(_ method: String, _ call: [String: Any]) -> [String: Any] {
+        guard let run else { return DeviceBridge.error("unavailable", "\(method) is only in a run the share sheet, Shortcuts or a widget started") }
+        do {
+            if method == "input" { return ["result": try run.input.reply()] }
+            run.output(try RunOutput(call["params"] as? [String: Any] ?? [:]))
+            return ["result": NSNull()]
+        } catch {
+            return DeviceBridge.error("failed", "\(method): \(error)")
+        }
     }
 
     /// Defines `name` (`__ganymedeDevice` by default) in `context`'s global
@@ -117,16 +139,22 @@ public final class EngineDevice {
             call["id"] = id
             return reply(Self.text(bridge.handle(call)))
         }
-        if headless, let method = call["method"] as? String {
-            if method == "hello" {
-                var answer = bridge.handle(call)
-                if var hello = answer["result"] as? [String: Any], let all = hello["capabilities"] as? [String] {
-                    let people = bridge.personMethods
-                    hello["capabilities"] = all.filter { allows($0, bridge, people: people) }
-                    answer["result"] = hello
-                }
-                return reply(Self.text(answer))
+        if let method = call["method"] as? String, method == "input" || method == "output" {
+            return reply(Self.text(answerRun(method, call)))
+        }
+        if call["method"] as? String == "hello", headless || run != nil {
+            // A headless context lists only what it may call; a run adds
+            // its input and output.
+            var answer = bridge.handle(call)
+            if var hello = answer["result"] as? [String: Any], let all = hello["capabilities"] as? [String] {
+                let people = bridge.personMethods
+                let allowed = headless ? all.filter { allows($0, bridge, people: people) } : all
+                hello["capabilities"] = allowed + (run == nil ? [] : ["input", "output"])
+                answer["result"] = hello
             }
+            return reply(Self.text(answer))
+        }
+        if headless, let method = call["method"] as? String {
             // What a call would meet: unless the notebook has a kept
             // "always" and the system has granted it, the namespace's calls
             // fail and nothing can ask, so the status reads `denied`.

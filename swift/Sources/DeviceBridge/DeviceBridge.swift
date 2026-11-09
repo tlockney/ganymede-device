@@ -47,6 +47,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// The folders notebooks picked (`addFolders`), so a moved notebook
     /// keeps them.
     var folderGrants: FolderGrants?
+    /// What notebooks published for widgets (`addWidgets`), so a moved
+    /// notebook keeps them.
+    var publishedWidgets: PublishedWidgets?
     private let requests = PermissionRequests()
     private let ledgerRequests = LedgerRequests()
     private let appVersion: String
@@ -96,6 +99,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
         folderGrants?.move(from: old, to: new)
+        publishedWidgets?.move(from: old, to: new)
         ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 
