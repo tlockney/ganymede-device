@@ -349,6 +349,7 @@ enum PhotoPicker {
 /// presenter shows `alert` and closes `shown`, which is the picker once it
 /// is up. A plain alert held here, since UIAlertController is not to be
 /// subclassed.
+@MainActor
 final class ConsentFlow {
     let alert: UIAlertController
     let picker: UIViewController
