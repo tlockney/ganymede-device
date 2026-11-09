@@ -280,6 +280,26 @@ export const SUPPORT = {
     browser: "no",
     note: "Needs the network, not the location permission.",
   },
+  "motion.watch": {
+    call: "motion.watch({ interval })",
+    returns: "a stream of `MotionSample`",
+    onDevice: "yes",
+    devices: "iPad, iPhone",
+    remote: "no",
+    browser: "no",
+    permission: "motion",
+    note: "Attitude, rotation rate, gravity and acceleration every `interval` seconds (0.01 to 1); keeps the newest 64. A Mac has no motion sensors.",
+  },
+  "motion.latest": {
+    call: "motion.latest()",
+    returns: "the newest `MotionSample`",
+    onDevice: "yes",
+    devices: "iPad, iPhone",
+    remote: "no",
+    browser: "no",
+    permission: "motion",
+    note: "Starts the sensors and keeps them running while calls keep coming; they stop about 10 seconds after the last.",
+  },
 } as const satisfies Record<string, SupportRow>;
 
 export type Method = keyof typeof SUPPORT;

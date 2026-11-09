@@ -509,7 +509,9 @@ support matrix so docs and behaviour can't drift.
    socket transport exists only if the answer includes the second.
 2. Motion: stream at a fixed rate (as above) or Juno's snapshot getters
    (`motion.latest()`) backed by a cache on the native side? Snapshot is
-   simpler for polling loops.
+   simpler for polling loops. Settled 2026-11-09 (Thomas): both,
+   `motion.watch({ interval })` and `motion.latest()`, sharing one Core
+   Motion source (#63).
 3. Where the docs live: in the package's repo, or on Ganymede's docs
    site next to the client docs?
 
@@ -567,7 +569,7 @@ Done:
    that an HTML output can't reach the bridge.
 8. **Phase 2's bounded streams** (#58): `openStream` over `call`, and
    `DeviceBridge.addStream` with a drop-oldest queue per stream
-   (docs/protocol.md, "Streams"). `location.watch` streams; motion will.
+   (docs/protocol.md, "Streams"). `location.watch` and `motion.watch` stream.
 9. **Phase 2's permission core** (#59): the trio (`authorization()` in
    src/permission.ts), and in Swift `addPermission`, `addMethod` and
    `addStream(permission:)`, which ask lazily and reject `denied`
@@ -578,6 +580,10 @@ Done:
 11. **Phase 2's location** (#62): `device.location.current`, `watch` (a
    stream), `geocode` and `reverseGeocode` over Core Location, when in
    use only (docs/protocol.md, "Methods").
+12. **Phase 2's motion** (#63): `device.motion.watch` (a stream) and
+   `latest` (a snapshot) over one Core Motion source, iPad and iPhone
+   only; the permission is the ledger's alone (docs/protocol.md,
+   "Methods").
 
 Next:
 

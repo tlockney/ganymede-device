@@ -130,6 +130,8 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `location.watch` | `{ accuracy? }` | a stream ("Streams" below) of fixes as `location.current` answers them; the queue keeps 16. Needs the location permission |
 | `location.geocode` | `{ address }` | `[{ name?, street?, city?, region?, postalCode?, country?, countryCode?, latitude?, longitude? }]`, best match first, `[]` when none |
 | `location.reverseGeocode` | `{ latitude, longitude }` | places as `location.geocode` answers them |
+| `motion.watch` | `{ interval? }`, seconds, 0.01 to 1, 0.1 by default | a stream ("Streams" below) of samples as `motion.latest` answers them. Needs the motion permission |
+| `motion.latest` | `{}` | `{ attitude: { roll, pitch, yaw }, rotationRate, gravity, userAcceleration, timestamp }`: radians, radians per second and g (each `{ x, y, z }`), milliseconds since 1970. Needs the motion permission |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -160,6 +162,17 @@ network but no permission. The app turns the namespace on with
 with the hardened runtime, the `com.apple.security.personal-information.location`
 entitlement. With Location Services off, `current` and `watch` reject
 `denied`; a fix that can't be had (no signal) rejects `failed`.
+
+Motion is iPad and iPhone only: `DeviceBridge.addMotion()` does
+nothing where Core Motion has no device motion, so a Mac never lists it.
+The system has no prompt for these sensors, so the permission is the
+app's ledger alone: `motion.authorizationStatus` reads `authorized`
+unless the ledger refuses. `watch` and `latest` share one Core Motion
+source that runs at the shortest interval anyone wants: each watch gets a
+sample about every `interval`, and `latest` keeps the source at 0.1 s
+for 10 seconds after its last call, answering a waiting call with the
+next sample and a later one with the newest. With no watch and `latest`
+cold, the source stops.
 
 ## Streams
 
