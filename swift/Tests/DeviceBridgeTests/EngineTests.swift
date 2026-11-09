@@ -25,6 +25,13 @@ private final class Screen: DialogPresenter {
     }
 }
 
+/// A page call's replies.
+@MainActor
+private final class Replies {
+    var all: [[String: Any]] = []
+    func add(_ reply: [String: Any]) { all.append(reply) }
+}
+
 @MainActor
 final class EngineTests: XCTestCase {
     private var screen: Screen!
@@ -100,12 +107,18 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(code(send(engine, ["id": 2, "method": "clipboard.readText", "params": [:]])()), "unavailable")
     }
 
-    func testAReleaseMessageClosesTheContextsDialogs() {
+    func testAReleaseMessageClosesOnlyTheContextsDialogs() {
         let engine = bridge.engineDevice()
+        let other = bridge.engineDevice()
         let open = send(engine, ["id": 1, "method": "ui.alert", "params": ["message": "hi"]])
+        let others = send(other, ["id": 1, "method": "ui.alert", "params": ["message": "other"]])
+        let pages = Replies()
+        bridge.respond(to: ["id": 1, "method": "ui.alert", "params": ["message": "page"]], reply: pages.add)
         _ = send(engine, ["release": true])
         XCTAssertEqual(screen.closed, 1)
         XCTAssertNotNil(open())
+        XCTAssertNil(others(), "another context's dialog stays")
+        XCTAssertTrue(pages.all.isEmpty, "the page's dialog stays")
     }
 
     func testARemoteMessageCantNameTheEngineRange() {
@@ -114,6 +127,10 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(code(reply), "failed")
         bridge.respondRemote(to: ["id": engineBase + 1, "cancel": true]) { reply = $0 }
         XCTAssertEqual(code(reply), "failed")
+        bridge.respondRemote(to: ["owner": engineBase, "release": true]) { reply = $0 }
+        XCTAssertEqual(code(reply), "failed", "2^40 itself would be the engine range")
+        bridge.respondRemote(to: ["owner": engineBase - 1, "release": true]) { reply = $0 }
+        XCTAssertNil(code(reply), "just below is a remote owner")
     }
 
     func testTheEngineFunctionResolvesWithTheReply() async throws {

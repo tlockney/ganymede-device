@@ -68,8 +68,7 @@ public final class EngineDevice {
         call["owner"] = owner
         if call["release"] as? Bool == true {
             // Dialogs are kept by call id, not owner: close this context's.
-            bridge.dialogs.drop { [calls] id in calls.values.contains(id) }
-            calls.removeAll()
+            dropCalls(bridge)
             return reply(Self.text(bridge.handle(call)))
         }
         let engineID = DeviceBridge.callID(call["id"])
@@ -101,9 +100,15 @@ public final class EngineDevice {
     public func release() {
         guard !released, let bridge else { return }
         _ = bridge.handle(["owner": owner, "release": true])
+        dropCalls(bridge)
+        released = true
+    }
+
+    /// Closes the dialogs this context's open calls showed, which the
+    /// bridge keeps by call id rather than owner, and forgets the calls.
+    private func dropCalls(_ bridge: DeviceBridge) {
         bridge.dialogs.drop { [calls] id in calls.values.contains(id) }
         calls.removeAll()
-        released = true
     }
 
     static func text(_ reply: [String: Any]) -> String {

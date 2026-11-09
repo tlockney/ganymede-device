@@ -639,7 +639,9 @@ renders outputs too, so the handler differs from `device`:
   `src/support.ts` whose remote column isn't `no` (a test checks the two
   lists agree), and its `hello` lists only those.
 - Its ids and owners are kept apart from the kernel page's, so a cancel
-  or release from one page never touches the other's calls. Dialogs from
+  or release from one page never touches the other's calls. They must
+  be positive integers below 2^40 (the engine range, "In an embedded
+  engine" below); any other fails `failed`. Dialogs from
   both share one queue: one dialog at a time.
 
 ### In a browser
