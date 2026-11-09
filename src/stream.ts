@@ -29,7 +29,9 @@ export interface StreamOptions extends CallOptions {
   /**
    * Aborted when the kernel interrupts the running cell (cdp-kernel's
    * `jupyter.signal`), so a stream stops even while the cell isn't waiting
-   * on it. The `device` object fills it in; callers needn't.
+   * on it. The `device` object fills it in when the stream is created;
+   * callers needn't. A stream made in one cell and read in a later one
+   * stays bound to the first cell's signal.
    */
   cellSignal?: AbortSignal;
 }
