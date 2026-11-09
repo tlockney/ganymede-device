@@ -241,6 +241,8 @@ final class PermissionsTests: XCTestCase {
         let new = Answers()
         call(bridge, "test.read", id: 1, into: old)
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         permission.answer(.authorized)
         XCTAssertEqual(old.all.count, 1)
@@ -257,6 +259,8 @@ final class PermissionsTests: XCTestCase {
         let new = Answers()
         call(bridge, "test.requestAuthorization", id: 1, into: old)
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         permission.answer(.authorized)
         XCTAssertEqual(new.all.count, 1)
@@ -270,6 +274,8 @@ final class PermissionsTests: XCTestCase {
         call(bridge, "test.read", id: 1, into: old)
         let oldReply = pendingRead
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         oldReply?(.success(7))
         XCTAssertTrue(new.all.isEmpty)
