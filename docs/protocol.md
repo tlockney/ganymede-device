@@ -122,6 +122,10 @@ standard base64 string with padding: `{ "base64": "iVBORw0KGgo=" }`.
 | `sound.player` | `{ data }` | `{ player, duration }`: an id, paused at the start; at most 32 open per kernel; `sound.control` and `sound.close` reach only the calling kernel's players |
 | `sound.control` | `{ player, action?, time?, volume? }`; action `play`, `pause`, `stop`, `seek` (to `time` seconds) or `state` (the default) | `{ playing, time, duration }` after the change; a bad `action` or `time` fails `failed` and changes nothing, and `play` fails `failed` when the sound can't start |
 | `sound.close` | `{ player }` | `null`; closing one already closed is fine |
+| `notifications.schedule` | `{ body, delay, title? }`, delay in seconds, more than 0 | the notification's id, a string. Needs the notifications permission ("Permissions" below) |
+| `notifications.pending` | `{}` | `[{ id, body, title?, date? }]`, the calling notebook's not yet delivered; `date` as ISO 8601 |
+| `notifications.cancel` | `{ id }` | `null`; an id that's gone or another notebook's changes nothing |
+| `notifications.cancelAll` | `{}` | `null`; the calling notebook's only |
 
 `hello` is called once per Worker start, before the first cell. A method
 missing from `capabilities` is never sent: the TypeScript side rejects it
@@ -130,6 +134,15 @@ as `unavailable` itself.
 Support for each method across on-device, remote and browser kernels is
 in `src/support.ts`: shipped (`yes`), `planned`, or `no`. Its
 `supportTable()` renders the table in ganymede-ui's `docs/device.md`.
+
+Notifications belong to the notebook that scheduled them (the host's
+`setNotebook` for the calling kernel; without one, every `notifications.*`
+call fails `denied`). Swift keeps the notebook's path in each
+notification's `userInfo`, so after a rename the old notebook's pending
+notifications still fire but no longer list or cancel from the new path.
+The app turns the namespace on with `DeviceBridge.addNotifications()`;
+while the app is in front, `SystemNotificationScheduler` shows them as
+banners when the app has no notification center delegate of its own.
 
 ## Streams
 

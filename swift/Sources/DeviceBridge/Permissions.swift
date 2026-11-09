@@ -47,6 +47,22 @@ public typealias MethodReply = @MainActor (Result<Any, DeviceCallError>) -> Void
 /// or nil; after a cancel, a reply is ignored.
 public typealias MethodHandler = @MainActor (_ params: [String: Any], _ reply: @escaping MethodReply) -> (() -> Void)?
 
+/// Who made a call: the kernel (`owner`, its `webkitHost().owner`) and the
+/// notebook the host said it runs (`DeviceBridge.setNotebook`), nil when
+/// it hasn't said.
+public struct CallContext: Sendable, Equatable {
+    public let owner: Int
+    public let notebook: String?
+
+    public init(owner: Int, notebook: String?) {
+        self.owner = owner
+        self.notebook = notebook
+    }
+}
+
+/// A `MethodHandler` that also gets the call's `CallContext`.
+public typealias ContextMethodHandler = @MainActor (_ params: [String: Any], _ context: CallContext, _ reply: @escaping MethodReply) -> (() -> Void)?
+
 /// One waiting call: its id, and which call with that id it is.
 struct PendingCall: Hashable {
     let id: Int

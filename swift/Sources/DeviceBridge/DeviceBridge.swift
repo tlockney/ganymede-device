@@ -28,7 +28,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// Each namespace's system permission (`addPermission`).
     private var permissions: [String: Permission] = [:]
     /// Methods that answer later (`addMethod`), with the namespace whose permission they need.
-    private var methods: [String: (permission: String?, handler: MethodHandler)] = [:]
+    private var methods: [String: (permission: String?, handler: ContextMethodHandler)] = [:]
     /// The namespace whose permission each streaming method needs.
     private var streamPermissions: [String: String] = [:]
     private let pending = PendingCalls()
@@ -78,7 +78,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// A notebook was renamed or moved: its kernels and kept answers follow.
     public func notebookMoved(from old: String, to new: String) {
         ledger.move(from: old, to: new)
-        ledgerRequests.move(from: old, to: new)
+        ledgerRequests.move(from: old, to: new, prompter: ledgerPrompter)
     }
 
     /// Of a notebook's declared capabilities (`metadata.ganymede.device`),
@@ -112,7 +112,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// for it first and rejects `denied` without a grant. A cancel rejects
     /// the call `cancelled` and runs the cancel action `handler` returned.
     public func addMethod(_ method: String, permission: String? = nil, handler: @escaping MethodHandler) {
-        methods[method] = (permission, handler)
+        methods[method] = (permission, { params, _, reply in handler(params, reply) })
+    }
+
+    /// `addMethod` for a handler that needs to know who called: the
+    /// kernel and the notebook it runs, such as a namespace that keeps
+    /// each notebook's items apart.
+    public func addMethod(_ method: String, permission: String? = nil, contextHandler: @escaping ContextMethodHandler) {
+        methods[method] = (permission, contextHandler)
     }
 
     /// Adds the bridge to `controller`, in the page's content world.
@@ -417,7 +424,11 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         let params = call["params"] as? [String: Any] ?? [:]
-        if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
+        if let namespace = requestedNamespace(method), let permission = permissions[namespace],
+           permission.status == .denied || permission.status == .restricted {
+            // The system already refused: answer that without the app's prompt.
+            pending.answer(token, ["result": permission.status.rawValue])
+        } else if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
             // The ledger first: a notebook it refuses gets `denied` without
             // the system prompt.
             checkLedger(method, namespace, call: token, owner: owner, refused: { [weak self] _ in
@@ -429,7 +440,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             })
         } else if let entry = methods[method] {
             authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
-                self?.run(entry.handler, params, call: token)
+                self?.run(entry.handler, params, call: token, owner: owner)
             }
         } else {
             authorize(method, streamPermissions[method], call: token, owner: owner) { [weak self] in
@@ -527,9 +538,10 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    private func run(_ handler: MethodHandler, _ params: [String: Any], call token: PendingCall) {
+    private func run(_ handler: ContextMethodHandler, _ params: [String: Any], call token: PendingCall, owner: Int) {
         guard pending.isWaiting(token) else { return }
-        let cancel = handler(params) { [weak self] result in
+        let context = CallContext(owner: owner, notebook: ledger.notebook(for: owner))
+        let cancel = handler(params, context) { [weak self] result in
             switch result {
             case let .success(value):
                 self?.pending.answer(token, ["result": value])

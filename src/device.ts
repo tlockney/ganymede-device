@@ -287,6 +287,49 @@ export interface Files {
 }
 
 /** The photo library, through the system photo picker. */
+export interface ScheduleNotificationOptions extends CallOptions {
+  /** Seconds from now, more than 0. */
+  delay: number;
+  /** Shown above the body. */
+  title?: string;
+}
+
+/** A notification this notebook scheduled that hasn't been delivered. */
+export interface PendingNotification {
+  /** What `schedule()` returned. */
+  id: string;
+  title?: string;
+  body: string;
+  /** When it is due, when the host knows. */
+  date?: Date;
+}
+
+/**
+ * Local notifications after a delay: the app posts them even when the
+ * notebook or the app is closed. Delay only, no calendar times or
+ * repeats. Each notification belongs to the notebook that scheduled it:
+ * `pending()`, `cancel()` and `cancelAll()` see only that notebook's.
+ *
+ * Needs the notifications permission, for `schedule()`: the first call
+ * asks (the app's prompt for this notebook, then the system's) and a
+ * refusal rejects `denied`. On-device: Mac, iPad and iPhone. Remote
+ * kernels and the browser: no.
+ */
+export interface Notifications extends Authorization {
+  /**
+   * Schedules `body` to show `delay` seconds from now; resolves with its
+   * id. iOS and iPadOS keep at most 64 per app, dropping the soonest
+   * beyond that. Cancel rejects `cancelled`; it may already be scheduled.
+   */
+  schedule(body: string, options: ScheduleNotificationOptions): Promise<string>;
+  /** This notebook's notifications not yet delivered. Cancel rejects `cancelled`. */
+  pending(options?: CallOptions): Promise<PendingNotification[]>;
+  /** Takes one of this notebook's off the schedule; an id that's gone, or another notebook's, changes nothing. */
+  cancel(id: string, options?: CallOptions): Promise<void>;
+  /** Takes all of this notebook's off the schedule. */
+  cancelAll(options?: CallOptions): Promise<void>;
+}
+
 export interface Photos {
   /**
    * Shows the system photo picker and reads the photos the person picks.
@@ -622,6 +665,7 @@ export interface Device {
   readonly photos: Photos;
   /** Sound playback: see `Sound`. */
   readonly sound: Sound;
+  readonly notifications: Notifications;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -850,6 +894,43 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         const opened = await call("sound.player", { data: await audioBytes("sound.player", data) }, options);
         if (!isRecord(opened) || typeof opened.player !== "number") throw new DeviceError("failed", "the host's sound.player reply is malformed");
         return soundPlayer(opened.player, typeof opened.duration === "number" ? opened.duration : NaN);
+      },
+    },
+    notifications: {
+      ...permission("notifications"),
+      async schedule(body, options) {
+        const { signal, delay, title } = options ?? ({} as ScheduleNotificationOptions);
+        if (typeof body !== "string" || body === "") throw new DeviceError("failed", "notifications.schedule needs a body");
+        if (typeof delay !== "number" || !Number.isFinite(delay) || delay <= 0) {
+          throw new DeviceError("failed", "notifications.schedule needs a delay in seconds, more than 0");
+        }
+        if (title !== undefined && typeof title !== "string") throw new DeviceError("failed", "notifications.schedule: title must be a string");
+        const id = await call("notifications.schedule", { body, delay, ...defined({ title }) }, { signal });
+        if (typeof id !== "string") throw new DeviceError("failed", "the host's notifications.schedule reply is malformed");
+        return id;
+      },
+      async pending(options = {}) {
+        const result = await call("notifications.pending", {}, options);
+        if (!Array.isArray(result)) throw new DeviceError("failed", "the host's notifications.pending reply is malformed");
+        return result.map((item): PendingNotification => {
+          if (!isRecord(item) || typeof item.id !== "string" || typeof item.body !== "string") {
+            throw new DeviceError("failed", "the host's notifications.pending reply is malformed");
+          }
+          const date = typeof item.date === "string" ? new Date(item.date) : undefined;
+          return {
+            id: item.id,
+            body: item.body,
+            ...(typeof item.title === "string" ? { title: item.title } : {}),
+            ...(date && !Number.isNaN(date.getTime()) ? { date } : {}),
+          };
+        });
+      },
+      async cancel(id, options = {}) {
+        if (typeof id !== "string" || id === "") throw new DeviceError("failed", "notifications.cancel needs the id schedule returned");
+        await call("notifications.cancel", { id }, options);
+      },
+      async cancelAll(options = {}) {
+        await call("notifications.cancelAll", {}, options);
       },
     },
     photos: {

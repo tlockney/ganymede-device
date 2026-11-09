@@ -202,9 +202,17 @@ final class LedgerRequests {
     }
 
     /// A notebook was renamed or moved: its prompts now ask for the new path.
-    func move(from old: String, to new: String) {
+    /// When one is already up for the new path and the same capability,
+    /// the moved prompt's calls join it and the moved prompt closes.
+    func move(from old: String, to new: String, prompter: LedgerPrompter?) {
         for prompt in prompts.values where prompt.notebook == old {
-            prompt.notebook = new
+            if let existing = prompts.values.first(where: { $0 !== prompt && $0.notebook == new && $0.capability == prompt.capability }) {
+                existing.waiters += prompt.waiters
+                prompts[prompt.id] = nil
+                prompter?.dismissPermission(prompt.id)
+            } else {
+                prompt.notebook = new
+            }
         }
     }
 

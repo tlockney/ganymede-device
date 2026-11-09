@@ -18,6 +18,11 @@ private final class FakePrompter: LedgerPrompter {
         answers[id] = nil
     }
 
+    func answerPrompt(_ id: Int, _ answer: LedgerAnswer?) {
+        guard let done = answers.removeValue(forKey: id) else { return XCTFail("no prompt \(id) up") }
+        done(answer)
+    }
+
     func answer(_ answer: LedgerAnswer?) {
         guard let last = asked.last, let done = answers.removeValue(forKey: last.id) else { return XCTFail("no prompt up") }
         done(answer)
@@ -277,6 +282,34 @@ final class LedgerTests: XCTestCase {
         call(bridge, id: 1, into: replies)
         XCTAssertEqual(errorCode(replies.last), "denied")
         XCTAssertTrue(prompter.asked.isEmpty)
+    }
+
+    func testRequestAuthorizationAfterASystemRefusalSkipsTheAppPrompt() {
+        let bridge = bridge()
+        system.status = .restricted
+        let replies = Replies()
+        call(bridge, id: 1, "location.requestAuthorization", into: replies)
+        XCTAssertEqual(replies.last?["result"] as? String, "restricted")
+        XCTAssertTrue(prompter.asked.isEmpty)
+        XCTAssertTrue(bridge.ledger.grants.isEmpty)
+    }
+
+    func testARenameOntoAPromptAlreadyUpJoinsIt() {
+        let bridge = bridge()
+        bridge.setNotebook("/notes/old.ipynb", for: 2)
+        let first = Replies()
+        let second = Replies()
+        call(bridge, id: 1, into: first)
+        call(bridge, id: 2, owner: 2, into: second)
+        XCTAssertEqual(prompter.asked.count, 2)
+        let moved = prompter.asked[1].id
+        bridge.notebookMoved(from: "/notes/old.ipynb", to: "/notes/walk.ipynb")
+        XCTAssertEqual(prompter.dismissed, [moved])
+        // The prompt still up (walk.ipynb's) answers both calls.
+        prompter.answerPrompt(prompter.asked[0].id, .always)
+        XCTAssertEqual(first.last?["result"] as? String, "here")
+        XCTAssertEqual(second.last?["result"] as? String, "here")
+        XCTAssertEqual(bridge.ledger.grants.count, 1)
     }
 
     func testAuthorizationStatusReadsTheLedgersRefusal() {

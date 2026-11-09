@@ -136,6 +136,10 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.photos.pick();
   await device.sound.play(new Uint8Array([1]));
   await device.sound.player(new Uint8Array([1])).catch(() => {}); // null isn't a player; the call is what counts
+  await device.notifications.schedule("b", { delay: 1 }).catch(() => {}); // null isn't an id
+  await device.notifications.pending().catch(() => {});
+  await device.notifications.cancel("x");
+  await device.notifications.cancelAll();
   assert.deepEqual([...called].sort(), Object.keys(SUPPORT).sort());
 });
 
