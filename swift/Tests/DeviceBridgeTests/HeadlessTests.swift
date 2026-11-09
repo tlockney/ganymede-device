@@ -66,6 +66,19 @@ final class HeadlessTests: XCTestCase {
         XCTAssertEqual(code(send(["id": 5, "method": "location.current", "params": [:]])), "unavailable")
     }
 
+    func testTheStatusReadsDeniedWithoutAKeptAlways() {
+        let status = { self.send(["id": 9, "method": "location.authorizationStatus", "params": [:]])?["result"] as? String }
+        XCTAssertEqual(status(), "denied", "the system has granted it, but a call would fail")
+        bridge.ledger.record(.always, notebook: "/n/Walk.ipynb", capability: "location")
+        XCTAssertEqual(status(), "authorized")
+        XCTAssertEqual(code(send(["id": 10, "method": "nothing.authorizationStatus", "params": [:]])), "unavailable")
+    }
+
+    func testOpenURLInTheAppNeedsAWindow() {
+        let reply = send(["id": 11, "method": "openURL", "params": ["url": "https://example.com", "inApp": true]])
+        XCTAssertEqual(code(reply), "unavailable")
+    }
+
     func testADialogFailsUnavailable() {
         XCTAssertEqual(code(send(["id": 6, "method": "ui.alert", "params": ["message": "hi"]])), "unavailable")
         XCTAssertEqual(code(send(["id": 7, "method": "folders.pick", "params": [:]])), "unavailable")

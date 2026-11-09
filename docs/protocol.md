@@ -735,7 +735,9 @@ context, `install(in:)` defines the function in a `JSContext`, and
 
 A run with no notebook on screen (the share sheet, Shortcuts, a widget)
 gets `bridge.engineDevice(headless: true)`. Set its notebook, the
-script's path, with `setNotebook(_:for:)` so its kept answers apply.
+script's path, with `setNotebook(_:for:)` before the preload runs: the
+preload's `hello` fixes `device.has()` for the whole run, so a context
+with no notebook then has no permissioned method at all.
 `allows(method)` says what such a context may call:
 
 - Not a dialog, picker, `share` or `preview` (`DeviceBridge.dialogMethods`
@@ -743,15 +745,21 @@ script's path, with `setNotebook(_:for:)` so its kept answers apply.
 - A method that needs a permission only when the ledger has a kept
   "always" for the notebook and capability, and the system has granted
   the permission.
+- Not `openURL` with `inApp: true`, which needs a window.
 - Everything else, such as `authorizationStatus`, the clipboard and
-  sounds.
+  sounds. `authorizationStatus` reads `denied` unless the notebook has
+  a kept "always", since without one the namespace's calls fail.
 
 Its `hello` lists only those methods, so `device.has()` answers
 truthfully, and any other call fails `unavailable` without reaching the
 ledger or a dialog. The `headless` column of `src/support.ts` says which
 methods a headless run never has.
 
-Extensions read the app's kept answers from an App Group suite: pass
-`PermissionLedger(store: UserDefaultsLedgerStore(defaults:
-UserDefaults(suiteName: "group.<name>")!))` in the app and in each
-extension. Only the app writes.
+Extensions read the app's kept answers from an App Group suite (named
+`group.<name>` on iOS and iPadOS, `<team>.<name>` on the Mac): pass
+`PermissionLedger(store: UserDefaultsLedgerStore(defaults: suite))` and
+`addFolders(FolderGrants(store: UserDefaultsFolderStore(defaults:
+suite)))` in the app and in each extension, or a headless run sees no
+kept answers and no folders. Only the app writes. Both stores default
+to `.standard`, so an app moving to the suite copies its existing rows
+across once.

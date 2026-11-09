@@ -51,12 +51,19 @@ public final class EngineDevice {
     public func allows(_ method: String) -> Bool {
         guard headless else { return true }
         guard let bridge else { return false }
-        if bridge.personMethods.contains(method) || method.hasSuffix(".requestAuthorization") { return false }
+        return allows(method, bridge, people: bridge.personMethods)
+    }
+
+    private func allows(_ method: String, _ bridge: DeviceBridge, people: Set<String>) -> Bool {
+        if people.contains(method) || method.hasSuffix(".requestAuthorization") { return false }
         guard let namespace = bridge.permissionNamespace(method) else { return true }
-        guard let notebook = bridge.ledger.notebook(for: owner),
-              bridge.ledger.answer(notebook: notebook, capability: namespace) == .always
-        else { return false }
-        return bridge.isAuthorized(namespace)
+        return keptAlways(namespace, bridge) && bridge.isAuthorized(namespace)
+    }
+
+    /// Whether the context's notebook has a kept "always" for `namespace`.
+    private func keptAlways(_ namespace: String, _ bridge: DeviceBridge) -> Bool {
+        guard let notebook = bridge.ledger.notebook(for: owner) else { return false }
+        return bridge.ledger.answer(notebook: notebook, capability: namespace) == .always
     }
 
     /// Defines `name` (`__ganymedeDevice` by default) in `context`'s global
@@ -114,10 +121,22 @@ public final class EngineDevice {
             if method == "hello" {
                 var answer = bridge.handle(call)
                 if var hello = answer["result"] as? [String: Any], let all = hello["capabilities"] as? [String] {
-                    hello["capabilities"] = all.filter(allows)
+                    let people = bridge.personMethods
+                    hello["capabilities"] = all.filter { allows($0, bridge, people: people) }
                     answer["result"] = hello
                 }
                 return reply(Self.text(answer))
+            }
+            // What a call would meet: with no kept "always" the
+            // namespace's calls fail, so the status reads `denied`.
+            if method.hasSuffix(".authorizationStatus"),
+               !keptAlways(String(method.dropLast(".authorizationStatus".count)), bridge) {
+                let answer = bridge.handle(call)
+                return reply(Self.text(answer["error"] == nil ? ["result": PermissionStatus.denied.rawValue] : answer))
+            }
+            // A Safari view in the app needs a window to show it in.
+            if method == "openURL", (call["params"] as? [String: Any])?["inApp"] as? Bool == true {
+                return reply(Self.text(DeviceBridge.error("unavailable", "openURL with inApp isn't available in a headless run")))
             }
             guard allows(method) else {
                 return reply(Self.text(DeviceBridge.error("unavailable", "\(method) isn't available in a headless run")))
