@@ -35,8 +35,9 @@ interface DeviceTransport {
 ```
 
 Planned, added when a method needs them: `stream(method, params, signal)`
-for bounded streams (Phase 2), `on(event, handler)` for host events
-(Phase 3), and binary arguments (see "Message format").
+for bounded streams (Phase 2), and binary arguments (see "Message
+format"). Host events (Phase 3) need no transport method: they are a
+stream ([phase-3.md](phase-3.md), part 3).
 
 | Kernel placement | Where it applies | Transport |
 | --- | --- | --- |

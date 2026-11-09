@@ -63,8 +63,13 @@ device.secrets.list(): Promise<string[]>        // names only
 ```
 
 - Keychain generic passwords, service `ganymede.device.secrets`,
-  account `<notebook path>\0<name>`, `kSecAttrAccessibleWhenUnlocked`,
-  not synchronized. Scoped per notebook: a notebook never sees another's
+  account `<notebook path>\0<name>`,
+  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized.
+  That class lets Phase 4's headless runs (a background widget refresh,
+  a Shortcuts automation) read a secret while the device is locked,
+  after it has been unlocked once since boot; the trade-off is that the
+  item is readable while locked. Before the first unlock, `get` fails
+  `unavailable`. Scoped per notebook: a notebook never sees another's
   names. `notebookMoved` re-keys them.
 - Values are strings up to 64 KiB; names are 1 to 128 characters
   without NUL.
@@ -101,7 +106,7 @@ device.on(event: "appearance" | "foreground" | "background" | "battery" | "local
   `on()` outlives the cell that registered it, until the kernel restarts
   or the handler is removed. (The cell signal is not passed.)
 - The `DeviceTransport.on` planned in plan.md is dropped in favour of
-  this; plan.md is updated.
+  this; plan.md says so already.
 
 **Acceptance**: a cell's handler sees appearance and foreground changes
 on a Mac and iPad; removing the last handler stops the source; a kernel
