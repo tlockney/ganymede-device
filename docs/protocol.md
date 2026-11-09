@@ -204,8 +204,44 @@ photos; approximate location) and count as granted.
   `remote: "no"` and `browser: "no"` with a `permission` field, and the
   generated support table gains a Permission column with the first one.
   Their TSDoc names the permission ("Needs the location permission.").
-- The app's own ledger (docs/plan.md, "Permissions" item 2) is checked
-  before the system prompt (#60).
+- The app's own ledger (below) is checked before the system prompt.
+
+### The ledger
+
+Before the system prompt, the app asks the person whether this notebook
+may use the capability (docs/plan.md, "Permissions" item 2). The ledger
+lives in Swift (`DeviceBridge.ledger`, Ledger.swift); nothing new crosses
+the wire.
+
+- The host says which notebook each kernel runs:
+  `setNotebook(path, for: owner)` when the kernel starts (`owner` is its
+  `webkitHost().owner`), and `notebookMoved(from:to:)` on a rename or
+  move, which carries kept answers along (replacing answers left at the
+  new path). A permissioned call from a kernel with no notebook is
+  denied. `release`, `dropPage()`, `dropRemote()` and `dropAll()` forget
+  their kernels' notebooks, since owner numbers start over with the page:
+  set the notebook again for each kernel the new page starts.
+- Answers: once (this call), always, deny. "Always" and "deny" are kept,
+  keyed by (notebook path, capability), in UserDefaults by default
+  (`LedgerStore`). A kept "deny" rejects `denied` without the system
+  prompt; so does a dismissed prompt, which keeps nothing.
+  `requestAuthorization()` answers `denied` when the ledger refuses, and
+  `authorizationStatus()` reads `denied` for a kernel with no notebook or
+  a kept deny. When the system status is already `denied` or
+  `restricted`, a call fails without the app's prompt.
+- The app shows the prompt through `ledgerPrompter`
+  (`askPermission(capability, notebook:, id:, answer:)`). Calls for the
+  same notebook and capability share one prompt. A cancel takes the call
+  off it, and once no call waits, `dismissPermission(id)` closes it.
+  With no prompter (headless runs: share sheet, Shortcuts), only kept
+  "always" answers let a call through.
+- `ledger.grants` and `ledger.revoke(notebook:capability:)` are for the
+  Settings screen; a revoke applies from the next call.
+- Declarations: `undecided(declared, notebook:)` takes a notebook's
+  `metadata.ganymede.device` list and returns the capabilities this app
+  has with no kept answer, so the app can ask when the notebook opens.
+- Pickers, share and dialogs need no permission, so they never reach
+  the ledger.
 
 ## Dialogs
 

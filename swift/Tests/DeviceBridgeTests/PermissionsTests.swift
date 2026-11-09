@@ -30,6 +30,25 @@ private final class FakePermission: Permission {
     }
 }
 
+/// The ledger's prompt, always answering "always", so these tests reach
+/// the system permission.
+@MainActor
+private final class AllowAll: LedgerPrompter {
+    func askPermission(_ capability: String, notebook: String, id: Int, answer: @escaping @MainActor (LedgerAnswer?) -> Void) {
+        answer(.always)
+    }
+
+    func dismissPermission(_ id: Int) {}
+}
+
+/// Kept answers in memory.
+@MainActor
+final class MemoryLedgerStore: LedgerStore {
+    var saved: [LedgerGrant] = []
+    func load() -> [LedgerGrant] { saved }
+    func save(_ grants: [LedgerGrant]) { saved = grants }
+}
+
 @MainActor
 private final class Answers {
     var all: [[String: Any]] = []
@@ -39,6 +58,7 @@ private final class Answers {
 
 @MainActor
 final class PermissionsTests: XCTestCase {
+    private lazy var allowAll = AllowAll()
     private var runs = 0
     private var cancels = 0
     /// The reply of the last `test.read` that hasn't answered yet.
@@ -48,7 +68,10 @@ final class PermissionsTests: XCTestCase {
     /// it; answers 42, or waits when `wait` is set) and `test.ticks` (a
     /// stream that needs it).
     private func bridge(_ permission: FakePermission, wait: Bool = false) -> DeviceBridge {
-        let bridge = DeviceBridge(clipboard: nil, appVersion: "")
+        let bridge = DeviceBridge(clipboard: nil, ledger: PermissionLedger(store: MemoryLedgerStore()), appVersion: "")
+        bridge.ledgerPrompter = allowAll
+        bridge.setNotebook("a.ipynb", for: 1)
+        bridge.setNotebook("b.ipynb", for: 2)
         bridge.addPermission("test", permission)
         bridge.addMethod("test.read", permission: "test") { [unowned self] _, reply in
             self.runs += 1
@@ -87,7 +110,7 @@ final class PermissionsTests: XCTestCase {
     func testAuthorizationStatusReadsWithoutPrompting() {
         let permission = FakePermission(.limited)
         let bridge = bridge(permission)
-        XCTAssertEqual(bridge.handle(["id": 1, "method": "test.authorizationStatus", "params": [:]])["result"] as? String, "limited")
+        XCTAssertEqual(bridge.handle(["id": 1, "owner": 1, "method": "test.authorizationStatus", "params": [:]])["result"] as? String, "limited")
         XCTAssertEqual(permission.prompts, 0)
     }
 
@@ -218,6 +241,8 @@ final class PermissionsTests: XCTestCase {
         let new = Answers()
         call(bridge, "test.read", id: 1, into: old)
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         permission.answer(.authorized)
         XCTAssertEqual(old.all.count, 1)
@@ -234,6 +259,8 @@ final class PermissionsTests: XCTestCase {
         let new = Answers()
         call(bridge, "test.requestAuthorization", id: 1, into: old)
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         permission.answer(.authorized)
         XCTAssertEqual(new.all.count, 1)
@@ -247,6 +274,8 @@ final class PermissionsTests: XCTestCase {
         call(bridge, "test.read", id: 1, into: old)
         let oldReply = pendingRead
         bridge.dropPage()
+        // The host names the new page's kernel's notebook.
+        bridge.setNotebook("a.ipynb", for: 1)
         call(bridge, "test.read", id: 1, into: new)
         oldReply?(.success(7))
         XCTAssertTrue(new.all.isEmpty)

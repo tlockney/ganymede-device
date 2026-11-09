@@ -32,7 +32,9 @@ public protocol Permission: AnyObject {
     var status: PermissionStatus { get }
     /// Shows the system prompt when the status is `notDetermined`, and calls
     /// `done` once with the status after it; otherwise calls `done` with the
-    /// status as it is.
+    /// status as it is. Always call `done`, even when the framework can't
+    /// ask (a missing usage description): later calls for the permission
+    /// wait on this one.
     func request(_ done: @escaping @MainActor (PermissionStatus) -> Void)
 }
 
@@ -45,15 +47,15 @@ public typealias MethodReply = @MainActor (Result<Any, DeviceCallError>) -> Void
 /// or nil; after a cancel, a reply is ignored.
 public typealias MethodHandler = @MainActor (_ params: [String: Any], _ reply: @escaping MethodReply) -> (() -> Void)?
 
-/// Calls that answer later and aren't dialogs: permission requests, and
-/// methods added with `addMethod`, while they wait on a prompt or their
-/// handler. Each is answered once: by its outcome, or by a cancel.
 /// One waiting call: its id, and which call with that id it is.
 struct PendingCall: Hashable {
     let id: Int
     let serial: Int
 }
 
+/// Calls that answer later and aren't dialogs: permission requests, and
+/// methods added with `addMethod`, while they wait on a prompt or their
+/// handler. Each is answered once: by its outcome, or by a cancel.
 @MainActor
 final class PendingCalls {
     private final class Call {
@@ -109,11 +111,12 @@ final class PendingCalls {
         call.reply(DeviceBridge.error("cancelled", "the call was cancelled"))
     }
 
-    /// Cancels the calls of each owner that `matches`.
-    func cancel(owners matches: (Int) -> Bool) {
-        for (id, call) in calls where matches(call.owner) {
-            cancel(id)
-        }
+    /// Cancels the calls of each owner that `matches`; their ids.
+    @discardableResult
+    func cancel(owners matches: (Int) -> Bool) -> [Int] {
+        let ids = calls.filter { matches($0.value.owner) }.map { $0.key }
+        for id in ids { cancel(id) }
+        return ids
     }
 }
 

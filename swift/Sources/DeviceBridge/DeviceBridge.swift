@@ -33,6 +33,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private var streamPermissions: [String: String] = [:]
     private let pending = PendingCalls()
     private let requests = PermissionRequests()
+    private let ledgerRequests = LedgerRequests()
     private let appVersion: String
 
     public init(
@@ -42,6 +43,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         state: DeviceState? = nil,
         presenter: DialogPresenter? = nil,
         sounds: SoundLoader? = nil,
+        ledger: PermissionLedger? = nil,
         appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     ) {
         // Made here, not as the default arguments: defaults are evaluated
@@ -52,7 +54,38 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.state = state ?? SystemDeviceState()
         self.dialogs = DialogQueue(presenter: presenter ?? SystemDialogPresenter())
         self.sounds = Sounds(loader: sounds ?? SystemSoundLoader())
+        self.ledger = ledger ?? PermissionLedger()
         self.appVersion = appVersion
+    }
+
+    /// The app's permission ledger: kept answers, for a Settings screen to
+    /// list and revoke, and the notebook each kernel runs.
+    public let ledger: PermissionLedger
+
+    /// Shows the app's permission prompt. Without one (headless runs), a
+    /// permissioned call with no kept "always" is denied.
+    public weak var ledgerPrompter: LedgerPrompter?
+
+    /// Kernel `owner` (its `webkitHost().owner`) runs the notebook at
+    /// `path`; call it when the kernel starts. It moves only that kernel:
+    /// when a notebook is renamed or moved, call `notebookMoved`, which
+    /// also carries its kept answers. Permissioned calls from a kernel with
+    /// no notebook are denied.
+    public func setNotebook(_ path: String?, for owner: Int) {
+        ledger.setNotebook(path, for: owner)
+    }
+
+    /// A notebook was renamed or moved: its kernels and kept answers follow.
+    public func notebookMoved(from old: String, to new: String) {
+        ledger.move(from: old, to: new)
+        ledgerRequests.move(from: old, to: new)
+    }
+
+    /// Of a notebook's declared capabilities (`metadata.ganymede.device`),
+    /// the ones this app has and the ledger has no answer for, so the app
+    /// can ask when the notebook opens.
+    public func undecided(_ declared: [String], notebook: String) -> [String] {
+        ledger.undecided(declared.filter { permissions[$0] != nil }, notebook: notebook)
     }
 
     /// Adds a streaming method (docs/protocol.md, "Streams"): `hello` lists
@@ -152,7 +185,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         dialogs.drop { _ in true }
         sounds.stop { _ in true }
         streams.stop { _ in true }
-        pending.cancel { _ in true }
+        cancelPending { _ in true }
+        ledger.forget { _ in true }
     }
 
     /// Closes the kernel page's dialogs and stops its sounds, as `dropAll()`
@@ -163,7 +197,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         dialogs.drop { $0 > 0 }
         sounds.stop { $0 >= 0 }
         streams.stop { $0 >= 0 }
-        pending.cancel { $0 >= 0 }
+        cancelPending { $0 >= 0 }
+        ledger.forget { $0 >= 0 }
     }
 
     /// Closes the remote handler's dialogs and stops its sounds, and leaves
@@ -173,7 +208,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         dialogs.drop { $0 < 0 }
         sounds.stop { $0 < 0 }
         streams.stop { $0 < 0 }
-        pending.cancel { $0 < 0 }
+        cancelPending { $0 < 0 }
+        ledger.forget { $0 < 0 }
     }
 
     /// One message's reply: `{ result }` or `{ error: { code, message } }`.
@@ -188,7 +224,8 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             // The kernel behind this handler shut down.
             sounds.release(owner)
             streams.stop { $0 == owner }
-            pending.cancel { $0 == owner }
+            cancelPending { $0 == owner }
+            ledger.forget { $0 == owner }
             return ["result": NSNull()]
         }
         if call["cancel"] as? Bool == true {
@@ -197,6 +234,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let id = Self.callID(call["id"]) {
                 dialogs.cancel(id)
                 sounds.cancel(id)
+                ledgerRequests.cancel(id, prompter: ledgerPrompter)
                 pending.cancel(id)
                 streams.cancel(id)
             }
@@ -213,7 +251,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             if owner != 0 {
                 sounds.release(owner)
                 streams.stop { $0 == owner }
-                pending.cancel { $0 == owner }
+                cancelPending { $0 == owner }
             }
             return ["result": hello()]
         case "clipboard.readText":
@@ -256,10 +294,16 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         case _ where answersLater(method):
             return Self.error("failed", "\(method) answers later; send it through respond(to:reply:)")
         case _ where method.hasSuffix(".authorizationStatus"):
-            guard let permission = permissions[String(method.dropLast(".authorizationStatus".count))] else {
+            let namespace = String(method.dropLast(".authorizationStatus".count))
+            guard let permission = permissions[namespace] else {
                 return Self.error("unavailable", "\(method) isn't available in this app")
             }
-            return ["result": permission.status.rawValue]
+            // What a call would meet: the ledger's refusal (no notebook, or a
+            // kept deny) reads as `denied`, as `requestAuthorization` answers.
+            if let notebook = ledger.notebook(for: owner), ledger.answer(notebook: notebook, capability: namespace) != .deny {
+                return ["result": permission.status.rawValue]
+            }
+            return ["result": PermissionStatus.denied.rawValue]
         case _ where streams.methods[method] != nil:
             return streams.start(method, params, call: Self.callID(call["id"]), owner: owner)
         case _ where Self.dialogMethods.contains(method):
@@ -374,17 +418,23 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         let params = call["params"] as? [String: Any] ?? [:]
         if let namespace = requestedNamespace(method), let permission = permissions[namespace] {
-            requests.request(permission) { [weak self] status in
-                self?.pending.answer(token, ["result": status.rawValue])
-            }
+            // The ledger first: a notebook it refuses gets `denied` without
+            // the system prompt.
+            checkLedger(method, namespace, call: token, owner: owner, refused: { [weak self] _ in
+                self?.pending.answer(token, ["result": PermissionStatus.denied.rawValue])
+            }, allowed: { [weak self] in
+                self?.requests.request(permission) { [weak self] status in
+                    self?.pending.answer(token, ["result": status.rawValue])
+                }
+            })
         } else if let entry = methods[method] {
-            authorize(method, entry.permission, call: token) { [weak self] in
+            authorize(method, entry.permission, call: token, owner: owner) { [weak self] in
                 self?.run(entry.handler, params, call: token)
             }
         } else {
-            authorize(method, streamPermissions[method], call: token) { [weak self] in
+            authorize(method, streamPermissions[method], call: token, owner: owner) { [weak self] in
                 guard let self else { return }
-                self.pending.answer(token, self.streams.start(method, params, call: id, owner: owner))
+                self.pending.answer(token, self.streams.start(method, params, call: token.id, owner: owner))
             }
         }
     }
@@ -392,7 +442,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// Runs `proceed` once `namespace`'s permission is granted, asking the
     /// system when it hasn't been asked; otherwise rejects `token`
     /// `denied`. Nothing happens for a call cancelled meanwhile.
-    private func authorize(_ method: String, _ namespace: String?, call token: PendingCall, then proceed: @escaping @MainActor () -> Void) {
+    private func authorize(_ method: String, _ namespace: String?, call token: PendingCall, owner: Int, then proceed: @escaping @MainActor () -> Void) {
         guard let namespace else {
             proceed()
             return
@@ -401,6 +451,59 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             pending.answer(token, Self.error("unavailable", "\(method) needs the \(namespace) permission, which this app doesn't have"))
             return
         }
+        // The system already refused: no point asking the person in the app.
+        if permission.status == .denied || permission.status == .restricted {
+            pending.answer(token, Self.error("denied", "\(method): \(namespace) permission is \(permission.status.rawValue)"))
+            return
+        }
+        checkLedger(method, namespace, call: token, owner: owner, refused: { [weak self] message in
+            self?.pending.answer(token, Self.error("denied", message))
+        }, allowed: { [weak self] in
+            self?.askSystem(method, namespace, permission, call: token, then: proceed)
+        })
+    }
+
+    /// The app's ledger for the notebook kernel `owner` runs: a kept
+    /// "always" goes ahead, a kept "deny" is refused, and otherwise the
+    /// person is asked through `ledgerPrompter` (refused without one).
+    /// Nothing happens for a call cancelled meanwhile.
+    private func checkLedger(
+        _ method: String, _ namespace: String, call token: PendingCall, owner: Int,
+        refused: @escaping @MainActor (String) -> Void, allowed: @escaping @MainActor () -> Void
+    ) {
+        guard let notebook = ledger.notebook(for: owner) else {
+            refused("\(method): the app hasn't said which notebook this kernel runs")
+            return
+        }
+        switch ledger.answer(notebook: notebook, capability: namespace) {
+        case .always?:
+            allowed()
+        case .deny?:
+            refused("\(method): \(notebook) isn't allowed \(namespace) (revoke it in Settings)")
+        default:
+            guard let prompter = ledgerPrompter else {
+                refused("\(method): \(notebook) has no \(namespace) grant, and no one can be asked")
+                return
+            }
+            ledgerRequests.ask(namespace, notebook: notebook, call: token.id, prompter: prompter, record: { [weak self] answer, notebook in
+                self?.ledger.record(answer, notebook: notebook, capability: namespace)
+            }) { [weak self] answer in
+                guard let self, self.pending.isWaiting(token) else { return }
+                if answer == .once || answer == .always {
+                    allowed()
+                } else {
+                    refused("\(method): \(notebook) wasn't allowed \(namespace)")
+                }
+            }
+        }
+    }
+
+    /// The system (TCC) permission, asked when it hasn't been.
+    private func askSystem(
+        _ method: String, _ namespace: String, _ permission: Permission, call token: PendingCall,
+        then proceed: @escaping @MainActor () -> Void
+    ) {
+        guard pending.isWaiting(token) else { return }
         let decide: @MainActor (PermissionStatus) -> Void = { [weak self] status in
             guard let self, self.pending.isWaiting(token) else { return }
             if status.isAuthorized {
@@ -413,6 +516,14 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             requests.request(permission, decide)
         } else {
             decide(permission.status)
+        }
+    }
+
+    /// Cancels the waiting calls of each owner that `matches`, and closes
+    /// app prompts no other call waits on.
+    private func cancelPending(_ matches: (Int) -> Bool) {
+        for id in pending.cancel(owners: matches) {
+            ledgerRequests.cancel(id, prompter: ledgerPrompter)
         }
     }
 
