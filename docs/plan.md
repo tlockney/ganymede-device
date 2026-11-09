@@ -454,7 +454,7 @@ location (current, watch, geocode); motion; photos save; camera;
 contacts; reminders. Ledger UI and metadata declarations. Bounded streams
 and AbortSignal.
 
-**Phase 3: system integration.**
+**Phase 3: system integration.** Spec: [phase-3.md](phase-3.md) (#68).
 Keychain secrets, Bluetooth LE (central role), Shortcuts run
 (x-callback), host events (appearance, app foreground/background), folder
 bookmarks. Bluetooth sits here because its handles outlive a call and
@@ -471,7 +471,7 @@ non-app client on the same kernel must not answer; Playwright for the web
 implementation in Chromium and WebKit.
 
 **Phase 4: embedded engine and headless runs (with ts-on-ipados tiers
-2-3).**
+2-3).** Spec: [phase-4.md](phase-4.md) (#69).
 Host-function transport for the JSC/V8 kernel. Share-sheet extension,
 App Intents and widgets run scripts through the same transport, using
 grants from the ledger.
