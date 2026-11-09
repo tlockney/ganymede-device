@@ -81,7 +81,7 @@ such API.
 | [`device.contacts.authorizationStatus(options?)`](#device-contacts-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.contacts.isAuthorized(options?)`](#device-contacts-isauthorized-options) | Whether the permission is granted, without asking. |
 | [`device.contacts.requestAuthorization(options?)`](#device-contacts-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
-| [`device.contacts.search(query, options?)`](#device-contacts-search-query-options) | Contacts whose name matches `query`; or whose email matches, when `query` is an email address; or whose phone number matches, when it is a phone number. |
+| [`device.contacts.search(query, options?)`](#device-contacts-search-query-options) | Contacts whose name matches `query`; or whose email matches, when `query` is a whole email address (a part of one, such as `"@example.com"`, matches nothing); or whose phone number matches, when it is a phone number. |
 | [`device.contacts.get(id, options?)`](#device-contacts-get-id-options) | One contact, by the id `search`, `all` or `add` gave. |
 | [`device.contacts.all(options?)`](#device-contacts-all-options) | Every contact the app may see, in the person's sort order. |
 | [`device.contacts.add(contact, options?)`](#device-contacts-add-contact-options) | Adds a contact to the default account. |
@@ -1472,8 +1472,9 @@ search(query: string, options?: CallOptions): Promise<Contact[]>;
 ```
 
 Contacts whose name matches `query`; or whose email matches, when
-`query` is an email address; or whose phone number matches, when it
-is a phone number.
+`query` is a whole email address (a part of one, such as
+`"@example.com"`, matches nothing); or whose phone number matches,
+when it is a phone number.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |

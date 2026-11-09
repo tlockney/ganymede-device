@@ -275,7 +275,13 @@ public final class SystemContactStore: ContactStore {
 
     nonisolated static func label(_ label: String?) -> String? {
         guard let label, !label.isEmpty else { return nil }
-        return labels.first { $0.1 == label }?.0 ?? label
+        if let plain = labels.first(where: { $0.1 == label })?.0 { return plain }
+        // Another of the framework's labels, such as `_$!<HomeFAX>!$_`:
+        // the word inside.
+        if label.hasPrefix("_$!<"), label.hasSuffix(">!$_"), label.count > 8 {
+            return String(label.dropFirst(4).dropLast(4))
+        }
+        return label
     }
 
     nonisolated static func cnLabel(_ label: String?) -> String? {
@@ -400,8 +406,16 @@ extension DeviceBridge {
         } else {
             return nil
         }
-        guard rest.count == 2, rest.allSatisfy({ $0.count == 2 }), let month = Int(rest[0]), let day = Int(rest[1]),
-              (1...12).contains(month), (1...31).contains(day)
+        guard rest.count == 2, rest.allSatisfy({ $0.count == 2 }),
+              parts.allSatisfy({ $0.allSatisfy { $0.isASCII && $0.isNumber } }),
+              let month = Int(rest[0]), let day = Int(rest[1])
+        else { return nil }
+        // A real day: 2023-02-31 isn't one; --02-29 is, in a leap year.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let check = DateComponents(year: year ?? 2000, month: month, day: day)
+        guard let date = calendar.date(from: check),
+              calendar.dateComponents([.year, .month, .day], from: date) == check
         else { return nil }
         return DateComponents(year: year, month: month, day: day)
     }

@@ -151,6 +151,9 @@ final class ContactsTests: XCTestCase {
             ("contacts.add", ["contact": ["givenName": "A", "phones": [["label": "home"]]]]),
             ("contacts.add", ["contact": ["givenName": "A", "birthday": "10/12/1815"]]),
             ("contacts.add", ["contact": ["givenName": "A", "birthday": "1815-13-10"]]),
+            ("contacts.add", ["contact": ["givenName": "A", "birthday": "2023-02-31"]]),
+            ("contacts.add", ["contact": ["givenName": "A", "birthday": "+815-+1-+2"]]),
+            ("contacts.add", ["contact": ["givenName": "A", "birthday": "--02-30"]]),
         ] as [(String, [String: Any])] {
             XCTAssertEqual(errorCode(call(bridge, method, params)), "failed", "\(method) \(params)")
         }
@@ -188,6 +191,7 @@ final class ContactsTests: XCTestCase {
         XCTAssertNil(SystemContactStore.label(""))
         XCTAssertEqual(SystemContactStore.label(SystemContactStore.cnLabel("Mobile")), "mobile")
         XCTAssertEqual(SystemContactStore.cnLabel("Gym"), "Gym")
+        XCTAssertEqual(SystemContactStore.label("_$!<HomeFAX>!$_"), "HomeFAX", "unmapped framework labels lose the wrapper")
     }
 
     func testTheFrameworksStatusesMap() {

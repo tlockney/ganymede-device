@@ -694,8 +694,9 @@ export interface Contact {
 export interface Contacts extends Authorization {
   /**
    * Contacts whose name matches `query`; or whose email matches, when
-   * `query` is an email address; or whose phone number matches, when it
-   * is a phone number.
+   * `query` is a whole email address (a part of one, such as
+   * `"@example.com"`, matches nothing); or whose phone number matches,
+   * when it is a phone number.
    *
    * @param query A name or part of one, an email address, or a phone number.
    * @param options The call's `signal`. Cancel rejects `cancelled`.
