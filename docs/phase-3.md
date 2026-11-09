@@ -76,8 +76,8 @@ device.secrets.list(): Promise<string[]>        // names only
   `kSecUseDataProtectionKeychain: true`, since accessibility classes
   apply only there. Items go in a shared access group
   (`kSecAttrAccessGroup` `<team>.ganymede.device`) so Phase 4's
-  extensions can read them (phase-4.md, part 2). Scoped per notebook: a notebook never sees another's
-  names. `notebookMoved` re-keys them.
+  extensions can read them (phase-4.md, part 2). Scoped per notebook: a
+  notebook never sees another's names. `notebookMoved` re-keys them.
 - Values are strings up to 64 KiB; names are 1 to 128 characters
   without NUL.
 - No system permission, so the ledger alone gates it: capability

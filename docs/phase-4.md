@@ -64,6 +64,11 @@ refresh.
   grants. Extensions read; only the app writes. Secrets (phase-3.md,
   part 2) are in the shared keychain access group
   `<team>.ganymede.device` for the same reason.
+- Entitlements, on the app and on every extension:
+  `com.apple.security.application-groups` for the suite (`group.<name>`
+  on iOS and iPadOS, `<team>.<name>` on the Mac) and
+  `keychain-access-groups` with `<team>.ganymede.device`. Without them
+  the extension's reads come back empty rather than failing.
 
 **Acceptance**: a headless run of a notebook with a kept location grant
 reads the location; without it the call is `unavailable` in `has()` and
