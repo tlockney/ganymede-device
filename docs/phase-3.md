@@ -11,7 +11,10 @@ one pull request unless it says otherwise, and each one adds TS types
 with TSDoc, `support.ts` rows (`remote: "no"`, `browser: "no"`,
 `permission` where it has one), protocol.md entries, the Swift handler,
 XCTest with a fake source, and a ganymede-ui bump with any Info.plist
-usage string.
+usage string and entitlement (Bluetooth:
+`com.apple.security.device.bluetooth`; folder bookmarks:
+`com.apple.security.files.bookmarks.app-scope`; secrets:
+`keychain-access-groups`), needed once the Mac app is sandboxed.
 
 Order: handles (1) first, since Bluetooth and folders return handles;
 then secrets (2), host events (3), Bluetooth (4) and folders (5) in any
@@ -69,7 +72,11 @@ device.secrets.list(): Promise<string[]>        // names only
   a Shortcuts automation) read a secret while the device is locked,
   after it has been unlocked once since boot; the trade-off is that the
   item is readable while locked. Before the first unlock, `get` fails
-  `unavailable`. Scoped per notebook: a notebook never sees another's
+  `unavailable`. On the Mac the queries set
+  `kSecUseDataProtectionKeychain: true`, since accessibility classes
+  apply only there. Items go in a shared access group
+  (`kSecAttrAccessGroup` `<team>.ganymede.device`) so Phase 4's
+  extensions can read them (phase-4.md, part 2). Scoped per notebook: a notebook never sees another's
   names. `notebookMoved` re-keys them.
 - Values are strings up to 64 KiB; names are 1 to 128 characters
   without NUL.
@@ -102,6 +109,18 @@ device.on(event: "appearance" | "foreground" | "background" | "battery" | "local
 - Swift: one `StreamSource` per stream over NotificationCenter and KVO
   (`NSApp.effectiveAppearance`, `UIApplication` scene notifications,
   battery notifications), sending only on change.
+- `on()` returns at once; if opening the stream fails (`unavailable`,
+  `denied`), the handler is removed and the error is written to the
+  kernel's stderr as one line, the way a failed preload `hello` is.
+  `has("events.watch")` tells a cell beforehand.
+- Sources: the Mac's battery comes from IOKit power-source notifications
+  (`IOPSNotificationCreateRunLoopSource`), iPad and iPhone from
+  `UIDevice` battery notifications. A Mac without a battery never sends
+  `battery`.
+- A handler that runs after its cell has finished writes its output
+  where cdp-kernel sends output with no running cell (the notebook's
+  last cell's stream, or the kernel log); the docs say to keep handlers
+  to state updates and `display` updates by id.
 - Unlike other streams, an interrupt does not close a handler's stream:
   `on()` outlives the cell that registered it, until the kernel restarts
   or the handler is removed. (The cell signal is not passed.)

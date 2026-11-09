@@ -27,7 +27,11 @@ hostFunctionTransport(post: (message: string) => Promise<string>): DeviceTranspo
   ledger and handles need nothing new, since every message is a call.
 - Ids and owners: one owner per engine context, from a counter in
   DeviceBridge that is kept apart from the web view's (as the remote
-  handler's ids are negative today).
+  handler's ids are negative today). Swift knows which context called,
+  so it stamps that context's owner on every message and ignores any
+  `owner` in the JSON: the message format stays the same, but code in
+  one context can't name another's owner to reach its streams, handles
+  or ledger grants.
 - Binary values cross as base64, as on the web view; a later op can pass
   bytes directly (protocol.md, "Binary values" note).
 - Cancel: the engine's interrupt aborts the cell's signals, which send
@@ -57,7 +61,9 @@ refresh.
   guide (plan.md, "Documentation").
 - The ledger store moves to an App Group's UserDefaults suite
   (`UserDefaultsLedgerStore(defaults:)`), so extensions read the app's
-  grants. Extensions read; only the app writes.
+  grants. Extensions read; only the app writes. Secrets (phase-3.md,
+  part 2) are in the shared keychain access group
+  `<team>.ganymede.device` for the same reason.
 
 **Acceptance**: a headless run of a notebook with a kept location grant
 reads the location; without it the call is `unavailable` in `has()` and
