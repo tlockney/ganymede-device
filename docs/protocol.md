@@ -57,7 +57,7 @@ with no `owner` (a page from before owners) counts as owner 0, whose
 | `{ id, owner, method, params }` | A call from kernel `owner`. `params` is a JSON object. | `{ result }` or `{ error: { code, message } }` |
 | `{ id, cancel: true }` | The call `id` was aborted: an interrupt, an `AbortSignal`, or the Worker stopped. Dismiss any sheet or picker it showed, and close the handle ("Handles" below) the call opened, such as a `sound.player` player (the page drops its answer, so it has no id to close). | Anything; ignored |
 | `{ id, cancel: true }` (continued) | For a stream (below): a cancel of its opening call, or of the `stream.next` waiting on it, stops its source. | |
-| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds, close its players and stop its streams. | Anything; ignored |
+| `{ owner, release: true }` | Kernel `owner` shut down. Stop its sounds, close its handles (such as players) and stop its streams. | Anything; ignored |
 
 Rules for the Swift handler:
 

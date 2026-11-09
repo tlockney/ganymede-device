@@ -258,7 +258,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         if call["cancel"] as? Bool == true {
             // Closes the dialog the call showed, or takes it off the queue,
-            // or closes the player it opened.
+            // or closes the handle (a player) it opened.
             if let id = Self.callID(call["id"]) {
                 dialogs.cancel(id)
                 handles.cancel(id)
