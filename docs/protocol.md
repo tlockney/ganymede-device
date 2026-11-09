@@ -802,7 +802,7 @@ since a widget can't run a script itself. The app turns it on with
 | `widget.update` | `{ kind, content }` | `null` once stored; WidgetKit reloads the timelines |
 
 - `kind` is 1 to 64 ASCII letters, digits, `.`, `_` or `-`. Content is
-  kept per notebook and kind, newest first, 64 in all; `notebookMoved`
+  kept per notebook and kind, newest first, 16 per notebook; `notebookMoved`
   carries it.
 - `content`: `title` (up to 64 characters), `rows` (up to six: `{ text }`
   up to 128 characters, or `{ label?, value, unit? }` with a finite

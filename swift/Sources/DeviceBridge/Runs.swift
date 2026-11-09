@@ -68,6 +68,9 @@ public struct RunOutput: Equatable, Sendable {
             else { throw DeviceCallError("failed", "each file needs a plain name") }
             return RunFile(name: name, data: try DeviceBridge.bytes(file["data"]))
         }
+        guard files.reduce(0, { $0 + $1.data.count }) <= DeviceBridge.maxBinaryBytes else {
+            throw DeviceCallError("failed", "files together are limited to \(DeviceBridge.maxBinaryBytes) bytes")
+        }
         guard text != nil || url != nil || !files.isEmpty else { throw DeviceCallError("failed", "output needs text, a url or files") }
     }
 }

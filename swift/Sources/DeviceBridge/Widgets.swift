@@ -122,8 +122,9 @@ public struct UserDefaultsWidgetStore: WidgetStore {
 @MainActor
 public final class PublishedWidgets {
     private let store: WidgetStore
-    /// The most a store keeps; the oldest go first.
-    static let limit = 64
+    /// The most a notebook keeps; its oldest go first, so one notebook
+    /// can't push out another's.
+    static let limit = 16
 
     public init(store: WidgetStore? = nil) {
         self.store = store ?? UserDefaultsWidgetStore()
@@ -137,10 +138,11 @@ public final class PublishedWidgets {
     }
 
     func publish(_ content: WidgetContent, notebook: String, kind: String, at date: Date = Date()) {
-        var widgets = store.load().filter { !($0.notebook == notebook && $0.kind == kind) }
-        widgets.append(PublishedWidget(notebook: notebook, kind: kind, content: content, updated: date))
-        widgets.sort { $0.updated > $1.updated }
-        store.save(Array(widgets.prefix(Self.limit)))
+        let others = store.load().filter { $0.notebook != notebook }
+        var own = store.load().filter { $0.notebook == notebook && $0.kind != kind }
+        own.append(PublishedWidget(notebook: notebook, kind: kind, content: content, updated: date))
+        own.sort { $0.updated > $1.updated }
+        store.save((others + own.prefix(Self.limit)).sorted { $0.updated > $1.updated })
         store.reload()
     }
 

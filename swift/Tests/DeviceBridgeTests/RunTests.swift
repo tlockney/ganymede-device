@@ -119,13 +119,15 @@ final class RunTests: XCTestCase {
         XCTAssertEqual(code(reply), "denied", "no notebook")
     }
 
-    func testTheStoreKeepsTheNewest() {
+    func testEachNotebookKeepsItsNewest() {
         let published = PublishedWidgets(store: widgets)
-        for n in 0..<(PublishedWidgets.limit + 3) {
+        published.publish(try! WidgetContent(["title": "b"]), notebook: "/n/B.ipynb", kind: "b", at: Date(timeIntervalSince1970: 0))
+        for n in 1...(PublishedWidgets.limit + 3) {
             published.publish(try! WidgetContent(["title": "\(n)"]), notebook: "/n/A.ipynb", kind: "k\(n)", at: Date(timeIntervalSince1970: Double(n)))
         }
-        XCTAssertEqual(widgets.saved.count, PublishedWidgets.limit)
-        XCTAssertEqual(published.all.first?.kind, "k\(PublishedWidgets.limit + 2)")
-        XCTAssertNil(published.content(notebook: "/n/A.ipynb", kind: "k0"))
+        XCTAssertEqual(widgets.saved.count, PublishedWidgets.limit + 1)
+        XCTAssertNotNil(published.content(notebook: "/n/B.ipynb", kind: "b"), "another notebook's stays")
+        XCTAssertEqual(published.all.first?.kind, "k\(PublishedWidgets.limit + 3)")
+        XCTAssertNil(published.content(notebook: "/n/A.ipynb", kind: "k1"))
     }
 }
