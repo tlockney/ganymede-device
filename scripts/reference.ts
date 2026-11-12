@@ -109,6 +109,13 @@ const sections: Section[] = [
     intro: "Widgets show what a run last published, since a widget can't run a script itself. The content is a small layout (`WidgetContent`): a title, up to six rows, a tint and a sparkline. No permission.",
   },
   {
+    iface: "Shortcuts",
+    prefix: "device.shortcuts.",
+    heading: "device.shortcuts",
+    support: "shortcuts.",
+    intro: "The person's Shortcuts, run from a cell through the Shortcuts app, which comes forward while one runs. Every call needs the shortcuts permission, the app's prompt alone. The permission methods work where `run` does.",
+  },
+  {
     iface: "Secrets",
     prefix: "device.secrets.",
     heading: "device.secrets",

@@ -186,6 +186,7 @@ test("the support matrix has a row for every method the device calls, and no oth
   await device.secrets.set("a", "b");
   await device.secrets.delete("a").catch(() => {}); // null isn't a boolean
   await device.secrets.list().catch(() => {}); // null isn't a list
+  await device.shortcuts.run("a");
   const quiet = console.error;
   console.error = () => {}; // null isn't a stream
   device.on("locale", () => {});

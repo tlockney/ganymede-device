@@ -20,7 +20,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private let clipboard: Clipboard
     private let haptics: Haptics
-    private let urlOpener: URLOpener
+    let urlOpener: URLOpener
     let state: DeviceState
     let dialogs: DialogQueue
     /// Engine contexts' owners and call ids so far (`engineDevice()`).
@@ -44,6 +44,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// turns the person's answer into the reply.
     private var addedDialogs: [String: AddedDialog] = [:]
     private let pending = PendingCalls()
+    /// Methods that bring another app forward, such as `shortcuts.run`:
+    /// not in a headless run, as for dialogs.
+    var foregroundMethods: Set<String> = []
     /// The folders notebooks picked (`addFolders`), so a moved notebook
     /// keeps them.
     var folderGrants: FolderGrants?
@@ -428,7 +431,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// Every method that shows something and waits for the person: the
     /// built-in dialogs and those a namespace added.
-    var personMethods: Set<String> { Self.dialogMethods.union(addedDialogs.keys) }
+    var personMethods: Set<String> { Self.dialogMethods.union(addedDialogs.keys).union(foregroundMethods) }
 
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
