@@ -3,7 +3,13 @@ import XCTest
 
 private final class Opener: URLOpener {
     var opened: [URL] = []
+    /// What `open(_:completion:)` reports; nil holds the answer back.
+    var succeeds: Bool? = true
     func open(_ url: URL, inApp: Bool) { opened.append(url) }
+    func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        opened.append(url)
+        if let succeeds { completion(succeeds) }
+    }
 }
 
 /// `device.shortcuts.run` (#40): the Shortcuts URL it opens, and the
@@ -86,6 +92,23 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertEqual(calls.waitingCount, 0)
         XCTAssertTrue(calls.handle(late), "still ours, so the app does nothing else with it")
         XCTAssertEqual(code(1), "cancelled")
+    }
+
+    func testAShortcutsAppThatCantBeOpenedFailsTheCall() throws {
+        opener.succeeds = false
+        run(["name": "A"])
+        XCTAssertEqual(code(1), "unavailable")
+        XCTAssertEqual(calls.waitingCount, 0)
+    }
+
+    func testAnUnknownOutcomeLeavesTheCallWaiting() throws {
+        run(["name": "A"])
+        let success = try callback("success", query: "?result=ok")
+        let odd = URL(string: success.absoluteString.replacingOccurrences(of: "/success?", with: "/other?"))!
+        XCTAssertTrue(calls.handle(odd))
+        XCTAssertNil(replies[1])
+        XCTAssertTrue(calls.handle(success))
+        XCTAssertEqual(replies[1]?["result"] as? String, "ok")
     }
 
     func testOtherURLsAreNotItsOwn() throws {

@@ -481,9 +481,16 @@ are its own. Share one `ShortcutCalls` between the app's bridges.
   `cancelled`; `error` rejects `failed` with the Shortcuts app's
   `errorMessage`.
 - An interrupt rejects the call `cancelled` and stops waiting; the
-  Shortcut may still run, and its late callback is ignored. A callback
-  never sent (the app was quit meanwhile) leaves the call waiting until
-  an interrupt.
+  Shortcut may still run, and its late callback is ignored. If the
+  Shortcuts URL can't be opened (the Shortcuts app was deleted, which
+  iOS allows), the call fails `unavailable` at once. A callback never
+  sent (the app was quit meanwhile) leaves the call waiting until an
+  interrupt. A callback with an outcome other than `success`, `error`
+  or `cancel` is ignored.
+- The output comes back in a URL on the app's own scheme. Another app
+  that claims the same scheme could be handed it instead: the token
+  stops it forging an answer, not reading the output. Don't send
+  secrets through a Shortcut's output.
 - The Shortcuts app comes forward while the Shortcut runs. On iPad and
   iPhone the app's kernel stops about 30 seconds after Ganymede leaves
   the screen, so a longer Shortcut's answer has no cell to reach.

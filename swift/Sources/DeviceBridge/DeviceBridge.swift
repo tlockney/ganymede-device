@@ -933,6 +933,17 @@ public protocol URLOpener {
     /// `inApp` asks for a Safari view in the app instead of switching to
     /// Safari, where the platform has one.
     func open(_ url: URL, inApp: Bool)
+    /// Opens `url` with the system's handler and says whether it could:
+    /// false when no app takes the URL or the system refuses it.
+    func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void)
+}
+
+extension URLOpener {
+    /// For openers that can't tell: opens `url` and reports success.
+    public func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        open(url, inApp: false)
+        completion(true)
+    }
 }
 
 /// `NSWorkspace` on the Mac; on iOS, `SFSafariViewController` over the
@@ -950,6 +961,18 @@ public struct SystemURLOpener: URLOpener {
             top.present(SFSafariViewController(url: url), animated: true)
         } else {
             UIApplication.shared.open(url)
+        }
+        #endif
+    }
+
+    public func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            Task { @MainActor in completion(error == nil) }
+        }
+        #else
+        UIApplication.shared.open(url, options: [:]) { opened in
+            Task { @MainActor in completion(opened) }
         }
         #endif
     }

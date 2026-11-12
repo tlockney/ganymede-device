@@ -12,7 +12,7 @@ import Foundation
 @MainActor
 public final class ShortcutCalls {
     /// Where the Shortcuts app calls back, such as
-    /// `ganymede://device/shortcuts`: a URL whose scheme the app handles.
+    /// `ganymede://device-callback/shortcuts`: a URL whose scheme the app handles.
     public let callback: URL
     private var waiting: [String: MethodReply] = [:]
 
@@ -60,6 +60,7 @@ public final class ShortcutCalls {
         guard path.count == base.count + 2, Array(path.prefix(base.count)) == base else { return false }
         let token = path[base.count]
         let outcome = path[base.count + 1]
+        guard ["success", "error", "cancel"].contains(outcome) else { return true }
         guard let reply = waiting.removeValue(forKey: token) else { return true }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
@@ -68,11 +69,17 @@ public final class ShortcutCalls {
             reply(.success(value("result").map { $0 as Any } ?? NSNull()))
         case "cancel":
             reply(.failure(DeviceCallError("cancelled", "shortcuts.run: the Shortcut was cancelled")))
-        default:
+        default: // "error"
             let message = value("errorMessage").flatMap { $0.isEmpty ? nil : $0 } ?? "the Shortcut failed"
             reply(.failure(DeviceCallError("failed", "shortcuts.run: \(message)")))
         }
         return true
+    }
+
+    /// Rejects the call waiting on `token`, if it still is, when the
+    /// Shortcuts URL couldn't be opened.
+    func openFailed(_ token: String) {
+        waiting.removeValue(forKey: token)?(.failure(DeviceCallError("unavailable", "shortcuts.run: the Shortcuts app couldn't be opened")))
     }
 
     /// How many calls are waiting, for tests.
@@ -97,7 +104,11 @@ extension DeviceBridge {
                 let (name, input) = try Self.shortcutRequest(params)
                 let token = UUID().uuidString
                 let stop = calls.wait(token, reply: reply)
-                self?.urlOpener.open(calls.runURL(name: name, input: input, token: token), inApp: false)
+                // A Shortcuts app that's gone (iOS lets you delete it)
+                // never calls back: fail now rather than wait.
+                self?.urlOpener.open(calls.runURL(name: name, input: input, token: token)) { opened in
+                    if !opened { calls.openFailed(token) }
+                }
                 return stop
             } catch {
                 reply(.failure(error as? DeviceCallError ?? DeviceCallError("failed", "shortcuts.run: \(error)")))
