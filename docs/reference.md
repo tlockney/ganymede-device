@@ -121,6 +121,10 @@ such API.
 | [`device.folders.pick(options?)`](#device-folders-pick-options) | Shows the system folder picker and keeps what the person picks for this notebook. |
 | [`device.folders.list(options?)`](#device-folders-list-options) | The folders this notebook was given, in the order they were picked. |
 | [`device.widget.update(kind, content, options?)`](#device-widget-update-kind-content-options) | Publishes `content` for this notebook's widget `kind`, in place of what it showed, and asks the system to redraw it. |
+| [`device.shortcuts.authorizationStatus(options?)`](#device-shortcuts-authorizationstatus-options) | Reads the permission's status, without asking. |
+| [`device.shortcuts.isAuthorized(options?)`](#device-shortcuts-isauthorized-options) | Whether the permission is granted, without asking. |
+| [`device.shortcuts.requestAuthorization(options?)`](#device-shortcuts-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
+| [`device.shortcuts.run(name, options?)`](#device-shortcuts-run-name-options) | Runs a Shortcut by name and waits for it to finish. |
 | [`device.secrets.authorizationStatus(options?)`](#device-secrets-authorizationstatus-options) | Reads the permission's status, without asking. |
 | [`device.secrets.isAuthorized(options?)`](#device-secrets-isauthorized-options) | Whether the permission is granted, without asking. |
 | [`device.secrets.requestAuthorization(options?)`](#device-secrets-requestauthorization-options) | Asks the person when they haven't been asked (the app's prompt for this notebook, then the system's where there is one), and resolves with the status after it; otherwise resolves with the status as it is. |
@@ -379,6 +383,7 @@ if (page) await device.output({ text: `Summary of ${page}: ...` });
 | `widget` | `Widget` | Widgets that show what a run published: see `Widget`. |
 | `input` | `RunInput \| null` | What this run was given, when the share sheet, Shortcuts or a widget started it; `null` in a notebook. |
 | `secrets` | `Secrets` | Strings this notebook saved in the keychain: see `Secrets`. |
+| `shortcuts` | `Shortcuts` | The person's Shortcuts, on iPad, iPhone and Mac: see `Shortcuts`. |
 
 ## `device.clipboard`
 
@@ -2356,6 +2361,107 @@ await device.widget.update("weather", {
   tint: "blue",
   sparkline: [3, 4, 4, 5, 6, 5],
 });
+```
+
+## `device.shortcuts`
+
+The person's Shortcuts, run from a cell. The Shortcuts app comes
+forward while one runs, and Ganymede comes back when it is done. iPad
+and iPhone stop the app's kernel about 30 seconds after the app leaves
+the screen, so keep these Shortcuts short. Every call needs the
+shortcuts permission, which is the app's prompt alone: a Shortcut can do
+whatever the person set it up to.
+
+The person's Shortcuts, run from a cell through the Shortcuts app, which comes forward while one runs. Every call needs the shortcuts permission, the app's prompt alone. The permission methods work where `run` does.
+
+### `device.shortcuts.authorizationStatus(options?)`
+
+```ts
+authorizationStatus(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Reads the permission's status, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<AuthorizationStatus>`: `"notDetermined"` until the person is asked, then a grant (`"authorized"`, or a partial one) or `"denied"` or `"restricted"`.
+
+```ts
+console.log(await device.shortcuts.authorizationStatus());
+```
+
+### `device.shortcuts.isAuthorized(options?)`
+
+```ts
+isAuthorized(options?: CallOptions): Promise<boolean>;
+```
+
+Whether the permission is granted, without asking.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. Cancel rejects `cancelled`. |
+
+**Returns** `Promise<boolean>`: `true` when the status is a grant, partial ones included.
+
+```ts
+if (!(await device.shortcuts.isAuthorized())) console.log("not allowed yet");
+```
+
+### `device.shortcuts.requestAuthorization(options?)`
+
+```ts
+requestAuthorization(options?: CallOptions): Promise<AuthorizationStatus>;
+```
+
+Asks the person when they haven't been asked (the app's prompt for
+this notebook, then the system's where there is one), and
+resolves with the status after it; otherwise resolves with the status
+as it is. The namespace's methods ask on their own, so calling this
+first is optional. Cancel rejects `cancelled`; a system prompt already
+up stays, and its answer still counts for later calls.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `options` | `CallOptions` | no | The call's `signal`. |
+
+**Returns** `Promise<AuthorizationStatus>`: The status after the prompt, or as it was when the person had already been asked.
+
+```ts
+const status = await device.shortcuts.requestAuthorization();
+if (status === "denied") console.log("allow it in Settings to go on");
+```
+
+### `device.shortcuts.run(name, options?)`
+
+```ts
+run(name: string, options?: RunShortcutOptions): Promise<string | null>;
+```
+
+Runs a Shortcut by name and waits for it to finish.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | The Shortcut's name as the Shortcuts app shows it. |
+| `options` | `RunShortcutOptions` | no | `input`, text for the Shortcut, and the call's `signal`. Cancel (an interrupt) stops waiting and rejects `cancelled`; the Shortcut may still run to its end. |
+
+**Returns** `Promise<string | null>`: The Shortcut's output as text, or `null` when it gave none.
+
+**Throws** `DeviceError`: `cancelled` when the Shortcut was cancelled; `failed` with the Shortcuts app's message when it failed or there is no Shortcut by that name, or when `name` or `input` isn't valid; `denied` when the notebook may not run Shortcuts; `unavailable` in a headless run.
+
+**Availability**
+
+| In the app | Permission | Remote kernel | Browser |
+| --- | --- | --- | --- |
+| yes | shortcuts | no | no |
+
+Through the Shortcuts app, which comes forward while it runs. On iPad and iPhone the kernel stops about 30 seconds after the app leaves the screen, so keep the Shortcut short.
+
+```ts
+const reply = await device.shortcuts.run("Make Uppercase", { input: "hi" });
+console.log(reply); // "HI"
 ```
 
 ## `device.secrets`

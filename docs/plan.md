@@ -619,6 +619,11 @@ Done:
 21. **Phase 3's secrets** (#113): `device.secrets` get, set, delete and
    list, strings kept per notebook in the keychain on this device, with
    the ledger's prompt as the only consent (docs/protocol.md, "Secrets").
+22. **Shortcuts** (#40): `device.shortcuts.run(name, { input })`, an
+   x-callback round trip through the Shortcuts app, with the ledger's
+   prompt as the only consent; not in a headless run (docs/protocol.md,
+   "Shortcuts"). Open: whether a short Shortcut finishes before iOS
+   stops the backgrounded kernel, which needs a device run.
 
 Next:
 
@@ -626,5 +631,4 @@ Next:
    interrupt closes a dialog or picker (#21).
 2. Publish the TS package and tag the Swift package (#24).
 3. The `ui.*` dialogs in a browser (#26).
-4. `device.shortcuts.run` (#40), then Phase 2 (#57), Phase 3 (#68) and
-   Phase 4 (#69).
+4. Phase 2 (#57), Phase 3 (#68) and Phase 4 (#69).

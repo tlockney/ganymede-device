@@ -20,7 +20,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private let clipboard: Clipboard
     private let haptics: Haptics
-    private let urlOpener: URLOpener
+    let urlOpener: URLOpener
     let state: DeviceState
     let dialogs: DialogQueue
     /// Engine contexts' owners and call ids so far (`engineDevice()`).
@@ -44,6 +44,9 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// turns the person's answer into the reply.
     private var addedDialogs: [String: AddedDialog] = [:]
     private let pending = PendingCalls()
+    /// Methods that bring another app forward, such as `shortcuts.run`:
+    /// not in a headless run, as for dialogs.
+    var foregroundMethods: Set<String> = []
     /// The folders notebooks picked (`addFolders`), so a moved notebook
     /// keeps them.
     var folderGrants: FolderGrants?
@@ -428,7 +431,7 @@ public final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// Every method that shows something and waits for the person: the
     /// built-in dialogs and those a namespace added.
-    var personMethods: Set<String> { Self.dialogMethods.union(addedDialogs.keys) }
+    var personMethods: Set<String> { Self.dialogMethods.union(addedDialogs.keys).union(foregroundMethods) }
 
     /// The methods this bridge answers, as `hello` reports them.
     public var capabilities: [String] {
@@ -930,6 +933,17 @@ public protocol URLOpener {
     /// `inApp` asks for a Safari view in the app instead of switching to
     /// Safari, where the platform has one.
     func open(_ url: URL, inApp: Bool)
+    /// Opens `url` with the system's handler and says whether it could:
+    /// false when no app takes the URL or the system refuses it.
+    func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void)
+}
+
+extension URLOpener {
+    /// For openers that can't tell: opens `url` and reports success.
+    public func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        open(url, inApp: false)
+        completion(true)
+    }
 }
 
 /// `NSWorkspace` on the Mac; on iOS, `SFSafariViewController` over the
@@ -947,6 +961,18 @@ public struct SystemURLOpener: URLOpener {
             top.present(SFSafariViewController(url: url), animated: true)
         } else {
             UIApplication.shared.open(url)
+        }
+        #endif
+    }
+
+    public func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            Task { @MainActor in completion(error == nil) }
+        }
+        #else
+        UIApplication.shared.open(url, options: [:]) { opened in
+            Task { @MainActor in completion(opened) }
         }
         #endif
     }

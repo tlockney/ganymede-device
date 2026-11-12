@@ -457,6 +457,50 @@ Settings screen lists names (never values) and deletes them with its own
   the app hasn't settled.
 - On-device only: none of these is in the remote subset.
 
+## Shortcuts
+
+`device.shortcuts.run(name, { input })` runs one of the person's
+Shortcuts and answers with its output, through the Shortcuts app's
+x-callback URL. The app turns it on with
+`DeviceBridge.addShortcuts(ShortcutCalls(callback:))`, where `callback`
+is a URL in a scheme the app handles (Ganymede uses
+`ganymede://device-callback/shortcuts`), and passes every URL it is
+opened with to `ShortcutCalls.handle(_:)`, which answers the ones that
+are its own. Share one `ShortcutCalls` between the app's bridges.
+
+| Call | Params | Result |
+| --- | --- | --- |
+| `shortcuts.run` | `{ name, input? }` | the Shortcut's output as text, or `null` when it gave none |
+
+- The bridge opens
+  `shortcuts://x-callback-url/run-shortcut?name=…&input=text&text=…`
+  with `x-success`, `x-error` and `x-cancel` set to
+  `<callback>/<token>/success`, `/error` and `/cancel`. The token is a
+  random UUID per call, so another app can't answer a call it didn't
+  see. `success` resolves with its `result`; `cancel` rejects
+  `cancelled`; `error` rejects `failed` with the Shortcuts app's
+  `errorMessage`.
+- An interrupt rejects the call `cancelled` and stops waiting; the
+  Shortcut may still run, and its late callback is ignored. If the
+  Shortcuts URL can't be opened (the Shortcuts app was deleted, which
+  iOS allows), the call fails `unavailable` at once. A callback never
+  sent (the app was quit meanwhile) leaves the call waiting until an
+  interrupt. A callback with an outcome other than `success`, `error`
+  or `cancel` is ignored.
+- The output comes back in a URL on the app's own scheme. Another app
+  that claims the same scheme could be handed it instead: the token
+  stops it forging an answer, not reading the output. Don't send
+  secrets through a Shortcut's output.
+- The Shortcuts app comes forward while the Shortcut runs. On iPad and
+  iPhone the app's kernel stops about 30 seconds after Ganymede leaves
+  the screen, so a longer Shortcut's answer has no cell to reach.
+- Capability `shortcuts`, with no system permission: a Shortcut does
+  whatever the person set it up to, so the ledger's prompt is the
+  consent. Names are 1 to 256 bytes and input text up to 64 KiB as
+  UTF-8; anything else fails `failed` before the prompt.
+- Not in a headless run (it brings another app forward, as a dialog
+  would) and not over remote kernels.
+
 ## Permissions
 
 A namespace that needs a system (TCC) permission, such as `location`,

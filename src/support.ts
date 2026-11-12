@@ -488,6 +488,16 @@ export const SUPPORT = {
     browser: "no",
     note: "Stored in the app's App Group for its widgets; a widget can't run a script itself.",
   },
+  "shortcuts.run": {
+    call: "shortcuts.run(name, { input })",
+    returns: "the Shortcut's text output, or `null`",
+    onDevice: "yes",
+    remote: "no",
+    browser: "no",
+    headless: "no",
+    permission: "shortcuts",
+    note: "Through the Shortcuts app, which comes forward while it runs. On iPad and iPhone the kernel stops about 30 seconds after the app leaves the screen, so keep the Shortcut short.",
+  },
   "secrets.get": {
     call: "secrets.get(name)",
     returns: "the value, or `null`",

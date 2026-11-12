@@ -1536,6 +1536,37 @@ export interface Secrets extends Authorization {
   list(options?: CallOptions): Promise<string[]>;
 }
 
+/** Options for `device.shortcuts.run`. */
+export interface RunShortcutOptions extends CallOptions {
+  /** Text to give the Shortcut as its input, up to 64 KiB as UTF-8. */
+  input?: string;
+}
+
+/**
+ * The person's Shortcuts, run from a cell. The Shortcuts app comes
+ * forward while one runs, and Ganymede comes back when it is done. iPad
+ * and iPhone stop the app's kernel about 30 seconds after the app leaves
+ * the screen, so keep these Shortcuts short. Every call needs the
+ * shortcuts permission, which is the app's prompt alone: a Shortcut can do
+ * whatever the person set it up to.
+ */
+export interface Shortcuts extends Authorization {
+  /**
+   * Runs a Shortcut by name and waits for it to finish.
+   *
+   * @param name The Shortcut's name as the Shortcuts app shows it.
+   * @param options `input`, text for the Shortcut, and the call's `signal`. Cancel (an interrupt) stops waiting and rejects `cancelled`; the Shortcut may still run to its end.
+   * @returns The Shortcut's output as text, or `null` when it gave none.
+   * @throws {DeviceError} `cancelled` when the Shortcut was cancelled; `failed` with the Shortcuts app's message when it failed or there is no Shortcut by that name, or when `name` or `input` isn't valid; `denied` when the notebook may not run Shortcuts; `unavailable` in a headless run.
+   * @example
+   * ```ts
+   * const reply = await device.shortcuts.run("Make Uppercase", { input: "hi" });
+   * console.log(reply); // "HI"
+   * ```
+   */
+  run(name: string, options?: RunShortcutOptions): Promise<string | null>;
+}
+
 /** Options for `device.folders.pick`. */
 export interface PickFolderOptions extends CallOptions {
   /** Ask for writing too, not only reading. `false` by default. */
@@ -1844,6 +1875,8 @@ export interface Device {
   output(result: RunOutput, options?: CallOptions): Promise<void>;
   /** Strings this notebook saved in the keychain: see `Secrets`. */
   readonly secrets: Secrets;
+  /** The person's Shortcuts, on iPad, iPhone and Mac: see `Shortcuts`. */
+  readonly shortcuts: Shortcuts;
 }
 
 /** Asks the host who it is. Rejects when there is no host to ask. */
@@ -2529,6 +2562,21 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
         return found.map((item) => folder("folders.list", item));
       },
     },
+    shortcuts: {
+      ...permission("shortcuts"),
+      async run(name, options = {}) {
+        const { input, ...rest } = options;
+        if (typeof name !== "string" || name.length === 0 || new TextEncoder().encode(name).length > MAX_SHORTCUT_NAME_BYTES) {
+          throw new DeviceError("failed", `shortcuts.run: name must be a Shortcut's name, 1 to ${MAX_SHORTCUT_NAME_BYTES} bytes`);
+        }
+        if (input !== undefined && (typeof input !== "string" || new TextEncoder().encode(input).length > MAX_SHORTCUT_INPUT_BYTES)) {
+          throw new DeviceError("failed", `shortcuts.run: input must be text, up to ${MAX_SHORTCUT_INPUT_BYTES} bytes`);
+        }
+        const output = await call("shortcuts.run", defined({ name, input }), rest);
+        if (output !== null && typeof output !== "string") throw new DeviceError("failed", "the host's shortcuts.run reply is malformed");
+        return output;
+      },
+    },
     secrets: {
       ...permission("secrets"),
       async get(name, options) {
@@ -2555,6 +2603,10 @@ export function createDevice(transport: DeviceTransport, info: DeviceInfo, devic
     },
   };
 }
+
+/** The longest Shortcut name and input `shortcuts.run` sends, in UTF-8 bytes. */
+const MAX_SHORTCUT_NAME_BYTES = 256;
+const MAX_SHORTCUT_INPUT_BYTES = 64 * 1024;
 
 /** The longest secret value, in UTF-8 bytes. */
 const MAX_SECRET_BYTES = 64 * 1024;
