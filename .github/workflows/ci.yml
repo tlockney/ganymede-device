@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its older run, which would otherwise
+# hold a macOS runner the other Ganymede repos share; runs on main finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Which jobs a pull request needs (scripts/ci-changes.sh, #45): docs and
   # Markdown need none, Swift alone needs only swift, TypeScript alone
@@ -23,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # The merge commit and its first parent, the base.
           fetch-depth: 2
       - id: changes
@@ -38,9 +45,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          cache: npm
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -58,18 +68,31 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           repository: tlockney/cdp-kernel
           ref: v0.9.0
           path: cdp-kernel
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            cdp-kernel/package-lock.json
       - run: npm ci
       - run: npm ci
         working-directory: cdp-kernel
       - run: npm install --no-save --no-audit --no-fund playwright@1.64.1
+      # Chromium, by Playwright version; --with-deps still installs its
+      # system libraries, and skips the download the cache restored.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-1.64.1-chromium
       - run: npx playwright install --with-deps chromium
       - run: node --test test/browser.test.ts
         env:
@@ -83,6 +106,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: swift test
       # SwiftPM names the scheme after the package.
       - run: xcodebuild -list
