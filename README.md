@@ -1,5 +1,11 @@
 # ganymede-device
 
+> [!IMPORTANT]
+> **Moved.** This package now lives in
+> [tlockney/ganymede-ui, `packages/device`](https://github.com/tlockney/ganymede-ui/tree/main/packages/device),
+> with its history (tlockney/ganymede-ui#560). Open issues and pull
+> requests there. This repository is no longer updated.
+
 The `device` API: native features for TypeScript notebooks in the Ganymede
 Mac and iPad apps, in the spirit of [Juno's `juno`
 module](https://juno.sh/docs/python/juno/). A cell calls
